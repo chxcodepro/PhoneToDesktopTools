@@ -1,0 +1,23 @@
+# 本地工具链（Go 等），不入库
+.tools/
+
+# 构建产物
+dist/
+build/
+*.exe
+*.apk
+
+# Node / Expo
+node_modules/
+.expo/
+web-build/
+*.log
+
+# 原生工程（由 expo prebuild 生成）
+mobile/android/
+mobile/ios/
+
+# 编辑器
+.vscode/
+.idea/
+.DS_Store

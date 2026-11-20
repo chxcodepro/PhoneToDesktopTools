@@ -1,0 +1,9 @@
+module p2d/core
+
+go 1.20
+
+require (
+	github.com/gorilla/websocket v1.5.3
+	github.com/jezek/xgb v1.1.1
+	golang.org/x/text v0.14.0
+)
