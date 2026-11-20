@@ -1,0 +1,77 @@
+{
+  "name": "p2d-desktop",
+  "productName": "PhoneToDesktop",
+  "version": "0.1.0",
+  "description": "PhoneToDesktop 电脑端（被控端）",
+  "author": "PhoneToDesktop",
+  "private": true,
+  "main": "dist-electron/electron/main.js",
+  "scripts": {
+    "icons": "node scripts/gen-icons.mjs",
+    "build:renderer": "vite build",
+    "build:electron": "tsc -p tsconfig.electron.json",
+    "build": "npm run icons && npm run build:renderer && npm run build:electron",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.electron.json",
+    "dev": "npm run build && electron .",
+    "stage-core": "node scripts/stage-core.mjs",
+    "dist:win": "npm run build && npm run stage-core && electron-builder --win portable --x64 --ia32",
+    "dist:win64": "npm run build && npm run stage-core && electron-builder --win portable --x64",
+    "dist:linux": "npm run build && npm run stage-core && electron-builder --linux dir AppImage --x64 --arm64"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^18.19.130",
+    "@types/react": "^18.3.27",
+    "@types/react-dom": "^18.3.7",
+    "@vitejs/plugin-react": "4.7.0",
+    "autoprefixer": "^10.4.21",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "electron": "22.3.27",
+    "electron-builder": "26.18.0",
+    "lucide-react": "0.577.0",
+    "postcss": "^8.5.6",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "tailwind-merge": "^2.6.0",
+    "tailwindcss": "3.4.19",
+    "typescript": "5.9.3",
+    "vite": "5.4.21"
+  },
+  "build": {
+    "appId": "com.p2d.desktop",
+    "productName": "PhoneToDesktop",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "core-bin/${os}-${arch}",
+        "to": "core"
+      },
+      {
+        "from": "build/icons",
+        "to": "icons"
+      }
+    ],
+    "asar": true,
+    "win": {
+      "icon": "build/icon.png",
+      "artifactName": "PhoneToDesktop-${version}-win-${arch}-portable.${ext}"
+    },
+    "portable": {
+      "requestExecutionLevel": "user"
+    },
+    "linux": {
+      "icon": "build/icon.png",
+      "category": "Utility",
+      "artifactName": "PhoneToDesktop-${version}-linux-${arch}.${ext}"
+    }
+  }
+}

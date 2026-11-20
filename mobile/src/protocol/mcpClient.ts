@@ -81,6 +81,7 @@ export class McpClient {
   private nextId = 1;
   private pending = new Map<number, Pending>();
   private listeners = new Set<StatusListener>();
+  private notificationHandlers = new Map<string, Set<(params: unknown) => void>>();
   private pingTimer: ReturnType<typeof setInterval> | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private missedPings = 0;
@@ -126,6 +127,19 @@ export class McpClient {
 
   get instructions(): string | null {
     return this._instructions;
+  }
+
+  /** 订阅服务端通知（如 p2d/screen.frame），返回取消订阅函数 */
+  onNotification(method: string, handler: (params: unknown) => void): () => void {
+    let set = this.notificationHandlers.get(method);
+    if (!set) {
+      set = new Set();
+      this.notificationHandlers.set(method, set);
+    }
+    set.add(handler);
+    return () => {
+      set!.delete(handler);
+    };
   }
 
   /** 订阅状态变化，返回取消订阅函数 */
@@ -333,6 +347,10 @@ export class McpClient {
             error: { code: -32601, message: `手机端不支持方法：${msg.method}` },
           });
         }
+      } else {
+        // 服务端通知（如屏幕推流的画面帧）
+        const handlers = this.notificationHandlers.get(msg.method);
+        if (handlers) for (const h of handlers) h(msg.params);
       }
       return;
     }

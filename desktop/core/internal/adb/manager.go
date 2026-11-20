@@ -69,6 +69,32 @@ type Manager struct {
 
 	OnGone   func(serial string) // 设备拔出
 	OnChange func()
+
+	// 只在轮询协程中访问
+	failCount   int       // 连续获取设备列表失败的次数
+	lastRestart time.Time // 上次重启 adb 服务的时间
+}
+
+// restartServer 重启卡死的 adb 后台服务。kill-server 本身也可能无响应，此时直接结束 adb 进程。
+func (m *Manager) restartServer(ctx context.Context) {
+	m.lastRestart = time.Now()
+	log.Printf("adb 服务无响应，正在重启")
+	if _, err := m.run(ctx, 5*time.Second, "kill-server"); err != nil {
+		var kill *exec.Cmd
+		if runtime.GOOS == "windows" {
+			kill = exec.CommandContext(ctx, "taskkill", "/F", "/IM", "adb.exe")
+		} else {
+			kill = exec.CommandContext(ctx, "pkill", "-x", "adb")
+		}
+		procutil.Prepare(kill)
+		_ = kill.Run()
+	}
+	time.Sleep(time.Second)
+	if _, err := m.run(ctx, 15*time.Second, "start-server"); err != nil {
+		log.Printf("adb 重启失败：%v", err)
+		return
+	}
+	log.Printf("adb 服务已重启")
 }
 
 func New(cfg Config, tokens TokenIssuer) *Manager {
@@ -188,8 +214,14 @@ func (m *Manager) poll(ctx context.Context) {
 		if wasAvailable {
 			m.changed()
 		}
+		m.failCount++
+		// adb 后台服务偶尔会卡死（端口能连上但立即断开，或一直无响应），连续失败就重启它
+		if m.failCount >= 3 && time.Since(m.lastRestart) > 30*time.Second {
+			m.restartServer(ctx)
+		}
 		return
 	}
+	m.failCount = 0
 
 	seen := map[string]bool{}
 	changed := !wasAvailable

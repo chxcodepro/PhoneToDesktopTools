@@ -160,3 +160,52 @@ func TestHandshakeAndPermissions(t *testing.T) {
 	}
 	_ = os.Remove(file)
 }
+
+func TestScreenStream(t *testing.T) {
+	ts := newTestServer(t)
+	c, _, err := dial(t, ts, "devtok")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.conn.Close()
+
+	// 关闭屏幕权限时应拒绝
+	c.call("p2d/setPermissions", map[string]any{"level": "full", "shell": true, "fs": true, "screen": false, "input": true})
+	if r := c.call("p2d/screen.start", map[string]any{}); r["error"] == nil {
+		t.Fatal("关闭屏幕权限后应拒绝推流")
+	}
+
+	c.call("p2d/setPermissions", map[string]any{"level": "readonly", "shell": true, "fs": true, "screen": true, "input": true})
+	r := c.call("p2d/screen.start", map[string]any{"fps": 10, "maxWidth": 640})
+	if r["error"] != nil {
+		t.Skipf("当前环境无法截图：%v", r["error"])
+	}
+	frames, withData := 0, 0
+	deadline := time.Now().Add(5 * time.Second)
+	for frames < 3 && time.Now().Before(deadline) {
+		_ = c.conn.SetReadDeadline(deadline)
+		var m map[string]any
+		if err := c.conn.ReadJSON(&m); err != nil {
+			t.Fatal(err)
+		}
+		switch m["method"] {
+		case "p2d/screen.frame":
+			frames++
+			p := m["params"].(map[string]any)
+			if p["data"] != nil {
+				withData++
+			}
+			if w := p["width"].(float64); w > 640 {
+				t.Fatalf("宽度应不超过 640，实际 %v", w)
+			}
+		case "p2d/screen.error":
+			t.Skipf("当前环境无法截图：%v", m["params"])
+		}
+	}
+	if frames == 0 || withData == 0 {
+		t.Fatalf("没有收到画面：frames=%d withData=%d", frames, withData)
+	}
+	if r := c.call("p2d/screen.stop", nil); r["error"] != nil {
+		t.Fatalf("停止失败：%v", r)
+	}
+}

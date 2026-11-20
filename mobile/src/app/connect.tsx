@@ -1,7 +1,7 @@
 // 插线自动连接页。电脑端通过 adb 下发 p2d://connect?token=..&host=.. 时，
 // expo-router 会打开本页并带上参数；无需配对，拿到令牌后自动连接。
 
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams, useNavigation } from 'expo-router';
 import { Check, Monitor, Smartphone, X } from 'lucide-react-native';
 import { useEffect, useMemo } from 'react';
 import { ActivityIndicator, View } from 'react-native';
@@ -22,6 +22,9 @@ export default function ConnectScreen() {
   const query = useLocalSearchParams();
   const linkParams = useMemo(() => parseConnectQuery(query), [query]);
   const { status, detail, params, knownComputers } = useConnection();
+  // 渲染期间不能调用 router.canGoBack()（冷启动通过 Deep Link 直接打开本页时路由尚未就绪）
+  const navigation = useNavigation();
+  const canGoBack = navigation.canGoBack();
 
   // 带令牌打开本页时自动连接（与根布局里的链接处理是幂等的）
   useEffect(() => {
@@ -121,7 +124,7 @@ export default function ConnectScreen() {
           </View>
         ) : null}
 
-        {router.canGoBack() ? (
+        {canGoBack ? (
           <Button variant="ghost" className="mb-4" onPress={() => router.back()}>
             <Text>返回</Text>
           </Button>

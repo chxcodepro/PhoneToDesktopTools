@@ -56,6 +56,7 @@ func NewRegistry() *Registry {
 	registerSys(r)
 	registerShell(r)
 	registerFS(r)
+	registerDoc(r)
 	registerScreen(r)
 	registerInput(r)
 	return r

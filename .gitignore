@@ -21,3 +21,7 @@ mobile/ios/
 .vscode/
 .idea/
 .DS_Store
+
+# 预存的 adb、APK 等二进制（体积大、有第三方许可），只保留说明
+desktop/vendor/*
+!desktop/vendor/README.md

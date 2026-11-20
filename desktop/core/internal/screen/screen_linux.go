@@ -141,3 +141,17 @@ func copyPixels(img *image.RGBA, data []byte, setup *xproto.SetupInfo, depth byt
 	}
 	return nil
 }
+
+// CursorPos 鼠标在屏幕中的位置。
+func CursorPos() (x, y int, ok bool) {
+	c, err := X()
+	if err != nil {
+		return 0, 0, false
+	}
+	root := xproto.Setup(c).DefaultScreen(c).Root
+	reply, err := xproto.QueryPointer(c, root).Reply()
+	if err != nil {
+		return 0, 0, false
+	}
+	return int(reply.RootX), int(reply.RootY), true
+}

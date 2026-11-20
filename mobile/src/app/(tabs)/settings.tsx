@@ -3,19 +3,17 @@
 import { router } from 'expo-router';
 import type { LucideIcon } from 'lucide-react-native';
 import { FileText, Monitor, MousePointer2, ScanLine, Terminal } from 'lucide-react-native';
-import { useState, type ReactNode } from 'react';
 import { View } from 'react-native';
 
 import { STATUS_LABEL, StatusDot } from '@/components/connection-status';
+import { ModelSettings } from '@/components/model-settings';
 import { Screen } from '@/components/screen';
 import { Button } from '@/components/ui/button';
 import { Card, GroupTitle, Separator } from '@/components/ui/card';
 import { Icon } from '@/components/ui/icon';
-import { Input } from '@/components/ui/input';
 import { Segmented } from '@/components/ui/segmented';
 import { Switch } from '@/components/ui/switch';
 import { Text } from '@/components/ui/text';
-import { MODEL_PRESETS, type PresetId } from '@/agent/presets';
 import type { PermissionLevel, Permissions } from '@/protocol/types';
 import { disconnect, osLabel, updatePermissions, useConnection } from '@/state/connection';
 
@@ -32,16 +30,8 @@ const SWITCHES: { key: keyof Omit<Permissions, 'level'>; label: string; icon: Lu
   { key: 'input', label: '鼠标键盘', icon: MousePointer2 },
 ];
 
-const PRESET_OPTIONS = MODEL_PRESETS.map((p) => ({ value: p.id, label: p.label }));
-
 export default function SettingsScreen() {
   const { status, params, permissions } = useConnection();
-  // 模型设置：M1 只有界面，M3 接入 Agent 时再持久化（API Key 存安全存储）
-  const [preset, setPreset] = useState<PresetId>('openai');
-  const [apiKey, setApiKey] = useState('');
-  const [model, setModel] = useState('');
-  const [customUrl, setCustomUrl] = useState('');
-
   return (
     <Screen title="设置">
       {/* 已连接电脑 */}
@@ -92,50 +82,7 @@ export default function SettingsScreen() {
         ))}
       </Card>
 
-      {/* 模型 */}
-      <GroupTitle className="mt-2">模型</GroupTitle>
-      <Segmented value={preset} options={PRESET_OPTIONS} onChange={setPreset} />
-      <View className="gap-3">
-        {preset === 'custom' ? (
-          <Field label="接口地址">
-            <Input
-              value={customUrl}
-              onChangeText={setCustomUrl}
-              placeholder="<YOUR_LLM_BASE_URL>"
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-          </Field>
-        ) : null}
-        <Field label="API Key">
-          <Input
-            value={apiKey}
-            onChangeText={setApiKey}
-            placeholder="<YOUR_API_KEY>"
-            secureTextEntry
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
-        </Field>
-        <Field label="模型">
-          <Input
-            value={model}
-            onChangeText={setModel}
-            placeholder="<YOUR_MODEL_NAME>"
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
-        </Field>
-      </View>
+      <ModelSettings />
     </Screen>
-  );
-}
-
-function Field({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <View className="gap-1.5">
-      <Text className="text-xs font-medium">{label}</Text>
-      {children}
-    </View>
   );
 }

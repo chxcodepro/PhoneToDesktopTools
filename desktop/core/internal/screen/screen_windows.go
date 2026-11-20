@@ -158,3 +158,12 @@ func Capture(r image.Rectangle) (*image.RGBA, error) {
 	}
 	return img, nil
 }
+
+var procGetCursorPos = user32.NewProc("GetCursorPos")
+
+// CursorPos 鼠标在虚拟桌面中的位置。
+func CursorPos() (x, y int, ok bool) {
+	var pt struct{ X, Y int32 }
+	r, _, _ := procGetCursorPos.Call(uintptr(unsafe.Pointer(&pt)))
+	return int(pt.X), int(pt.Y), r != 0
+}

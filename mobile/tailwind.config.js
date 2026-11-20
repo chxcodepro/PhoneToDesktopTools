@@ -2,6 +2,7 @@
 // 与 preview/index.html 的 shadcn「Blue」主题保持一致。
 /** @type {import('tailwindcss').Config} */
 module.exports = {
+  darkMode: 'class',
   content: ['./src/**/*.{ts,tsx}'],
   presets: [require('nativewind/preset')],
   theme: {

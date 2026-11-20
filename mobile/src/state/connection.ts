@@ -1,5 +1,7 @@
 // 连接管理：收到 Deep Link 后自动连接电脑，维护连接状态、工具清单、权限和「连过的电脑」。
 
+import * as SecureStore from 'expo-secure-store';
+
 import { buildWsUrl, parseConnectUrl } from '@/protocol/deepLink';
 import { McpClient } from '@/protocol/mcpClient';
 import {
@@ -47,6 +49,32 @@ export const connectionStore = createStore<ConnectionState>({
 let client: McpClient | null = null;
 let initPromise: Promise<void> | null = null;
 
+// 最近一次的连接参数（含令牌）。App 被系统回收或更新后重新打开时，用它自动重连。
+// 令牌只在本次插线期间有效，拔线后电脑会拒绝（401），那时就清掉。
+const LAST_CONNECT_KEY = 'p2d.lastConnect';
+const LAST_CONNECT_MAX_AGE = 24 * 60 * 60 * 1000;
+
+async function saveLastConnect(params: ConnectParams | null): Promise<void> {
+  try {
+    if (params) await SecureStore.setItemAsync(LAST_CONNECT_KEY, JSON.stringify({ ...params, savedAt: Date.now() }));
+    else await SecureStore.deleteItemAsync(LAST_CONNECT_KEY);
+  } catch (e) {
+    if (__DEV__) console.warn('保存连接参数失败', e);
+  }
+}
+
+async function loadLastConnect(): Promise<ConnectParams | null> {
+  try {
+    const raw = await SecureStore.getItemAsync(LAST_CONNECT_KEY);
+    if (!raw) return null;
+    const v = JSON.parse(raw) as ConnectParams & { savedAt?: number };
+    if (!v.token || !v.savedAt || Date.now() - v.savedAt > LAST_CONNECT_MAX_AGE) return null;
+    return { token: v.token, host: v.host, os: v.os, port: v.port };
+  } catch {
+    return null;
+  }
+}
+
 /** 加载本地保存的权限和连过的电脑（只执行一次） */
 export function initConnection(): Promise<void> {
   if (!initPromise) {
@@ -56,6 +84,11 @@ export function initConnection(): Promise<void> {
         loadJson<KnownComputer[]>(StorageKeys.knownComputers, []),
       ]);
       connectionStore.set({ permissions: { ...DEFAULT_PERMISSIONS, ...permissions }, knownComputers, ready: true });
+      // 冷启动且没有收到新的 Deep Link：尝试用上次的令牌重连
+      if (!client) {
+        const last = await loadLastConnect();
+        if (last && !client) connectWith(last);
+      }
     })();
   }
   return initPromise;
@@ -91,6 +124,8 @@ export function connectWith(params: ConnectParams): void {
   c.onStatus((status, detail) => {
     if (client !== c) return;
     connectionStore.set({ status, detail });
+    if (status === 'connected') void saveLastConnect(params);
+    if (status === 'unauthorized') void saveLastConnect(null);
   });
   client = c;
   c.connect();
@@ -100,6 +135,7 @@ export function connectWith(params: ConnectParams): void {
 export function disconnect(): void {
   client?.close();
   client = null;
+  void saveLastConnect(null);
   connectionStore.set({ status: 'idle', detail: undefined, params: null, serverInfo: null, tools: [] });
 }
 

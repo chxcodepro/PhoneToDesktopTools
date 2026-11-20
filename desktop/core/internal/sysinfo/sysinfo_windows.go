@@ -19,12 +19,12 @@ var (
 )
 
 type osVersionInfo struct {
-	Size         uint32
-	Major        uint32
-	Minor        uint32
-	Build        uint32
-	PlatformID   uint32
-	CSDVersion   [128]uint16
+	Size       uint32
+	Major      uint32
+	Minor      uint32
+	Build      uint32
+	PlatformID uint32
+	CSDVersion [128]uint16
 }
 
 func regString(path, name string) string {

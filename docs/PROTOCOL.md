@@ -59,11 +59,11 @@ adb -s <序列号> shell am start -a android.intent.action.VIEW \
 
 | level | 允许的工具 |
 |---|---|
-| `readonly` | 只读类：`sys_info`、`fs_list`、`fs_read`、`fs_search`、`screen_capture` |
+| `readonly` | 只读类：`sys_info`、`fs_list`、`fs_read`、`fs_search`、`doc_read`、`screen_capture` |
 | `standard` | 只读类 + `fs_write`、`fs_edit`、`input_mouse`、`input_keyboard` |
 | `full` | 全部，包括 `shell_exec`、`fs_delete` |
 
-四个开关再按类别收紧：`shell` → `shell_exec`；`fs` → `fs_*`；`screen` → `screen_capture`；`input` → `input_*`。
+四个开关再按类别收紧：`shell` → `shell_exec`；`fs` → `fs_*` 和 `doc_read`；`screen` → `screen_capture`；`input` → `input_*`。
 
 连接建立后、收到 `p2d/setPermissions` 之前，默认 `readonly`。手机端应在 `initialize` 之后立即发送一次，用户修改设置时再次发送。
 
@@ -78,12 +78,27 @@ adb -s <序列号> shell am start -a android.intent.action.VIEW \
 | `fs_write` | `path`，`content`，`encoding?`（`utf-8` / `gbk`） | 自动创建上级目录 |
 | `fs_edit` | `path`，`old_string`，`new_string`，`replace_all?` | `old_string` 必须唯一匹配（除非 `replace_all`）；保留原文件的编码和换行符 |
 | `fs_search` | `path`，`name?`（通配符），`content?`（包含的文字），`max_results?`（默认 100） | 搜索文件名和文件内容 |
+| `doc_read` | `path`，`sheet?`，`max_rows?`（默认 200） | 读取 docx / xlsx / pptx 的文字；Excel 按工作表输出，制表符分隔 |
 | `fs_delete` | `path` | 移到回收站（Windows 回收站；Linux 放到 `~/.local/share/Trash`） |
 | `screen_capture` | `display?`（默认 0），`max_width?`（默认 1280），`quality?`（默认 70） | 返回 JPEG 图片，外加一段文字说明缩放比例：`屏幕坐标 = 截图坐标 ÷ scale + 显示器偏移` |
 | `input_mouse` | `action`：`move` / `click` / `double_click` / `right_click` / `middle_click` / `down` / `up` / `scroll` / `drag`；`x`、`y`；`to_x`、`to_y`（drag 用）；`dy`（scroll 用，正数向上） | 坐标为屏幕坐标（虚拟桌面像素） |
 | `input_keyboard` | `action`：`type`（输入 `text`，支持中文）或 `key`（按组合键 `keys`，如 `ctrl+c`、`alt+f4`、`enter`） | |
 
-## 5. 状态接口（供电脑端 GUI 使用）
+## 5. 远程桌面推流（自定义扩展）
+
+| 方向 | 方法 | 说明 |
+|---|---|---|
+| 手机 → 电脑 | `p2d/screen.start` | 参数 `{ display?, maxWidth?（默认 1280）, quality?（默认 60）, fps?（默认 10，最大 20） }`，返回 `{ displays }`。需要「查看屏幕」权限 |
+| 手机 → 电脑 | `p2d/screen.stop` | 停止推流 |
+| 电脑 → 手机 | `p2d/screen.frame`（通知） | `{ seq, data?, mimeType?, width, height, scale, x, y, cursorX?, cursorY?, display }` |
+| 电脑 → 手机 | `p2d/screen.error`（通知） | `{ message }`，如锁屏时无法截图 |
+| 电脑 → 手机 | `p2d/screen.stopped`（通知） | `{ reason }`，如权限被关闭 |
+
+- **省带宽**：画面没有变化时只推送鼠标位置，不带 `data`，手机端继续显示上一帧；每 2 秒至少带一次完整画面。
+- **坐标换算**：`屏幕坐标 = 图片坐标 ÷ scale + (x, y)`。
+- **点击、输入**：远程桌面的点击和输入直接调用 `input_mouse`、`input_keyboard` 工具，受同样的权限控制。
+
+## 6. 状态接口（供电脑端 GUI 使用）
 
 Core 在同一端口提供 HTTP 接口，只接受本机访问：
 

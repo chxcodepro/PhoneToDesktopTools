@@ -66,6 +66,7 @@ type Session struct {
 
 	ctx    context.Context
 	cancel context.CancelFunc
+	stream streamState
 }
 
 func newSession(id int64, serial string, conn *websocket.Conn, reg *tools.Registry) *Session {
@@ -249,6 +250,29 @@ func (s *Session) dispatch(m rpcMessage) {
 		s.mu.Unlock()
 		log.Printf("[会话 %d] 权限更新：%s（命令 %v，文件 %v，屏幕 %v，键鼠 %v）", s.id, p.Level, p.Shell, p.FS, p.Screen, p.Input)
 		s.reply(m.ID, map[string]any{"permissions": p})
+	case "p2d/screen.start":
+		var cfg streamConfig
+		if len(m.Params) > 0 {
+			if err := json.Unmarshal(m.Params, &cfg); err != nil {
+				s.fail(m.ID, errInvalidParams, "推流参数格式错误")
+				return
+			}
+		}
+		if ok, why := s.Info().Permissions.Allow(perm.CatScreen, perm.Read); !ok {
+			s.fail(m.ID, errInvalidRequest, why)
+			return
+		}
+		displays, err := s.startStream(cfg)
+		if err != nil {
+			s.fail(m.ID, errInternal, err.Error())
+			return
+		}
+		s.reply(m.ID, map[string]any{"displays": displays})
+	case "p2d/screen.stop":
+		s.stopStream()
+		if !notify {
+			s.reply(m.ID, nil)
+		}
 	default:
 		if !notify {
 			s.fail(m.ID, errMethodNotFound, "不支持的方法："+m.Method)
