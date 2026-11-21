@@ -4,6 +4,7 @@
 // - 拔掉数据线：自动切到 WiFi（这台电脑配对过时）；插回数据线：自动切回 USB（可在设置里关掉）。
 // - 维护连接状态、工具清单、权限，以及当前连的是哪台电脑（每台电脑各自的对话按它区分）。
 
+import * as Linking from 'expo-linking';
 import * as SecureStore from 'expo-secure-store';
 
 import { buildWsUrl, parseConnectUrl } from '@/protocol/deepLink';
@@ -71,6 +72,8 @@ let lastUsb: ConnectParams | null = null;
 /** 用户点了「断开」：不自动重连 / 切换 */
 let userStopped = false;
 let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
+/** 每次发起连接 / 断开加一：WiFi 连接要先探测地址（异步），等它回来时如果已有更新的操作就放弃，免得把新连接顶掉 */
+let connectSeq = 0;
 
 // 最近一次 USB 的连接参数（含令牌）。App 被系统回收或更新后重新打开时，用它自动重连。
 // 令牌只在本次插线期间有效，拔线后电脑会拒绝（401），那时就清掉。
@@ -110,6 +113,9 @@ export function initConnection(): Promise<void> {
       const [permissions] = await Promise.all([loadJson<Permissions>(StorageKeys.permissions, DEFAULT_PERMISSIONS), initDevices()]);
       connectionStore.set({ permissions: { ...DEFAULT_PERMISSIONS, ...permissions }, ready: true });
       if (client) return; // 已经收到新的 Deep Link
+      // 是电脑端插线拉起的（带新令牌）：交给 Deep Link 处理，不要先用旧令牌连
+      const initial = await Linking.getInitialURL().catch(() => null);
+      if (parseConnectUrl(initial)) return;
       // 冷启动：先试上次的 USB 令牌（失败会自动切 WiFi），没有就自动连上次用过的电脑
       const last = await loadLastConnect();
       if (client) return;
@@ -167,6 +173,7 @@ export function connectWith(params: ConnectParams): void {
   if (client && cur.route === 'wifi' && cur.status === 'connected' && cur.pcId && cur.pcId === params.pcId && !devicesStore.get().preferUsb)
     return;
   userStopped = false;
+  connectSeq++;
 
   connectionStore.set({
     params,
@@ -290,10 +297,12 @@ export async function connectLan(pcId: string, opts: { manual: boolean; addrs?: 
   if (opts.manual) userStopped = false;
   const cur = connectionStore.get();
   if (client && cur.route === 'wifi' && cur.pcId === pcId && cur.status === 'connected') return;
+  const seq = ++connectSeq;
   if (!client || cur.status !== 'connected') connectionStore.set({ pcId, status: 'connecting', detail: '正在通过 WiFi 连接…' });
 
   const addr = await findReachable([...(opts.addrs ?? []), dev.lastAddr ?? '', ...dev.addrs], dev.port, pcId);
-  if (userStopped && !opts.manual) return;
+  // 探测期间用户点了断开，或者插线 / 切换了别的连接：放弃这次
+  if (seq !== connectSeq || (userStopped && !opts.manual)) return;
   const host = addr.includes(':') ? `[${addr}]` : addr;
   const params: ConnectParams = { token: '', host: deviceLabel(dev), os: dev.os, port: dev.port, pcId };
   let manual = opts.manual;
@@ -374,6 +383,7 @@ export async function connectDevice(pcId: string): Promise<void> {
 /** 用户主动断开 */
 export function disconnect(): void {
   userStopped = true;
+  connectSeq++;
   replaceClient(null);
   void saveLastConnect(null);
   connectionStore.set({ status: 'idle', detail: undefined, params: null, route: null, addr: null, serverInfo: null, tools: [] });

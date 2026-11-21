@@ -65,6 +65,7 @@ type Config struct {
 type Manager struct {
 	cfg    Config
 	tokens TokenIssuer
+	apk    apkCache // 内置安装包的哈希（判断手机端是否需要更新）
 
 	mu        sync.Mutex
 	devices   map[string]*Device
@@ -368,9 +369,14 @@ func (m *Manager) setup(ctx context.Context, serial string) {
 		m.mu.Unlock()
 	}
 
-	// 1. 检查并安装手机端
+	// 1. 检查并安装手机端；已安装但和内置安装包不同时覆盖更新
+	reinstalled := false
 	out, err := m.run(ctx, 15*time.Second, "-s", serial, "shell", "pm", "path", m.cfg.Package)
-	if err != nil || !strings.Contains(out, "package:") {
+	if err == nil && strings.Contains(out, "package:") {
+		if m.needsUpdate(ctx, serial, out) {
+			reinstalled = m.updateApp(ctx, serial)
+		}
+	} else {
 		if m.cfg.APKPath == "" || !fileExists(m.cfg.APKPath) {
 			m.setStage(serial, StageError, "手机上没有安装 App，电脑端也没有找到内置安装包")
 			return
@@ -384,6 +390,7 @@ func (m *Manager) setup(ctx context.Context, serial string) {
 			fail("安装手机端失败，请在手机设置里打开「USB 安装」后重新插拔", err)
 			return
 		}
+		reinstalled = true
 	}
 	if m.suppressed(serial) {
 		return
@@ -417,7 +424,8 @@ func (m *Manager) setup(ctx context.Context, serial string) {
 		ph.lostAt = time.Time{}
 	}
 	m.mu.Unlock()
-	if hasToken {
+	// 刚装 / 更新过 App 时它已被系统结束，不能等它自动重连，要重新拉起
+	if hasToken && !reinstalled {
 		if other != nil && other.Transport == TransportWiFi {
 			// 数据线插回来了：USB 优先，断开 WiFi 通道，手机端会经 USB 重连
 			log.Printf("设备 %s：数据线已插回，切回 USB", id)

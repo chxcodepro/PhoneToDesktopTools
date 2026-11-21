@@ -172,7 +172,14 @@ export class SecureSocket implements WebSocketLike {
     const raw = opts.createRaw(opts.url);
     raw.binaryType = 'arraybuffer';
     this.raw = raw;
-    raw.onopen = () => raw.send(JSON.stringify({ type: 'hello', v: 1, phone: opts.phoneId, nc: toBase64(nc), manual: opts.manual }));
+    raw.onopen = () => {
+      // Android 上 WebSocket 在「连接中」调用 close() 不会取消连接，稍后仍会连上：已关闭就立即断开，不要握手
+      if (this.closed) {
+        raw.close(1000, 'closed');
+        return;
+      }
+      raw.send(JSON.stringify({ type: 'hello', v: 1, phone: opts.phoneId, nc: toBase64(nc), manual: opts.manual }));
+    };
     raw.onerror = (ev) => this.onerror?.(ev);
     raw.onclose = (ev) => this.finish(ev?.code ?? 1006, ev?.reason ?? '');
     raw.onmessage = (ev) => {

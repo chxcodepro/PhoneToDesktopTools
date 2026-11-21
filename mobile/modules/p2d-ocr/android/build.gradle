@@ -1,0 +1,24 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'com.p2d'
+version = '0.1.0'
+
+expoModule {
+  v2 true
+}
+
+android {
+  namespace "expo.modules.p2docr"
+  defaultConfig {
+    versionCode 1
+    versionName "0.1.0"
+  }
+}
+
+dependencies {
+  // 中文文字识别（同时识别英文），模型打包在 APK 里，不依赖 Google Play 服务，离线可用
+  implementation 'com.google.mlkit:text-recognition-chinese:16.0.1'
+}

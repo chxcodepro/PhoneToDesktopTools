@@ -38,7 +38,7 @@ async function startFakeLlm(script: Reply[] | ((body: any, n: number) => Reply))
     const body = JSON.parse(raw);
     requests.push(body);
     const n = requests.length - 1;
-    const reply = typeof script === 'function' ? script(body, n) : script[n] ?? { kind: 'text', text: '结束' };
+    const reply = typeof script === 'function' ? script(body, n) : (script[n] ?? { kind: 'text', text: '结束' });
 
     if (reply.kind === 'error') {
       res.writeHead(reply.status, { 'Content-Type': 'application/json' });
@@ -85,7 +85,11 @@ async function startFakeLlm(script: Reply[] | ((body: any, n: number) => Reply))
   return {
     baseUrl: `http://127.0.0.1:${port}/v1`,
     requests,
-    close: () => new Promise<void>((r) => { server.closeAllConnections(); server.close(() => r()); }),
+    close: () =>
+      new Promise<void>((r) => {
+        server.closeAllConnections();
+        server.close(() => r());
+      }),
   };
 }
 
@@ -98,7 +102,12 @@ function fakeTools(log: string[] = []): AgentTools {
     async call(name, args): Promise<ToolResult> {
       log.push(`${name} ${JSON.stringify(args)}`);
       if (name === 'screen_capture') {
-        return { content: [{ type: 'image', data: PNG, mimeType: 'image/jpeg' }, { type: 'text', text: '显示器 0：1920x1080' }] };
+        return {
+          content: [
+            { type: 'image', data: PNG, mimeType: 'image/jpeg' },
+            { type: 'text', text: '显示器 0：1920x1080' },
+          ],
+        };
       }
       return { content: [{ type: 'text', text: `退出码：0\nhello` }] };
     },
@@ -185,7 +194,9 @@ describe('llm', () => {
   });
 
   it('流式文字 + 被拆碎的工具调用参数能正确拼接', async () => {
-    const s = await startFakeLlm([{ kind: 'tool', text: '我先看看。', calls: [{ id: 'c1', name: 'shell_exec', args: { command: 'dir D:\\报表' } }] }]);
+    const s = await startFakeLlm([
+      { kind: 'tool', text: '我先看看。', calls: [{ id: 'c1', name: 'shell_exec', args: { command: 'dir D:\\报表' } }] },
+    ]);
     servers.push(s);
     let streamed = '';
     const r = await chat({ baseUrl: s.baseUrl, apiKey: 'sk-test', model: 'm' }, [{ role: 'user', content: 'hi' }], nodeFetch, {
@@ -213,7 +224,12 @@ describe('llm', () => {
     servers.push(s);
     const history: ChatMessage[] = [
       { role: 'user', content: 'hi' },
-      { role: 'assistant', content: null, reasoning_content: '想一想', tool_calls: [{ id: 'x', type: 'function', function: { name: 'a', arguments: '{}' } }] },
+      {
+        role: 'assistant',
+        content: null,
+        reasoning_content: '想一想',
+        tool_calls: [{ id: 'x', type: 'function', function: { name: 'a', arguments: '{}' } }],
+      },
       { role: 'tool', tool_call_id: 'x', content: 'done' },
     ];
     const r = await chat({ baseUrl: s.baseUrl, apiKey: 'sk-test', model: 'm' }, history, nodeFetch);
@@ -242,7 +258,10 @@ describe('agent', () => {
     });
     assert.equal(error, undefined);
     assert.deepEqual(log, ['screen_capture {}']);
-    assert.deepEqual(added.map((m) => m.role), ['assistant', 'tool', 'user', 'assistant']);
+    assert.deepEqual(
+      added.map((m) => m.role),
+      ['assistant', 'tool', 'user', 'assistant'],
+    );
     assert.equal(added[3].content, '屏幕上是桌面。');
 
     // 第二次请求：带了系统提示、工具定义、截图图片
@@ -263,22 +282,41 @@ describe('agent', () => {
       { kind: 'text', text: '好的' },
     ]);
     servers.push(s);
+    const log: string[] = [];
+    let context: string | undefined;
     const { added } = await runAgent([{ role: 'user', content: '看看屏幕' }], {
       llm: { baseUrl: s.baseUrl, apiKey: 'sk-test', model: 'm' },
       fetch: nodeFetch,
       supportsVision: false,
       supportsTools: true,
-      tools: fakeTools(),
-      describeImage: async () => '「确定」 (100, 200)',
+      tools: fakeTools(log),
+      describeImage: async (_d, _m, ctx) => {
+        context = ctx;
+        return '「确定」 (100, 200)';
+      },
     });
-    assert.deepEqual(added.map((m) => m.role), ['assistant', 'tool', 'assistant']);
+    assert.deepEqual(
+      added.map((m) => m.role),
+      ['assistant', 'tool', 'assistant'],
+    );
     assert.match(String(added[1].content), /确定/);
+    // 截图只给手机识别：用更高分辨率；识别时拿到工具的说明文字（含坐标换算公式）
+    assert.match(log[0], /"max_width":2560/);
+    assert.match(context ?? '', /1920x1080/);
     assert.ok(!JSON.stringify(s.requests[1]).includes('image_url'));
     assert.match(s.requests[0].messages[0].content, /看不到图片/);
   });
 
   it('中途停止：返回的历史仍然合法（每个工具调用都有结果）', async () => {
-    const s = await startFakeLlm([{ kind: 'tool', calls: [{ id: 'c1', name: 'shell_exec', args: { command: 'a' } }, { id: 'c2', name: 'shell_exec', args: { command: 'b' } }] }]);
+    const s = await startFakeLlm([
+      {
+        kind: 'tool',
+        calls: [
+          { id: 'c1', name: 'shell_exec', args: { command: 'a' } },
+          { id: 'c2', name: 'shell_exec', args: { command: 'b' } },
+        ],
+      },
+    ]);
     servers.push(s);
     const ctrl = new AbortController();
     const tools = fakeTools();
@@ -298,7 +336,10 @@ describe('agent', () => {
       signal: ctrl.signal,
     });
     assert.equal(error?.name, 'AbortError');
-    const ids = added.filter((m) => m.role === 'tool').map((m) => m.tool_call_id).sort();
+    const ids = added
+      .filter((m) => m.role === 'tool')
+      .map((m) => m.tool_call_id)
+      .sort();
     assert.deepEqual(ids, ['c1', 'c2']);
   });
 
@@ -343,7 +384,13 @@ describe('agent', () => {
     servers.push(s);
     const events: AgentEvent[] = [];
     const history: ChatMessage[] = [
-      { role: 'user', content: [{ type: 'text', text: '这是什么' }, { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${PNG}` } }] },
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: '这是什么' },
+          { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${PNG}` } },
+        ],
+      },
     ];
     const r = await runAgent(history, {
       llm: { baseUrl: s.baseUrl, apiKey: 'k', model: 'm' },
@@ -360,12 +407,48 @@ describe('agent', () => {
     assert.ok(events.some((e) => e.type === 'usage'));
   });
 
+  it('声称支持图片但接口拒收后：之后的截图改用文字识别', async () => {
+    let calls = 0;
+    const s = await startFakeLlm((body) => {
+      if (JSON.stringify(body.messages).includes('image_url'))
+        return { kind: 'error', status: 400, message: 'unknown variant `image_url`, expected `text`' };
+      calls++;
+      return calls <= 2 ? { kind: 'tool', calls: [{ id: `c${calls}`, name: 'screen_capture', args: {} }] } : { kind: 'text', text: '好' };
+    });
+    servers.push(s);
+    const log: string[] = [];
+    const r = await runAgent([{ role: 'user', content: '看屏幕' }], {
+      llm: { baseUrl: s.baseUrl, apiKey: 'k', model: 'm' },
+      fetch: nodeFetch,
+      supportsVision: true,
+      supportsTools: true,
+      tools: fakeTools(log),
+      describeImage: async () => '(10, 20) 开始',
+    });
+    assert.equal(r.error, undefined);
+    // 第一张截图被拒后，第二次截图用高分辨率并换成识别结果
+    assert.match(log[1], /"max_width":2560/);
+    const toolTexts = r.added.filter((m) => m.role === 'tool').map((m) => String(m.content));
+    assert.match(toolTexts[1], /开始/);
+    const last = s.requests[s.requests.length - 1];
+    assert.match(last.messages[0].content, /看不到图片/);
+  });
+
   it('用户上传的图片单独计数，不会被截图挤掉', () => {
     const shot = (n: number): ChatMessage => ({
       role: 'user',
-      content: [{ type: 'text', text: SCREENSHOT_MARKER }, { type: 'image_url', image_url: { url: `data:image/jpeg;base64,s${n}` } }],
+      content: [
+        { type: 'text', text: SCREENSHOT_MARKER },
+        { type: 'image_url', image_url: { url: `data:image/jpeg;base64,s${n}` } },
+      ],
     });
-    const upload: ChatMessage = { role: 'user', content: [{ type: 'text', text: '看看这张图' }, { type: 'image_url', image_url: { url: 'data:image/jpeg;base64,u1' } }] };
+    const upload: ChatMessage = {
+      role: 'user',
+      content: [
+        { type: 'text', text: '看看这张图' },
+        { type: 'image_url', image_url: { url: 'data:image/jpeg;base64,u1' } },
+      ],
+    };
     const out = JSON.stringify(pruneImages([upload, shot(1), shot(2)]));
     assert.ok(out.includes('base64,u1'));
     assert.ok(!out.includes('base64,s1'));
@@ -375,7 +458,10 @@ describe('agent', () => {
   it('只保留最近一张截图', () => {
     const img = (n: number): ChatMessage => ({
       role: 'user',
-      content: [{ type: 'text', text: SCREENSHOT_MARKER }, { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${n}` } }],
+      content: [
+        { type: 'text', text: SCREENSHOT_MARKER },
+        { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${n}` } },
+      ],
     });
     const out = pruneImages([img(1), { role: 'assistant', content: 'x' }, img(2)]);
     assert.ok(JSON.stringify(out[0]).includes('较早的截图已省略'));

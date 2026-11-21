@@ -2,6 +2,8 @@
 
 import { fetch as expoFetch } from 'expo/fetch';
 
+import { formatOcr } from '@/agent/ocr';
+import { describeScreenshot, ocrAvailable, recognizeText } from '@/native/ocr';
 import { connectionStore, getClient } from '@/state/connection';
 import { loadJson, saveJson } from '@/state/storage';
 import { createStore, useStore } from '@/state/store';
@@ -442,6 +444,17 @@ async function prepareAttachments(
       setAttachment(itemId, a.id, { status: 'sent' });
       continue;
     }
+    // 模型看不到图片：先在手机上识别图片里的文字交给模型（同时照常上传到电脑）
+    if (a.kind === 'image' && ocrAvailable) {
+      const r = await recognizeText(a.base64);
+      if (r?.lines.length) notes.push(`- ${a.name} 中的文字（手机端识别，坐标为图片像素）：\n${formatOcr(r, null)}`);
+      else if (r) notes.push(`- ${a.name}：图片中没有识别到文字`);
+      // 电脑没连接时不用上传，识别结果已经交给模型
+      if (r && !getClient()) {
+        setAttachment(itemId, a.id, { status: 'sent' });
+        continue;
+      }
+    }
     const client = getClient();
     if (client) {
       setAttachment(itemId, a.id, { status: 'uploading', progress: 0 });
@@ -626,7 +639,8 @@ export async function send(text: string, attachments: Attachment[] = [], opts: S
           applyEvent(e);
           if (e.type === 'tool_start') conversationStore.set({ live: toLive(e.name, e.summary, e.args) });
         },
-        // TODO(M8)：接入手机端 OCR（Android ML Kit / iOS Vision），供不支持图片的模型使用
+        // 模型看不到图片时，截图在手机上离线识别成文字和屏幕坐标
+        describeImage: ocrAvailable ? describeScreenshot : undefined,
       });
       conversationStore.set((st) => ({ history: [...st.history, ...r.added] }));
       if (r.error && attempt === 0 && isContextOverflow(r.error) && (await compressCurrent(model, signal, '上下文超出模型上限', 1))) {

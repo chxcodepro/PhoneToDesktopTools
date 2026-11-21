@@ -116,6 +116,32 @@ describe('SecureSocket', () => {
     assert.ok(!new TextDecoder().decode(new Uint8Array(sent[1] as ArrayBuffer)).includes('jsonrpc'));
   });
 
+  it('连接中就被关闭：底层连接之后才连上时立即断开，不发握手', () => {
+    const sent: unknown[] = [];
+    let rawClosed = 0;
+    const raw: RawSocket = {
+      readyState: 0,
+      send: (d) => sent.push(d),
+      close: () => rawClosed++,
+      onopen: null,
+      onclose: null,
+      onerror: null,
+      onmessage: null,
+    };
+    const s = new SecureSocket({
+      url: 'ws://x',
+      phoneId: 'ph',
+      key: fill(32, 1),
+      manual: false,
+      random: (len) => fill(len, 1),
+      createRaw: () => raw,
+    });
+    s.close();
+    raw.onopen?.({}); // Android 上 close() 没能取消连接，稍后仍然连上了
+    assert.equal(sent.length, 0);
+    assert.equal(rawClosed, 2);
+  });
+
   it('电脑端拒绝（未配对）时以 4401 关闭并带原因', async () => {
     const { raw } = fakeServer(fill(32, 1), { code: 'unpaired', message: '这台电脑没有和这部手机配对' });
     const s = new SecureSocket({

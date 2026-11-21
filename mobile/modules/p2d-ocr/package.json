@@ -1,0 +1,6 @@
+{
+  "name": "p2d-ocr",
+  "version": "0.1.0",
+  "private": true,
+  "description": "手机端文字识别（Android ML Kit 中文模型，离线）：模型看不到图片时把电脑截图转成文字和坐标"
+}

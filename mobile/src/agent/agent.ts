@@ -49,8 +49,11 @@ export interface AgentOptions {
   signal?: AbortSignal;
   /** 最多执行多少轮工具调用，默认 40 */
   maxSteps?: number;
-  /** 模型不支持图片时，把截图转成文字（如手机端 OCR）。返回 null 表示无法识别 */
-  describeImage?: (data: string, mimeType: string) => Promise<string | null>;
+  /**
+   * 模型不支持图片时，把截图转成文字（手机端 OCR）。返回 null 表示无法识别。
+   * context 是同一个工具返回的说明文字（screen_capture 的说明里有截图→屏幕坐标的换算公式）。
+   */
+  describeImage?: (data: string, mimeType: string, context?: string) => Promise<string | null>;
   onEvent?: (e: AgentEvent) => void;
 }
 
@@ -88,7 +91,9 @@ export function buildSystemPrompt(
         '- 操作界面：先 screen_capture 查看屏幕，按返回的 scale 和偏移把截图坐标换算成屏幕坐标，再用 input_mouse / input_keyboard 操作；操作后再截图确认结果。',
       );
     } else {
-      lines.push('- 当前模型看不到图片：优先用命令和文件工具完成任务。必须操作界面时，截图会以文字识别结果（文字及其坐标）提供给你。');
+      lines.push(
+        '- 当前模型看不到图片：优先用命令和文件工具完成任务。必须操作界面时，screen_capture 会返回截图的文字识别结果：每行「(x, y) 文字」，坐标已换算成屏幕坐标，可直接用 input_mouse 点击；图标、颜色等没有文字的内容识别不到。操作后再截图确认结果。',
+      );
     }
     lines.push(...repairGuide(opts.computer?.os));
     lines.push(
@@ -326,7 +331,9 @@ export async function runAgent(history: ChatMessage[], opts: AgentOptions): Prom
       }
       // 每一步重新取工具和系统提示词：本次运行中刚安装的 MCP / Skill 下一步就能用
       const tools = useTools ? toToolSpecs(opts.tools!.list()) : undefined;
-      const system: ChatMessage = { role: 'system', content: buildSystemPrompt(opts) };
+      // 模型实际不接受图片时，提示词和截图处理都按「看不到图片」来（改用文字识别）
+      const canSee = opts.supportsVision && visionOk;
+      const system: ChatMessage = { role: 'system', content: buildSystemPrompt({ ...opts, supportsVision: canSee }) };
       const pruned = pruneImages([...history, ...added]);
       const callModel = (msgs: ChatMessage[]) =>
         chat(
@@ -384,9 +391,14 @@ export async function runAgent(history: ChatMessage[], opts: AgentOptions): Prom
           continue;
         }
 
+        // 看不到图片的模型靠文字识别：截图只传到手机、不发给模型，用更高的分辨率和画质识别更准
+        const callArgs =
+          name === 'screen_capture' && !(opts.supportsVision && visionOk) && opts.describeImage
+            ? { ...args, max_width: Math.max(Number(args.max_width) || 0, 2560), quality: Math.max(Number(args.quality) || 0, 85) }
+            : args;
         let result: ToolResult;
         try {
-          result = await opts.tools.call(name, args, opts.signal);
+          result = await opts.tools.call(name, callArgs, opts.signal);
         } catch (e) {
           result = { content: [{ type: 'text', text: `调用失败：${(e as Error).message}` }], isError: true };
         }
@@ -395,18 +407,19 @@ export async function runAgent(history: ChatMessage[], opts: AgentOptions): Prom
         let text = texts.join('\n');
 
         for (const img of imgs) {
-          if (opts.supportsVision) {
+          // 本步刚发现模型不接受图片时，这一步的截图也改用文字识别
+          if (opts.supportsVision && visionOk) {
             images.push({ data: img.data, mimeType: img.mimeType, tool: name });
             text += '\n（截图见下一条消息）';
           } else {
             let described: string | null = null;
             try {
-              described = opts.describeImage ? await opts.describeImage(img.data, img.mimeType) : null;
+              described = opts.describeImage ? await opts.describeImage(img.data, img.mimeType, texts.join('\n')) : null;
             } catch {
               described = null;
             }
             text += described
-              ? `\n截图的文字识别结果（坐标为截图像素）：\n${described}`
+              ? `\n截图的文字识别结果：\n${described}`
               : '\n（当前模型看不到图片，且未能识别截图文字。请改用命令、文件等文字类工具获取信息。）';
           }
         }

@@ -414,11 +414,21 @@ export class McpClient {
     const ws = this.ws;
     this.ws = null;
     if (ws) {
-      ws.onopen = null;
+      const connecting = ws.readyState === 0;
+      // Android 上「连接中」调用 close() 不会取消连接，稍后仍会连上：连上时再关一次，免得留下没人管的连接
+      ws.onopen = connecting
+        ? () => {
+            try {
+              ws.close(1000, reason);
+            } catch {
+              // 忽略
+            }
+          }
+        : null;
       ws.onmessage = null;
       ws.onerror = null;
       ws.onclose = null;
-      if (ws.readyState === WS_OPEN || ws.readyState === 0) {
+      if (ws.readyState === WS_OPEN || connecting) {
         try {
           ws.close(1000, reason);
         } catch {

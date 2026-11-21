@@ -54,11 +54,20 @@ P2D_PROXY=127.0.0.1:1159 bash scripts/build-apk.sh arm64-v8a   # 不需要代理
 ## 已知待办
 
 - **adb 版本与 Win7**：本机 platform-tools 为 37.x，较新的 adb 可能已不支持 Win7，打包前需要选定能在 Win7 运行的 adb 版本并实测；arm64 / loong64 版 adb 需要自行编译（见 PLAN.md 5.1）。
-- **真机验证**：已在小米 9（Android 15）+ Windows 10 上跑通自动安装、自动连接、App 被关闭后自动重连、远程桌面。Agent 工具调用还没有用真实大模型在真机上测过。
-- **App 升级**：电脑端只在手机上没装 App 时安装，内置 APK 版本更新后不会自动覆盖安装（需要比较 versionCode）。
-- **OCR**：模型不支持图片（如 DeepSeek）时，截图应先在手机上做文字识别再交给模型，目前还没接入（`src/agent/conversations.ts` 中的 TODO）。
-- **真实大模型**：Agent 只用假模型测试过，还没用真实的 OpenAI / DeepSeek 接口跑过。
+- **真机验证**：已在小米 9（Android 15）、一加 PJZ110（Android 17）+ Windows 10 上跑通自动安装、自动连接、自动重连、远程桌面、WiFi 直连，以及用 DeepSeek 驱动 Agent 操作电脑。
+- **OCR（iOS）**：Android 已用 ML Kit 中文模型离线识别（`modules/p2d-ocr`）；iOS 还没实现（可用 Vision 的 `VNRecognizeTextRequest`），目前 iPhone 上看不到图片的模型拿不到截图文字。
 - **Linux**：麒麟上的截图（X11）和键鼠（XTest）只完成了交叉编译，还没在实机上测试。
+
+## 手机端自动更新
+
+电脑端每次通过数据线连上手机时，比较内置安装包（`-apk`）和手机上已装 App 的 SHA-256（手机上用 `sha256sum` 计算 `pm path` 得到的 base.apk），不同就 `adb install -r` 覆盖安装，装完重新拉起 App。不需要手动改版本号；手机上的版本更新（降级被拒）或签名不同（如装过开发版）时跳过更新，继续使用手机上的版本，日志里会说明原因。
+
+## 文字识别（OCR）
+
+模型不支持图片时（「设置 → 模型」里关掉了「支持图片」，或接口在运行中拒收图片后自动降级），截图在手机上离线识别成文字。新版 DeepSeek（如 deepseek-flash）实测能看图，默认直接发图片。`modules/p2d-ocr` 是项目内的 Expo 本地模块（Android ML Kit `text-recognition-chinese`，模型打包在 APK 里，不依赖 Google Play 服务）。识别结果在 `src/agent/ocr.ts` 里按阅读顺序排好，并用 `screen_capture` 返回的换算公式直接给出屏幕坐标，模型可以拿来点击。此时截图会用更高分辨率（宽 2560、画质 85）获取，只传到手机，不发给模型。用户发的图片附件也会先识别文字再交给模型。
+
+ML Kit 的依赖在 dl.google.com，下载超时时可手动下载，放进本机 Maven 仓库（`scripts/gradle-local-repo.gradle` 让构建优先从 `~/.m2/repository` 查找），例如：
+`https://dl.google.com/dl/android/maven2/com/google/mlkit/text-recognition-bundled-common/17.0.0/text-recognition-bundled-common-17.0.0.aar` → `~/.m2/repository/com/google/mlkit/text-recognition-bundled-common/17.0.0/`（同目录要有对应的 .pom）。
 
 ## 电脑端界面（desktop/app）
 
