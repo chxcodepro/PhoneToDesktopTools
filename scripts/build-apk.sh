@@ -5,7 +5,8 @@
 # 所以先把 mobile/ 同步到一个短路径（默认 D:\p2dm）再构建。
 #
 # 用法：scripts/build-apk.sh [架构，默认 arm64-v8a,armeabi-v7a]
-# 可选环境变量：P2D_BUILD_DIR（短路径目录）、P2D_PROXY（如 127.0.0.1:1159，Gradle 下载依赖时使用）
+# 可选环境变量：P2D_BUILD_DIR（短路径目录）、P2D_PROXY（如 127.0.0.1:1159，Gradle 下载依赖时使用）、
+#               P2D_OFFLINE=1（离线构建，列出缺失的依赖）
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -43,8 +44,13 @@ if [ -n "${P2D_PROXY:-}" ]; then
   export JAVA_TOOL_OPTIONS="-Dhttps.proxyHost=$host -Dhttps.proxyPort=$port -Dhttp.proxyHost=$host -Dhttp.proxyPort=$port -Dhttp.nonProxyHosts=localhost|127.0.0.1"
 fi
 
+# 下载不了的依赖可以手动放到 ~/.m2/repository（见 scripts/gradle-local-repo.gradle）
+GRADLE_ARGS=(--init-script "$(cygpath -m "$ROOT/scripts/gradle-local-repo.gradle")" --console=plain)
+# P2D_OFFLINE=1：不联网，只用缓存和本机仓库（加 --continue 可一次列出所有缺失的依赖）
+[ -n "${P2D_OFFLINE:-}" ] && GRADLE_ARGS+=(--offline --continue)
+
 cd "$BUILD/android"
-./gradlew assembleRelease -PreactNativeArchitectures="$ARCHS" --console=plain
+./gradlew assembleRelease -PreactNativeArchitectures="$ARCHS" "${GRADLE_ARGS[@]}"
 
 APK="$BUILD/android/app/build/outputs/apk/release/app-release.apk"
 mkdir -p "$ROOT/dist/app" "$ROOT/desktop/vendor/app"

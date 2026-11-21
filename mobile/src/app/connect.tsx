@@ -89,7 +89,7 @@ export default function ConnectScreen() {
         ) : null}
         {!hasLink ? (
           <Text className="text-center text-sm text-muted-foreground">
-            用数据线连接电脑，并在手机上允许 USB 调试
+            用数据线连接电脑，并在手机上允许 USB 调试。连上一次后，同一 WiFi 下拔掉数据线也能继续用
           </Text>
         ) : null}
 

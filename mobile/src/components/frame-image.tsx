@@ -8,7 +8,7 @@ interface Slots {
 }
 
 /**
- * 远程桌面画面（双缓冲）。
+ * 虚拟桌面画面（双缓冲）。
  *
  * 画面变化频繁时每帧都是新图片，直接替换 Image 的 uri 会让上一张还没解码完就被取消，结果一张都显示不出来。
  * 这里用两个 Image 轮流：新帧在后面的槽位解码，完成后才切到前面；解码期间到达的帧只保留最新一张。
@@ -28,7 +28,8 @@ export function FrameImage({ uri }: { uri: string }) {
   const onBackLoaded = () => setS((p) => ({ ...p, front: p.front === 0 ? 1 : 0, busy: false }));
 
   return (
-    <View style={StyleSheet.absoluteFill}>
+    // collapsable={false}：防止这一层被视图扁平化合并掉，否则里面带 zIndex 的图片会盖住鼠标等叠加层
+    <View style={StyleSheet.absoluteFill} collapsable={false}>
       {([0, 1] as const).map((i) =>
         s.uris[i] ? (
           <Image

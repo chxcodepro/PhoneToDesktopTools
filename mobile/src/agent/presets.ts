@@ -1,10 +1,10 @@
 // 大模型预设（docs/PLAN.md 第 4.5 节）。
 // 统一走 OpenAI 协议；模型列表运行时从 GET {baseURL}/models 拉取，这里不写死模型名。
 
-/** OpenAI 预设接口地址（请填写） */
-export const OPENAI_BASE_URL = '<OPENAI_BASE_URL>';
-/** DeepSeek 预设接口地址（请填写） */
-export const DEEPSEEK_BASE_URL = '<DEEPSEEK_BASE_URL>';
+/** OpenAI 官方接口地址 */
+export const OPENAI_BASE_URL = 'https://api.openai.com/v1';
+/** DeepSeek 官方接口地址（兼容 OpenAI 协议） */
+export const DEEPSEEK_BASE_URL = 'https://api.deepseek.com';
 
 export type PresetId = 'openai' | 'deepseek' | 'custom';
 
@@ -21,7 +21,8 @@ export interface ModelPreset {
 
 export const MODEL_PRESETS: readonly ModelPreset[] = [
   { id: 'openai', label: 'OpenAI', baseUrl: OPENAI_BASE_URL, supportsVision: true, supportsTools: true },
-  { id: 'deepseek', label: 'DeepSeek', baseUrl: DEEPSEEK_BASE_URL, supportsVision: false, supportsTools: true },
+  // 新版 DeepSeek 模型支持图片；旧模型不支持时会自动改为不带图片重试（见 agent.ts）
+  { id: 'deepseek', label: 'DeepSeek', baseUrl: DEEPSEEK_BASE_URL, supportsVision: true, supportsTools: true },
   { id: 'custom', label: '自定义', baseUrl: '', supportsVision: false, supportsTools: true },
 ];
 

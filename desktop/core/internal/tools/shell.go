@@ -15,6 +15,7 @@ import (
 
 	"p2d/core/internal/perm"
 	"p2d/core/internal/procutil"
+	"p2d/core/internal/sysinfo"
 	"p2d/core/internal/textenc"
 )
 
@@ -28,11 +29,14 @@ func registerShell(r *Registry) {
 	r.Add(&Tool{
 		Name: "shell_exec",
 		Description: "在电脑上执行命令并返回退出码和输出（当前系统使用 " + shellName + "）。" +
-			"适合查询信息、运行脚本、启动程序。不要执行需要交互输入的命令；启动 GUI 程序时，Windows 用 `start \"\" 程序`，Linux 在命令末尾加 `&`。",
+			"适合查询信息、运行脚本、启动程序。不要执行需要交互输入的命令；启动 GUI 程序时，Windows 用 `start \"\" 程序`，Linux 在命令末尾加 `&`。" +
+			"需要管理员 / root 权限的命令（启停系统服务、安装驱动、写系统目录、重置网络等）设置 admin 为 true：" +
+			"电脑上会弹出系统授权框（Windows UAC，Linux 为 pkexec 密码框），需要用户在电脑上确认。",
 		InputSchema: object(map[string]prop{
 			"command":     str("要执行的命令"),
 			"cwd":         str("工作目录，默认为用户主目录"),
 			"timeout_sec": intg("超时秒数，默认 60，最大 600"),
+			"admin":       boolean("以管理员 / root 身份执行（会请求用户在电脑上授权）"),
 		}, "command"),
 		Category: perm.CatShell,
 		Kind:     perm.Dangerous,
@@ -102,6 +106,7 @@ func shellExec(ctx context.Context, raw json.RawMessage) (*Result, error) {
 		Command    string `json:"command"`
 		Cwd        string `json:"cwd"`
 		TimeoutSec int    `json:"timeout_sec"`
+		Admin      bool   `json:"admin"`
 	}
 	if err := decode(raw, &a); err != nil {
 		return nil, err
@@ -123,7 +128,14 @@ func shellExec(ctx context.Context, raw json.RawMessage) (*Result, error) {
 		cwd = resolvePath(cwd)
 	}
 
-	cmd := shellCommand(a.Command)
+	if a.Admin && !sysinfo.IsAdmin() {
+		return shellExecAdmin(ctx, a.Command, cwd, timeout)
+	}
+	return runCommand(ctx, shellCommand(a.Command), cwd, timeout, ""), nil
+}
+
+// runCommand 执行命令并把退出码、标准输出、错误输出整理成结果。note 显示在结果开头。
+func runCommand(ctx context.Context, cmd *exec.Cmd, cwd string, timeout time.Duration, note string) *Result {
 	cmd.Dir = cwd
 	stdout := &limitedBuffer{limit: shellMaxOutput}
 	stderr := &limitedBuffer{limit: shellMaxOutput / 2}
@@ -135,7 +147,9 @@ func shellExec(ctx context.Context, raw json.RawMessage) (*Result, error) {
 
 	start := time.Now()
 	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("无法启动命令：%v", err)
+		res := TextResult(note + fmt.Sprintf("无法启动命令：%v", err))
+		res.IsError = true
+		return res
 	}
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
@@ -159,6 +173,7 @@ func shellExec(ctx context.Context, raw json.RawMessage) (*Result, error) {
 		exitCode = cmd.ProcessState.ExitCode()
 	}
 	var sb strings.Builder
+	sb.WriteString(note)
 	switch {
 	case timedOut:
 		fmt.Fprintf(&sb, "超时（%v）已结束进程\n", timeout)
@@ -180,5 +195,12 @@ func shellExec(ctx context.Context, raw json.RawMessage) (*Result, error) {
 	}
 	res := TextResult(sb.String())
 	res.IsError = timedOut || canceled
-	return res, nil
+	return res
+}
+
+func firstText(r *Result) string {
+	if r == nil || len(r.Content) == 0 {
+		return ""
+	}
+	return r.Content[0].Text
 }

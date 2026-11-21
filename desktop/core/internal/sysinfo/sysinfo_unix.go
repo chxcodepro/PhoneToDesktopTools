@@ -61,3 +61,6 @@ func DesktopDir() string {
 	}
 	return filepath.Join(home, "Desktop")
 }
+
+// IsAdmin 当前进程是否以 root 身份运行。
+func IsAdmin() bool { return os.Geteuid() == 0 }

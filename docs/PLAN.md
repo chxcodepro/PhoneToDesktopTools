@@ -214,8 +214,8 @@ excel-report/
 
 | 预设 | 接口地址 | 需要用户填写 | 说明 |
 |---|---|---|---|
-| **OpenAI** | `<OPENAI_BASE_URL>`（预置，界面不显示） | API Key、选择模型 | OpenAI 协议，支持工具调用和图片输入 |
-| **DeepSeek** | `<DEEPSEEK_BASE_URL>`（预置，界面不显示） | API Key、选择模型 | 兼容 OpenAI 协议，支持工具调用。**不支持图片输入**，看屏幕时自动改用「文字识别 + 控件树」（见下文） |
+| **OpenAI** | `https://api.openai.com/v1`（官方地址，预置，界面不显示） | API Key、选择模型 | OpenAI 协议，支持工具调用和图片输入 |
+| **DeepSeek** | `https://api.deepseek.com`（官方地址，预置，界面不显示） | API Key、选择模型 | 兼容 OpenAI 协议，支持工具调用。**不支持图片输入**，看屏幕时自动改用「文字识别 + 控件树」（见下文） |
 | **自定义** | 用户填写 | 名称、接口地址、API Key、模型、能力开关 | 任意兼容 OpenAI 协议的服务，如通义千问、Kimi、智谱、公司自建的 vLLM / Ollama。可以保存多个 |
 
 **实现要点**：
@@ -400,8 +400,6 @@ PhoneToDesktopTools/
 
 | 位置 | 占位符 | 说明 |
 |---|---|---|
-| `mobile/src/agent/presets.ts`（计划） | `<OPENAI_BASE_URL>` | OpenAI 预设的接口地址 |
-| `mobile/src/agent/presets.ts`（计划） | `<DEEPSEEK_BASE_URL>` | DeepSeek 预设的接口地址 |
 | 手机「设置 → 模型」 | `<YOUR_API_KEY>` | 所选预设的 API Key（运行时在 App 里填写，不写进代码） |
 | 手机「设置 → 模型 → 自定义」 | `<YOUR_LLM_BASE_URL>` / `<YOUR_MODEL_NAME>` | 自定义服务的接口地址和模型名（按需） |
 | 手机「扩展 → MCP → 添加」 | `<YOUR_MCP_URL>` / `<YOUR_MCP_TOKEN>` | 需要使用的远程 MCP 服务地址和令牌（按需） |

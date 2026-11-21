@@ -64,8 +64,8 @@ func (s *Session) startStream(cfg streamConfig) ([]screen.Display, error) {
 	if cfg.FPS <= 0 {
 		cfg.FPS = 10
 	}
-	if cfg.FPS > 20 {
-		cfg.FPS = 20
+	if cfg.FPS > 30 {
+		cfg.FPS = 30
 	}
 	displays, err := screen.Displays()
 	if err != nil {
@@ -124,7 +124,12 @@ func (s *Session) runStream(ctx context.Context, cfg streamConfig) {
 			var img, capErr = screen.Capture(d.Bounds)
 			err = capErr
 			if err == nil {
-				frame, err = screen.Encode(img, cfg.MaxWidth, cfg.Quality)
+				// 画面没变且不需要补发完整画面时，跳过 JPEG 编码
+				skip := lastHash
+				if time.Since(lastSent) > 2*time.Second {
+					skip = 0
+				}
+				frame, err = screen.EncodeIfChanged(img, cfg.MaxWidth, cfg.Quality, skip)
 			}
 		}
 		if err != nil {
@@ -144,7 +149,7 @@ func (s *Session) runStream(ctx context.Context, cfg streamConfig) {
 			seq++
 			p := frameParams{Seq: seq, Width: frame.Width, Height: frame.Height, Scale: frame.Scale,
 				X: d.X, Y: d.Y, Display: d.Index}
-			if changed || time.Since(lastSent) > 2*time.Second {
+			if frame.JPEG != nil && (changed || time.Since(lastSent) > 2*time.Second) {
 				p.Data = base64.StdEncoding.EncodeToString(frame.JPEG)
 				p.MimeType = "image/jpeg"
 				lastHash = frame.Hash

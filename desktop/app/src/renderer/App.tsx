@@ -1,9 +1,9 @@
 // 电脑端主窗口：等待连接 → 正在连接 → 已连接
-import { AlertTriangle, CheckCircle2, Circle, Minus, Monitor, OctagonX, Plug, Smartphone, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Circle, Minus, Monitor, OctagonX, Plug, Smartphone, Wifi, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Badge, Button, Card, Kbd, Spinner } from '@/components/ui';
 import { cn, formatDuration, platformLabel } from '@/lib/utils';
-import { deviceNameFor, type AppStatus, type CoreDevice } from '../shared/types';
+import { deviceFor, deviceNameFor, type AppStatus, type CoreDevice } from '../shared/types';
 
 function useAppStatus(): AppStatus {
   const [s, setS] = useState<AppStatus>({ coreOnline: false });
@@ -32,7 +32,15 @@ export function App() {
   const connecting = st?.devices?.find((d) => CONNECTING_STAGES.includes(d.stage));
 
   let body: JSX.Element;
-  if (session) body = <Connected name={deviceNameFor(st, session.serial)} since={session.connectedAt} hotkey={s.hotkey} />;
+  if (session)
+    body = (
+      <Connected
+        name={deviceNameFor(st, session.serial)}
+        wifi={deviceFor(st, session.serial)?.transport === 'wifi'}
+        since={session.connectedAt}
+        hotkey={s.hotkey}
+      />
+    );
   else if (connecting) body = <Connecting device={connecting} />;
   else body = <Waiting s={s} />;
 
@@ -165,7 +173,7 @@ function Connecting({ device }: { device: CoreDevice }) {
   );
 }
 
-function Connected({ name, since, hotkey }: { name: string; since: string; hotkey?: string[] }) {
+function Connected({ name, wifi, since, hotkey }: { name: string; wifi: boolean; since: string; hotkey?: string[] }) {
   const now = useNow();
   const seconds = (now - new Date(since).getTime()) / 1000;
   const [busy, setBusy] = useState(false);
@@ -181,8 +189,8 @@ function Connected({ name, since, hotkey }: { name: string; since: string; hotke
       </div>
       <div className="flex justify-center gap-1.5">
         <Badge variant="primary">
-          <Plug className="h-3 w-3" />
-          USB
+          {wifi ? <Wifi className="h-3 w-3" /> : <Plug className="h-3 w-3" />}
+          {wifi ? 'WiFi' : 'USB'}
         </Badge>
         <Badge variant="destructive">正在被控制</Badge>
       </div>

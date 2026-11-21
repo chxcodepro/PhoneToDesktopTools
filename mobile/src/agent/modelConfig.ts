@@ -6,6 +6,7 @@ import * as SecureStore from 'expo-secure-store';
 import { loadJson, saveJson } from '@/state/storage';
 import { createStore, useStore } from '@/state/store';
 
+import { defaultContextWindow } from './contextWindow';
 import { configProblem, type LlmConfig } from './llm';
 import { getPreset, MODEL_PRESETS, type PresetId } from './presets';
 
@@ -19,6 +20,12 @@ export interface PresetSettings {
   supportsTools: boolean;
   /** 最近一次拉取的模型列表 */
   models: string[];
+  /** 用户指定的上下文长度（token）；不填时按模型名使用官方公布的默认值 */
+  contextWindow?: number;
+  /** 深度思考（仅 DeepSeek）；不填时为开启（与接口默认一致） */
+  thinking?: boolean;
+  /** 用户为这个渠道填写的系统提示词，加在内置提示词之后 */
+  systemPrompt?: string;
 }
 
 export interface ModelConfigState {
@@ -114,25 +121,51 @@ export async function getApiKey(id: PresetId): Promise<string> {
   }
 }
 
+/** 是否支持在输入框旁切换深度思考（DeepSeek 接口的 thinking 参数） */
+export function supportsThinkingToggle(id: PresetId): boolean {
+  return id === 'deepseek';
+}
+
+export function thinkingOn(s: Pick<PresetSettings, 'thinking'>): boolean {
+  return s.thinking !== false;
+}
+
+export function setThinking(on: boolean): Promise<void> {
+  return updatePreset(modelConfigStore.get().active, { thinking: on });
+}
+
 export interface ResolvedModel {
   llm: LlmConfig;
   label: string;
   supportsVision: boolean;
   supportsTools: boolean;
+  /** 上下文长度（token） */
+  contextWindow: number;
+  /** 用户填写的系统提示词 */
+  systemPrompt: string;
   /** 配置不完整时的原因 */
   problem: string | null;
+}
+
+/** 某个预设实际使用的上下文长度 */
+export function contextWindowOf(s: Pick<PresetSettings, 'model' | 'contextWindow'>): number {
+  return s.contextWindow && s.contextWindow > 0 ? s.contextWindow : defaultContextWindow(s.model);
 }
 
 /** 当前使用的模型（含 API Key） */
 export async function resolveActiveModel(id = modelConfigStore.get().active): Promise<ResolvedModel> {
   const s = modelConfigStore.get().presets[id];
   const llm: LlmConfig = { baseUrl: s.baseUrl.trim(), apiKey: await getApiKey(id), model: s.model.trim() };
+  // DeepSeek：https://api-docs.deepseek.com/guides/thinking_mode/ ，{"thinking": {"type": "enabled" | "disabled"}}
+  if (supportsThinkingToggle(id)) llm.extraBody = { thinking: { type: thinkingOn(s) ? 'enabled' : 'disabled' } };
   const label = id === 'custom' ? s.name || '自定义' : getPreset(id).label;
   return {
     llm,
     label: s.model ? `${label} · ${s.model}` : label,
     supportsVision: s.supportsVision,
     supportsTools: s.supportsTools,
+    contextWindow: contextWindowOf(s),
+    systemPrompt: (s.systemPrompt ?? '').trim(),
     problem: configProblem(llm),
   };
 }

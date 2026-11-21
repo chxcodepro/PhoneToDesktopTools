@@ -7,7 +7,7 @@ import type { AddressInfo } from 'node:net';
 import { after, describe, it } from 'node:test';
 import WebSocket, { WebSocketServer } from 'ws';
 
-import { buildWsUrl, parseConnectUrl } from '../src/protocol/deepLink';
+import { buildWsUrl, parseConnectUrl, parseDraftUrl } from '../src/protocol/deepLink';
 import { McpClient, type WebSocketLike } from '../src/protocol/mcpClient';
 import type { ConnectionStatus, Permissions } from '../src/protocol/types';
 
@@ -131,6 +131,15 @@ function waitStatus(client: McpClient, want: ConnectionStatus, timeoutMs = 5000)
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 describe('deepLink', () => {
+  it('填入输入框的链接：只认 draft 参数，连接链接不受影响', () => {
+    assert.equal(parseDraftUrl('p2d://?draft=%E4%BD%A0%E5%A5%BD+world'), '你好 world');
+    assert.equal(parseDraftUrl('p2d://agent?x=1&draft=hi'), 'hi');
+    assert.equal(parseDraftUrl('p2d://?draft='), null);
+    assert.equal(parseDraftUrl(`p2d://connect?token=${TOKEN}`), null);
+    assert.equal(parseDraftUrl('https://x.com/?draft=hi'), null);
+    assert.equal(parseDraftUrl(`p2d://?draft=${'a'.repeat(5000)}`)?.length, 4000);
+  });
+
   it('解析 Deep Link 并拼出 WebSocket 地址', () => {
     const p = parseConnectUrl(`p2d://connect?token=${TOKEN}&host=DESKTOP-01&os=windows&port=39271`);
     assert.deepEqual(p, { token: TOKEN, host: 'DESKTOP-01', os: 'windows', port: 39271 });

@@ -131,6 +131,18 @@ func (s *Server) Sessions() []SessionInfo {
 	return out
 }
 
+// HasSerial 某台手机当前是否有会话。
+func (s *Server) HasSerial(serial string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, sess := range s.sessions {
+		if sess.serial == serial {
+			return true
+		}
+	}
+	return false
+}
+
 // CloseSerial 断开某台设备的会话（拔线时调用）。
 func (s *Server) CloseSerial(serial, reason string) {
 	s.mu.Lock()

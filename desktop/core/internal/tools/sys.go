@@ -15,7 +15,7 @@ import (
 func registerSys(r *Registry) {
 	r.Add(&Tool{
 		Name:        "sys_info",
-		Description: "获取电脑基本信息：主机名、操作系统版本、CPU 架构、当前用户、主目录、桌面路径、显示器列表。开始操作电脑前建议先调用。",
+		Description: "获取电脑基本信息：主机名、操作系统版本、CPU 架构、当前用户、是否管理员、主目录、桌面路径、显示器列表。开始操作电脑前建议先调用。",
 		InputSchema: object(map[string]prop{}),
 		Category:    perm.CatSys, Kind: perm.Read, Handler: sysInfo,
 	})
@@ -37,6 +37,8 @@ func sysInfo(ctx context.Context, raw json.RawMessage) (*Result, error) {
 		"home":       home,
 		"desktop":    sysinfo.DesktopDir(),
 		"shell":      map[bool]string{true: "cmd.exe", false: "bash"}[runtime.GOOS == "windows"],
+		// 是否已是管理员 / root；否则需要提权的命令要用 shell_exec 的 admin 参数，由用户在电脑上授权
+		"admin": sysinfo.IsAdmin(),
 	}
 	if ds, err := screen.Displays(); err == nil {
 		info["displays"] = ds

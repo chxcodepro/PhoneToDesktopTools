@@ -6,7 +6,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import type { AddressInfo } from 'node:net';
 import { after, describe, it } from 'node:test';
 
-import { pruneImages, runAgent, type AgentEvent, type AgentTools } from '../src/agent/agent';
+import { pruneImages, runAgent, SCREENSHOT_MARKER, type AgentEvent, type AgentTools } from '../src/agent/agent';
 import { chat, configProblem, listModels, LlmError, type ChatMessage, type FetchLike } from '../src/agent/llm';
 import type { ToolResult } from '../src/protocol/types';
 
@@ -64,6 +64,9 @@ async function startFakeLlm(script: Reply[] | ((body: any, n: number) => Reply))
       res.write(tail.slice(0, 10));
       await new Promise((r) => setTimeout(r, 5));
       res.write(tail.slice(10));
+      if (body.stream_options?.include_usage) {
+        send({ choices: [], usage: { prompt_tokens: 100, completion_tokens: reply.text.length, prompt_cache_hit_tokens: 80 } });
+      }
     } else {
       if (reply.text) send({ choices: [{ delta: { content: reply.text } }] });
       reply.calls.forEach((c, index) => {
@@ -109,9 +112,65 @@ after(async () => {
 
 describe('llm', () => {
   it('检查配置是否填写（占位符视为未填）', () => {
-    assert.equal(configProblem({ baseUrl: '<OPENAI_BASE_URL>', apiKey: 'k', model: 'm' }), '接口地址未填写');
+    assert.equal(configProblem({ baseUrl: '<YOUR_LLM_BASE_URL>', apiKey: 'k', model: 'm' }), '接口地址未填写');
     assert.equal(configProblem({ baseUrl: 'https://x/v1', apiKey: '', model: 'm' }), 'API Key 未填写');
     assert.equal(configProblem({ baseUrl: 'https://x/v1', apiKey: 'k', model: 'm' }), null);
+  });
+
+  it('统计用量：上下文、缓存命中、生成速度', async () => {
+    const s = await startFakeLlm([{ kind: 'text', text: '你好，世界' }]);
+    servers.push(s);
+    const r = await chat({ baseUrl: s.baseUrl, apiKey: 'k', model: 'm' }, [{ role: 'user', content: 'hi' }], nodeFetch);
+    assert.deepEqual(s.requests[0].stream_options, { include_usage: true });
+    assert.equal(r.stats.promptTokens, 100);
+    assert.equal(r.stats.cachedTokens, 80);
+    assert.equal(r.stats.completionTokens, 5);
+    assert.equal(r.stats.estimated, false);
+    assert.ok(r.stats.ttftMs >= 0);
+  });
+
+  it('厂商专属参数（DeepSeek 深度思考开关）合并进请求体，且不能覆盖 model / messages', async () => {
+    const s = await startFakeLlm([{ kind: 'text', text: '好' }]);
+    servers.push(s);
+    await chat(
+      { baseUrl: s.baseUrl, apiKey: 'k', model: 'm', extraBody: { thinking: { type: 'disabled' }, model: 'x' } },
+      [{ role: 'user', content: 'hi' }],
+      nodeFetch,
+    );
+    assert.deepEqual(s.requests[0].thinking, { type: 'disabled' });
+    assert.equal(s.requests[0].model, 'm');
+  });
+
+  it('服务不支持 stream_options 时去掉后重试', async () => {
+    const s = await startFakeLlm((body) =>
+      body.stream_options ? { kind: 'error', status: 400, message: 'unknown field `stream_options`' } : { kind: 'text', text: '好' },
+    );
+    servers.push(s);
+    const r = await chat({ baseUrl: s.baseUrl, apiKey: 'k', model: 'm' }, [{ role: 'user', content: 'hi' }], nodeFetch);
+    assert.equal(r.message.content, '好');
+    assert.equal(s.requests.length, 2);
+    assert.equal(r.stats.estimated, true);
+  });
+
+  it('网络层失败时给出中文提示；用户取消时原样抛出', async () => {
+    const noNetwork: FetchLike = async () => {
+      throw new Error('java.net.UnknownHostException: Unable to resolve host "api.deepseek.com": No address associated with hostname');
+    };
+    await assert.rejects(listModels({ baseUrl: 'https://api.deepseek.com', apiKey: 'k' }, noNetwork), (e: LlmError) => {
+      assert.equal(e.status, 0);
+      assert.match(e.message, /手机没有网络/);
+      return true;
+    });
+
+    const ac = new AbortController();
+    ac.abort();
+    const aborted: FetchLike = async () => {
+      throw Object.assign(new Error('aborted'), { name: 'AbortError' });
+    };
+    await assert.rejects(
+      chat({ baseUrl: 'https://x/v1', apiKey: 'k', model: 'm' }, [{ role: 'user', content: 'hi' }], aborted, {}, { signal: ac.signal }),
+      (e: Error) => e.name === 'AbortError',
+    );
   });
 
   it('获取模型列表；Key 错误时给出中文提示', async () => {
@@ -275,10 +334,48 @@ describe('agent', () => {
     assert.match(s.requests[0].messages[0].content, /未连接/);
   });
 
+  it('模型不支持图片时去掉图片重试，并提示用户', async () => {
+    const s = await startFakeLlm((body) =>
+      JSON.stringify(body.messages).includes('image_url')
+        ? { kind: 'error', status: 400, message: 'Failed to deserialize: unknown variant `image_url`, expected `text`' }
+        : { kind: 'text', text: '看不到图片' },
+    );
+    servers.push(s);
+    const events: AgentEvent[] = [];
+    const history: ChatMessage[] = [
+      { role: 'user', content: [{ type: 'text', text: '这是什么' }, { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${PNG}` } }] },
+    ];
+    const r = await runAgent(history, {
+      llm: { baseUrl: s.baseUrl, apiKey: 'k', model: 'm' },
+      fetch: nodeFetch,
+      supportsVision: true,
+      supportsTools: true,
+      tools: null,
+      onEvent: (e) => events.push(e),
+    });
+    assert.equal(r.error, undefined);
+    assert.equal(s.requests.length, 2);
+    assert.ok(!JSON.stringify(s.requests[1].messages).includes('image_url'));
+    assert.ok(events.some((e) => e.type === 'notice' && /不支持图片/.test(e.text)));
+    assert.ok(events.some((e) => e.type === 'usage'));
+  });
+
+  it('用户上传的图片单独计数，不会被截图挤掉', () => {
+    const shot = (n: number): ChatMessage => ({
+      role: 'user',
+      content: [{ type: 'text', text: SCREENSHOT_MARKER }, { type: 'image_url', image_url: { url: `data:image/jpeg;base64,s${n}` } }],
+    });
+    const upload: ChatMessage = { role: 'user', content: [{ type: 'text', text: '看看这张图' }, { type: 'image_url', image_url: { url: 'data:image/jpeg;base64,u1' } }] };
+    const out = JSON.stringify(pruneImages([upload, shot(1), shot(2)]));
+    assert.ok(out.includes('base64,u1'));
+    assert.ok(!out.includes('base64,s1'));
+    assert.ok(out.includes('base64,s2'));
+  });
+
   it('只保留最近一张截图', () => {
     const img = (n: number): ChatMessage => ({
       role: 'user',
-      content: [{ type: 'image_url', image_url: { url: `data:image/jpeg;base64,${n}` } }],
+      content: [{ type: 'text', text: SCREENSHOT_MARKER }, { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${n}` } }],
     });
     const out = pruneImages([img(1), { role: 'assistant', content: 'x' }, img(2)]);
     assert.ok(JSON.stringify(out[0]).includes('较早的截图已省略'));

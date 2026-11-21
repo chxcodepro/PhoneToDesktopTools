@@ -3,7 +3,7 @@
     "name": "PhoneToDesktop",
     "slug": "phone-to-desktop",
     "version": "0.1.0",
-    "orientation": "portrait",
+    "orientation": "default",
     "icon": "./assets/images/icon.png",
     "scheme": "p2d",
     "userInterfaceStyle": "automatic",
@@ -48,7 +48,16 @@
           }
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      "expo-notifications",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "允许 PhoneToDesktop 访问相册，用于把图片发给 Agent",
+          "cameraPermission": "允许 PhoneToDesktop 使用相机，用于拍照发给 Agent",
+          "microphonePermission": false
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

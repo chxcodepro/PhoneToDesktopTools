@@ -24,7 +24,18 @@ adb -s <序列号> shell am start -a android.intent.action.VIEW \
   -d 'p2d://connect?token=<令牌>&host=<电脑名>&os=<windows|linux>&port=39271' com.p2d.mobile
 ```
 
-指定了包名，这个 Intent 只会投递给本 App。手机端收到 Deep Link 后立即连接。令牌在拔线后作废，下次插线重新生成。
+指定了包名，这个 Intent 只会投递给本 App。手机端收到 Deep Link 后立即连接。令牌按手机（`ro.serialno`）而不是按 adb 通道管理，手机的所有通道都断开后才作废，下次连接重新生成。
+
+### 1.2 WiFi 局域网连接（Android）
+
+不需要手机端改动，仍是上面的 adb 隧道，只是 adb 走网络（Core 默认开启，`-wifi=false` 关闭）：
+
+1. 插着数据线时，Core 读取手机 WiFi 网卡（`wlan*`）的 IPv4 地址并记下（保存在用户配置目录 `PhoneToDesktop/wifi-peers.json`）；手机 adb 还不是网络模式时执行 `adb -s <序列号> tcpip 5555`（手机 adb 会重启一次，Core 等它回来后再继续）。
+2. 拔掉数据线后，Core 立即 `adb connect <ip>:5555`，连上后在 WiFi 通道上重新 `reverse`。期间（最多 25 秒）令牌保留，手机端用原令牌自动重连，不重新拉起 App；40 秒内没重连上才用 Deep Link 拉起。
+3. 数据线插回来时 USB 优先：在 USB 通道上 `reverse`（隧道改绑过来），再断开 WiFi 通道。
+4. 手机不在线时，Core 每 15 秒尝试连一次记住的地址；连上的设备 `ro.serialno` 与记录不符就断开并删掉记录。用户点「断开」后，插线前不再自动连 WiFi。
+
+限制：手机重启后 adb 网络模式失效，需要再插一次数据线；adb 网络连接同样需要手机已授权本机的 adb 密钥；Core 仍只监听 127.0.0.1。
 
 开发调试时，Core 可以用 `--dev-token <值>` 指定一个固定令牌。
 
@@ -71,8 +82,8 @@ adb -s <序列号> shell am start -a android.intent.action.VIEW \
 
 | 工具 | 参数 | 说明 |
 |---|---|---|
-| `sys_info` | — | 主机名、系统、架构、用户、主目录、显示器列表 |
-| `shell_exec` | `command`，`cwd?`，`timeout_sec?`（默认 60，最大 600） | Windows 用 `cmd /C`，Linux 用 `bash -c`（没有 bash 时用 `sh -c`）。GBK 输出自动转为 UTF-8，输出超过 100 KB 时截断 |
+| `sys_info` | — | 主机名、系统、架构、用户、是否管理员（`admin`）、主目录、显示器列表 |
+| `shell_exec` | `command`，`cwd?`，`timeout_sec?`（默认 60，最大 600），`admin?` | Windows 用 `cmd /C`，Linux 用 `bash -c`（没有 bash 时用 `sh -c`）。GBK 输出自动转为 UTF-8，输出超过 100 KB 时截断。`admin: true` 时以管理员 / root 执行：Windows 弹出 UAC 授权框（命令写进临时批处理，输出重定向到文件后读回）；Linux 有免密 sudo 时用 `sudo -n`，否则用 `pkexec` 弹出密码框。已是管理员时直接执行 |
 | `fs_list` | `path`（Windows 下传空字符串列出盘符），`show_hidden?` | 列出目录 |
 | `fs_read` | `path`，`offset?`（起始行，从 1 开始），`limit?`（默认 500 行） | 自动识别 UTF-8 / GBK；拒绝读取二进制文件 |
 | `fs_write` | `path`，`content`，`encoding?`（`utf-8` / `gbk`） | 自动创建上级目录 |
@@ -98,7 +109,33 @@ adb -s <序列号> shell am start -a android.intent.action.VIEW \
 - **坐标换算**：`屏幕坐标 = 图片坐标 ÷ scale + (x, y)`。
 - **点击、输入**：远程桌面的点击和输入直接调用 `input_mouse`、`input_keyboard` 工具，受同样的权限控制。
 
-## 6. 状态接口（供电脑端 GUI 使用）
+## 6. 文件上传（自定义扩展）
+
+用户在 Agent 对话里添加的文件（以及模型不支持图片时的图片），还有 Agent 用手机网络下载的驱动、安装包（`download_to_pc` 工具），由手机分块上传到电脑，保存在系统「下载」目录下的 `PhoneToDesktop` 文件夹（Windows：`%USERPROFILE%\Downloads\PhoneToDesktop`；Linux：`XDG_DOWNLOAD_DIR`，通常是 `~/下载/PhoneToDesktop`）。需要「读写文件」开关和「标准」以上权限。
+
+| 方法 | 参数 | 返回 |
+|---|---|---|
+| `p2d/upload.begin` | `{ name, size }` | `{ id, path }`：创建文件，同名时自动改名为 `名称 (1).扩展名` |
+| `p2d/upload.chunk` | `{ id, data }`（base64，建议每块 256 KB） | `{ written }`：按顺序追加 |
+| `p2d/upload.end` | `{ id, verify? }` | `{ path, size, sha256, sha1, signature? }`：大小与 `begin` 声明的不一致时报错并删除文件。`verify: true` 时 Windows 上用 `Get-AuthenticodeSignature` 检查数字签名，`signature` 为 `状态|签名者`，如 `Valid|CN=Microsoft ...` |
+| `p2d/upload.cancel` | `{ id }` | 删除未完成的文件 |
+
+- 文件名会去掉路径和系统不允许的字符，最大 1 GB。
+- 连接断开时，未完成的上传会被删除。
+- 上传完成后，手机把保存路径告诉模型，Agent 再用 `fs_read`、`doc_read` 等工具处理。
+
+### 手机端工具（不经过电脑）
+
+和电脑工具合并后一起交给模型，走手机自己的网络，电脑完全断网时也能用：
+
+| 工具 | 参数 | 说明 |
+|---|---|---|
+| `web_search` | `query`，`count?` | 必应搜索（先 `cn.bing.com`，失败再 `www.bing.com`，RSS 格式） |
+| `web_fetch` | `url`，`max_chars?`，`all_links?` | 网页转文字（优先 `<main>` / `<article>`），并列出可下载文件链接 |
+| `driver_search` | `query` | 微软更新目录（Microsoft Update Catalog）按硬件 ID / KB 编号搜索 |
+| `download_to_pc` | `url` 或 `catalog_id`，`filename?`，`sha256?` | 手机下载到缓存后经 `p2d/upload.*` 传到电脑，返回路径、哈希、签名；`catalog_id` 自动取微软下载地址并核对其 SHA-1 |
+
+## 7. 状态接口（供电脑端 GUI 使用）
 
 Core 在同一端口提供 HTTP 接口，只接受本机访问：
 

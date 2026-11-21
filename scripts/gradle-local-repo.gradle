@@ -1,0 +1,13 @@
+// Gradle 初始化脚本（scripts/build-apk.sh 自动使用）：优先在本机 Maven 仓库（~/.m2/repository）查找依赖。
+// 网络下载不了的 jar / aar，可以手动下载后按「组/名称/版本」目录放进去，例如：
+//   ~/.m2/repository/commons-io/commons-io/2.6/commons-io-2.6.jar（同目录还要放 commons-io-2.6.pom）
+allprojects {
+  buildscript {
+    repositories {
+      mavenLocal()
+    }
+  }
+  repositories {
+    mavenLocal()
+  }
+}

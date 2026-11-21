@@ -4,8 +4,7 @@
 export type ChatRole = 'system' | 'user' | 'assistant' | 'tool';
 
 export type ContentPart =
-  | { type: 'text'; text: string }
-  | { type: 'image_url'; image_url: { url: string; detail?: 'low' | 'high' | 'auto' } };
+  { type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string; detail?: 'low' | 'high' | 'auto' } };
 
 export interface ToolCall {
   id: string;
@@ -31,6 +30,8 @@ export interface LlmConfig {
   baseUrl: string;
   apiKey: string;
   model: string;
+  /** 附加到请求体的厂商专属参数（如 DeepSeek 的 thinking 开关） */
+  extraBody?: Record<string, unknown>;
 }
 
 /** 最小 fetch 接口，兼容 Node fetch 与 expo/fetch */
@@ -58,10 +59,77 @@ export interface StreamCallbacks {
   onReasoning?: (delta: string) => void;
 }
 
+/** 一次请求的用量与速度 */
+export interface UsageStats {
+  /** 输入 token（即本次请求的上下文长度） */
+  promptTokens: number;
+  /** 其中命中缓存的 token（DeepSeek：prompt_cache_hit_tokens；OpenAI：prompt_tokens_details.cached_tokens） */
+  cachedTokens: number;
+  /** 输出 token（含思考过程） */
+  completionTokens: number;
+  /** 首个 token 到达前的等待时间 */
+  ttftMs: number;
+  /** 从首个 token 到结束的生成时间 */
+  genMs: number;
+  /** 生成速度（token/秒），时间太短无法计算时为 null */
+  tokensPerSec: number | null;
+  /** 接口没有返回用量时按字数估算 */
+  estimated: boolean;
+}
+
 export interface ChatResult {
   message: ChatMessage;
   finishReason: string | null;
-  usage?: { prompt_tokens?: number; completion_tokens?: number };
+  usage?: Record<string, any>;
+  stats: UsageStats;
+}
+
+/** 把各家接口的 usage 统一成 UsageStats */
+export function normalizeUsage(
+  usage: Record<string, any> | undefined,
+  timing: { startAt: number; firstAt: number | null; endAt: number },
+  fallbackChars: number,
+): UsageStats {
+  const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+  const estimated = !usage || usage.completion_tokens === undefined;
+  const promptTokens = num(usage?.prompt_tokens);
+  const cachedTokens = num(usage?.prompt_cache_hit_tokens) || num(usage?.prompt_tokens_details?.cached_tokens);
+  // 没有用量时粗略估算：中文约 1 字 1 token，英文约 4 字符 1 token，取折中 1.5 字符 / token
+  const completionTokens = estimated ? Math.round(fallbackChars / 1.5) : num(usage?.completion_tokens);
+  const firstAt = timing.firstAt ?? timing.endAt;
+  const genMs = Math.max(0, timing.endAt - firstAt);
+  return {
+    promptTokens,
+    cachedTokens,
+    completionTokens,
+    ttftMs: Math.max(0, firstAt - timing.startAt),
+    genMs,
+    tokensPerSec: genMs >= 200 && completionTokens > 0 ? (completionTokens * 1000) / genMs : null,
+    estimated,
+  };
+}
+
+/** 把网络层异常（安卓原生的英文异常）转换成用户看得懂的提示 */
+export function describeNetworkError(e: unknown): string {
+  const msg = e instanceof Error ? e.message : String(e);
+  if (/UnknownHost|unable to resolve host|ENOTFOUND|getaddrinfo|Network is unreachable|ENETUNREACH|No address associated/i.test(msg)) {
+    return '手机没有网络或无法解析接口地址，请检查 WLAN / 移动数据，或确认接口地址是否正确';
+  }
+  if (/timed? ?out|timeout|ETIMEDOUT/i.test(msg)) return '连接接口超时，请检查手机网络或接口地址';
+  if (/ConnectException|ECONNREFUSED|Failed to connect|connection refused/i.test(msg))
+    return '无法连接到接口地址，请检查地址和端口是否正确';
+  if (/SSL|certificate|CertPath|handshake/i.test(msg)) return '安全连接（HTTPS 证书）验证失败，请检查接口地址或网络环境';
+  return `网络请求失败：${msg}`;
+}
+
+/** 发送请求；网络层失败（非 HTTP 错误）时抛出带中文提示的 LlmError。用户主动取消时原样抛出 */
+async function send(fetchImpl: FetchLike, url: string, init: Parameters<FetchLike>[1]): ReturnType<FetchLike> {
+  try {
+    return await fetchImpl(url, init);
+  } catch (e) {
+    if (init?.signal?.aborted || (e instanceof Error && e.name === 'AbortError')) throw e;
+    throw new LlmError(0, describeNetworkError(e));
+  }
 }
 
 function endpoint(baseUrl: string, path: string): string {
@@ -112,7 +180,7 @@ async function errorFrom(res: { status: number; text(): Promise<string> }): Prom
 
 /** GET /models 获取可用模型列表 */
 export async function listModels(cfg: Omit<LlmConfig, 'model'>, fetchImpl: FetchLike, signal?: AbortSignal): Promise<string[]> {
-  const res = await fetchImpl(endpoint(cfg.baseUrl, '/models'), {
+  const res = await send(fetchImpl, endpoint(cfg.baseUrl, '/models'), {
     method: 'GET',
     headers: { Authorization: `Bearer ${cfg.apiKey}`, Accept: 'application/json' },
     signal,
@@ -140,6 +208,8 @@ class Accumulator {
   calls: { id: string; name: string; args: string }[] = [];
   finishReason: string | null = null;
   usage?: ChatResult['usage'];
+  /** 收到第一个内容片段的时间 */
+  firstAt: number | null = null;
 
   constructor(private cb: StreamCallbacks) {}
 
@@ -148,6 +218,7 @@ class Accumulator {
     const choice = chunk?.choices?.[0];
     if (!choice) return;
     const d = choice.delta ?? choice.message ?? {};
+    if (this.firstAt === null && (d.content || d.reasoning_content || d.tool_calls?.length)) this.firstAt = Date.now();
     if (typeof d.reasoning_content === 'string' && d.reasoning_content) {
       this.reasoning += d.reasoning_content;
       this.cb.onReasoning?.(d.reasoning_content);
@@ -168,7 +239,7 @@ class Accumulator {
     if (choice.finish_reason) this.finishReason = choice.finish_reason;
   }
 
-  result(): ChatResult {
+  result(startAt: number): ChatResult {
     const calls = this.calls.filter(Boolean).map((c, i) => ({
       id: c.id || `call_${Date.now().toString(36)}_${i}`,
       type: 'function' as const,
@@ -177,7 +248,9 @@ class Accumulator {
     const message: ChatMessage = { role: 'assistant', content: this.text || null };
     if (calls.length) message.tool_calls = calls;
     if (this.reasoning) message.reasoning_content = this.reasoning;
-    return { message, finishReason: this.finishReason, usage: this.usage };
+    const chars = this.text.length + this.reasoning.length + this.calls.reduce((n, c) => n + (c?.args.length ?? 0), 0);
+    const stats = normalizeUsage(this.usage, { startAt, firstAt: this.firstAt, endAt: Date.now() }, chars);
+    return { message, finishReason: this.finishReason, usage: this.usage, stats };
   }
 }
 
@@ -208,13 +281,16 @@ export async function chat(
   cb: StreamCallbacks = {},
   opts: ChatOptions = {},
 ): Promise<ChatResult> {
-  try {
-    return await chatOnce(cfg, messages, fetchImpl, cb, opts, false);
-  } catch (e) {
-    if (e instanceof LlmError && e.status === 400 && /reasoning_content/i.test(e.message)) {
-      return chatOnce(cfg, messages, fetchImpl, cb, opts, true);
+  const flags = { keepReasoning: false, usageInStream: true };
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await chatOnce(cfg, messages, fetchImpl, cb, opts, flags);
+    } catch (e) {
+      if (attempt >= 2 || !(e instanceof LlmError) || e.status !== 400) throw e;
+      if (!flags.keepReasoning && /reasoning_content/i.test(e.message)) flags.keepReasoning = true;
+      else if (flags.usageInStream && /stream_options|include_usage/i.test(e.message)) flags.usageInStream = false;
+      else throw e;
     }
-    throw e;
   }
 }
 
@@ -224,17 +300,21 @@ async function chatOnce(
   fetchImpl: FetchLike,
   cb: StreamCallbacks,
   opts: ChatOptions,
-  keepReasoning: boolean,
+  flags: { keepReasoning: boolean; usageInStream: boolean },
 ): Promise<ChatResult> {
   const body: Record<string, unknown> = {
+    ...cfg.extraBody,
     model: cfg.model,
-    messages: wireMessages(messages, keepReasoning),
+    messages: wireMessages(messages, flags.keepReasoning),
     stream: true,
   };
+  // 让流式响应在最后带上用量（含缓存命中）；个别不支持的服务会报 400，届时去掉重试
+  if (flags.usageInStream) body.stream_options = { include_usage: true };
   if (opts.tools?.length) body.tools = opts.tools;
   if (opts.temperature !== undefined) body.temperature = opts.temperature;
 
-  const res = await fetchImpl(endpoint(cfg.baseUrl, '/chat/completions'), {
+  const startAt = Date.now();
+  const res = await send(fetchImpl, endpoint(cfg.baseUrl, '/chat/completions'), {
     method: 'POST',
     headers: headers(cfg),
     body: JSON.stringify(body),
@@ -246,7 +326,7 @@ async function chatOnce(
   if (!res.body) {
     // 不支持流式读取的环境：整体解析
     parseSseText(await res.text(), acc);
-    return acc.result();
+    return acc.result(startAt);
   }
 
   const reader = res.body.getReader();
@@ -279,7 +359,7 @@ async function chatOnce(
       throw new LlmError(res.status, '无法解析模型返回的数据');
     }
   }
-  return acc.result();
+  return acc.result(startAt);
 }
 
 /** 处理一行 SSE，返回是否为 SSE 数据行 */

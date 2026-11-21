@@ -11,7 +11,11 @@ export type DeviceStage =
   | '';
 
 export interface CoreDevice {
+  /** adb 序列号；WiFi 通道是 ip:port */
   serial: string;
+  /** 手机硬件序列号，USB 和 WiFi 通道相同；会话的 serial 就是它 */
+  id?: string;
+  transport?: 'usb' | 'wifi';
   model: string;
   state: string;
   stage: DeviceStage;
@@ -68,9 +72,14 @@ export interface P2DApi {
   setOverlayInteractive(interactive: boolean): void;
 }
 
+/** 会话所在手机当前在线的通道（同一台手机可能同时有 USB 和 WiFi 两条，USB 优先） */
+export function deviceFor(status: CoreStatus | undefined, serial: string): CoreDevice | undefined {
+  const list = (status?.devices ?? []).filter((x) => x.id === serial || x.serial === serial);
+  return list.find((x) => x.state === 'device' && x.transport !== 'wifi') ?? list.find((x) => x.state === 'device') ?? list[0];
+}
+
 /** 根据会话的序列号找设备名 */
 export function deviceNameFor(status: CoreStatus | undefined, serial: string): string {
   if (serial === 'dev') return '调试设备';
-  const d = status?.devices?.find((x) => x.serial === serial);
-  return d?.model || serial;
+  return deviceFor(status, serial)?.model || serial;
 }

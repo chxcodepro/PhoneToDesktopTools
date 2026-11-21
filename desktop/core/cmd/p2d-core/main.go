@@ -1,5 +1,5 @@
 // p2d-core：PhoneToDesktop 电脑端核心服务（被控端）。
-// 监听 127.0.0.1，经 USB 隧道为手机 Agent 提供 MCP 工具。
+// 监听 127.0.0.1，经 adb 隧道（USB 或 WiFi）为手机 Agent 提供 MCP 工具。
 package main
 
 import (
@@ -54,6 +54,15 @@ func findADB(flagVal string) string {
 	return bundled
 }
 
+// stateDir 保存记住的 WiFi 手机等状态的目录。
+func stateDir() string {
+	d, err := os.UserConfigDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(d, "PhoneToDesktop")
+}
+
 func main() {
 	port := flag.Int("port", 39271, "监听端口（与手机端约定，一般不改）")
 	adbPath := flag.String("adb", "", "adb 路径，默认使用程序目录下 vendor/adb 中的内置 adb")
@@ -61,6 +70,7 @@ func main() {
 	pkg := flag.String("pkg", "com.p2d.mobile", "手机端包名")
 	devToken := flag.String("dev-token", "", "开发调试用的固定令牌（正式使用请留空）")
 	noADB := flag.Bool("no-adb", false, "不启动 adb 设备发现（仅调试）")
+	wifi := flag.Bool("wifi", true, "插数据线时开启手机的局域网调试，拔线后自动通过 WiFi 连接")
 	showVersion := flag.Bool("version", false, "显示版本")
 	flag.Parse()
 
@@ -91,8 +101,11 @@ func main() {
 			Package:  *pkg,
 			Port:     *port,
 			HostName: host,
+			WiFi:     *wifi,
+			StateDir: stateDir(),
 		}, tokens)
-		mgr.OnGone = func(serial string) { srv.CloseSerial(serial, "数据线已拔出") }
+		mgr.OnGone = func(id string) { srv.CloseSerial(id, "手机已断开连接") }
+		mgr.HasSession = srv.HasSerial
 		srv.Devices = mgr
 		log.Printf("adb：%s", findADB(*adbPath))
 	}

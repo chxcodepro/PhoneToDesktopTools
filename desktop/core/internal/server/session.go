@@ -64,9 +64,10 @@ type Session struct {
 	client  string
 	since   time.Time
 
-	ctx    context.Context
-	cancel context.CancelFunc
-	stream streamState
+	ctx     context.Context
+	cancel  context.CancelFunc
+	stream  streamState
+	uploads uploadState
 }
 
 func newSession(id int64, serial string, conn *websocket.Conn, reg *tools.Registry) *Session {
@@ -121,6 +122,7 @@ func (s *Session) fail(id json.RawMessage, code int, msg string) {
 
 // run 读取消息直到连接断开。
 func (s *Session) run() {
+	defer s.uploadDropAll()
 	defer s.cancel()
 	s.conn.SetReadLimit(64 << 20)
 	_ = s.conn.SetReadDeadline(time.Now().Add(readTimeout))
@@ -268,6 +270,24 @@ func (s *Session) dispatch(m rpcMessage) {
 			return
 		}
 		s.reply(m.ID, map[string]any{"displays": displays})
+	case "p2d/upload.begin", "p2d/upload.chunk", "p2d/upload.end", "p2d/upload.cancel":
+		handlers := map[string]func(json.RawMessage) (any, error){
+			"p2d/upload.begin":  s.uploadBegin,
+			"p2d/upload.chunk":  s.uploadChunk,
+			"p2d/upload.end":    s.uploadEnd,
+			"p2d/upload.cancel": s.uploadCancel,
+		}
+		res, err := handlers[m.Method](m.Params)
+		if err != nil {
+			s.fail(m.ID, errInvalidRequest, err.Error())
+			return
+		}
+		if m.Method == "p2d/upload.end" {
+			log.Printf("[会话 %d] 收到手机上传的文件：%v", s.id, res.(map[string]any)["path"])
+		}
+		if !notify {
+			s.reply(m.ID, res)
+		}
 	case "p2d/screen.stop":
 		s.stopStream()
 		if !notify {

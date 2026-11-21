@@ -1,4 +1,4 @@
-// 远程桌面坐标换算（纯函数，可在 Node 中测试）。
+// 虚拟桌面坐标换算（纯函数，可在 Node 中测试）。
 
 export interface FrameGeometry {
   width: number; // 图片宽度

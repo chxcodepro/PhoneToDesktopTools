@@ -73,3 +73,14 @@ func DesktopDir() string {
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, "Desktop")
 }
+
+var procIsUserAnAdmin = shell32.NewProc("IsUserAnAdmin")
+
+// IsAdmin 当前进程是否以管理员身份运行（UAC 提升后）。
+func IsAdmin() bool {
+	if procIsUserAnAdmin.Find() != nil {
+		return false
+	}
+	r, _, _ := procIsUserAnAdmin.Call()
+	return r != 0
+}

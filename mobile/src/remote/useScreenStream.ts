@@ -1,4 +1,4 @@
-// 远程桌面推流：页面可见且已连接时订阅 p2d/screen.frame，离开页面时停止。
+// 虚拟桌面推流：页面可见且已连接时订阅 p2d/screen.frame，离开页面时停止。
 
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -38,7 +38,16 @@ export interface StreamState {
   fps: number;
 }
 
-export function useScreenStream(display: number): StreamState {
+export interface StreamOptions {
+  /** 为 false 时不推流（如小窗关闭） */
+  enabled?: boolean;
+  maxWidth?: number;
+  quality?: number;
+  fps?: number;
+}
+
+export function useScreenStream(display: number, opts: StreamOptions = {}): StreamState {
+  const { enabled = true, maxWidth = 1280, quality = 60, fps: targetFps = 24 } = opts;
   const { status } = useConnection();
   const [focused, setFocused] = useState(false);
   const [state, setState] = useState<StreamState>({ frame: null, displays: 1, error: null, fps: 0 });
@@ -53,7 +62,7 @@ export function useScreenStream(display: number): StreamState {
 
   useEffect(() => {
     const client = getClient();
-    if (!focused || status !== 'connected' || !client) return;
+    if (!enabled || !focused || status !== 'connected' || !client) return;
     let alive = true;
     counter.current = { n: 0, since: Date.now() };
 
@@ -98,7 +107,7 @@ export function useScreenStream(display: number): StreamState {
     });
 
     client
-      .request('p2d/screen.start', { display, maxWidth: 1280, quality: 60, fps: 12 })
+      .request('p2d/screen.start', { display, maxWidth, quality, fps: targetFps })
       .then((res) => {
         const n = (res as { displays?: unknown[] }).displays?.length ?? 1;
         if (alive) setState((s) => ({ ...s, displays: n, error: null }));
@@ -114,7 +123,7 @@ export function useScreenStream(display: number): StreamState {
       offStopped();
       client.request('p2d/screen.stop', {}).catch(() => undefined);
     };
-  }, [focused, status, display]);
+  }, [enabled, focused, status, display, maxWidth, quality, targetFps]);
 
   return state;
 }

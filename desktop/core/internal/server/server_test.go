@@ -1,6 +1,10 @@
 package server
 
 import (
+	"crypto/sha1"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -207,5 +211,91 @@ func TestScreenStream(t *testing.T) {
 	}
 	if r := c.call("p2d/screen.stop", nil); r["error"] != nil {
 		t.Fatalf("停止失败：%v", r)
+	}
+}
+
+func TestUpload(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("P2D_UPLOAD_DIR", dir)
+	ts := newTestServer(t)
+	c, _, err := dial(t, ts, "devtok")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.conn.Close()
+	c.call("initialize", map[string]any{"protocolVersion": "2025-06-18", "clientInfo": map[string]any{"name": "test", "version": "1"}})
+
+	// 默认只读：拒绝上传
+	if r := c.call("p2d/upload.begin", map[string]any{"name": "a.txt", "size": 3}); r["error"] == nil {
+		t.Fatalf("只读权限下应拒绝上传：%v", r)
+	}
+	c.call("p2d/setPermissions", map[string]any{"level": "standard", "shell": true, "fs": true, "screen": true, "input": true})
+
+	upload := func(name string, chunks ...string) (string, map[string]any) {
+		total := 0
+		for _, ch := range chunks {
+			total += len(ch)
+		}
+		r := c.call("p2d/upload.begin", map[string]any{"name": name, "size": total})
+		res, ok := r["result"].(map[string]any)
+		if !ok {
+			t.Fatalf("upload.begin 失败：%v", r)
+		}
+		id := res["id"].(string)
+		for _, ch := range chunks {
+			if r := c.call("p2d/upload.chunk", map[string]any{"id": id, "data": base64.StdEncoding.EncodeToString([]byte(ch))}); r["error"] != nil {
+				t.Fatalf("upload.chunk 失败：%v", r)
+			}
+		}
+		return id, c.call("p2d/upload.end", map[string]any{"id": id})
+	}
+
+	_, r := upload(`..\..\报告.txt`, "你好，", "世界")
+	p1 := r["result"].(map[string]any)["path"].(string)
+	if filepath.Dir(p1) != dir || filepath.Base(p1) != "报告.txt" {
+		t.Fatalf("保存路径不对：%s", p1)
+	}
+	if b, _ := os.ReadFile(p1); string(b) != "你好，世界" {
+		t.Fatalf("内容不对：%q", b)
+	}
+	// 返回哈希，供 Agent 核对下载的文件
+	sum := sha256.Sum256([]byte("你好，世界"))
+	if got := r["result"].(map[string]any)["sha256"]; got != hex.EncodeToString(sum[:]) {
+		t.Fatalf("sha256 不对：%v", got)
+	}
+	sum1 := sha1.Sum([]byte("你好，世界"))
+	if got := r["result"].(map[string]any)["sha1"]; got != hex.EncodeToString(sum1[:]) {
+		t.Fatalf("sha1 不对：%v", got)
+	}
+	// 同名文件不覆盖
+	_, r = upload("报告.txt", "x")
+	if p2 := r["result"].(map[string]any)["path"].(string); filepath.Base(p2) != "报告 (1).txt" {
+		t.Fatalf("同名文件应改名：%s", p2)
+	}
+
+	// 声明大小与实际不符：报错并删除
+	r = c.call("p2d/upload.begin", map[string]any{"name": "short.bin", "size": 10})
+	res := r["result"].(map[string]any)
+	c.call("p2d/upload.chunk", map[string]any{"id": res["id"], "data": base64.StdEncoding.EncodeToString([]byte("abc"))})
+	if r := c.call("p2d/upload.end", map[string]any{"id": res["id"]}); r["error"] == nil {
+		t.Fatalf("不完整的文件应报错：%v", r)
+	}
+	if _, err := os.Stat(res["path"].(string)); !os.IsNotExist(err) {
+		t.Fatalf("不完整的文件应被删除")
+	}
+
+	// 断开连接时删除未完成的上传
+	r = c.call("p2d/upload.begin", map[string]any{"name": "pending.bin", "size": 5})
+	pending := r["result"].(map[string]any)["path"].(string)
+	c.conn.Close()
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		if _, err := os.Stat(pending); os.IsNotExist(err) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("断开后未完成的上传应被删除：%s", pending)
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 }

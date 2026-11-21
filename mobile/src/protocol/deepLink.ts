@@ -52,3 +52,24 @@ function safeDecode(s: string): string {
     return s;
   }
 }
+
+/** 草稿文字最长多少字 */
+const MAX_DRAFT = 4000;
+
+/**
+ * 解析「填入输入框」链接：p2d://?draft=<文字> 或 p2d://agent?draft=<文字>。
+ * 只把文字填进 Agent 输入框，不会自动发送（链接可能来自任意应用或网页）。
+ */
+export function parseDraftUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  const m = /^p2d:\/\/\/?(?:agent\/?)?\?(.*)$/i.exec(url.trim());
+  if (!m) return null;
+  for (const part of m[1].split('&')) {
+    const i = part.indexOf('=');
+    if (i > 0 && safeDecode(part.slice(0, i)) === 'draft') {
+      const text = safeDecode(part.slice(i + 1)).trim();
+      return text ? text.slice(0, MAX_DRAFT) : null;
+    }
+  }
+  return null;
+}

@@ -5,6 +5,8 @@ import (
 	"hash/fnv"
 	"image"
 	"image/jpeg"
+	"runtime"
+	"sync"
 )
 
 // Frame 一帧编码后的画面。
@@ -18,6 +20,12 @@ type Frame struct {
 
 // Encode 按最大宽度缩小并编码为 JPEG。
 func Encode(img *image.RGBA, maxWidth, quality int) (*Frame, error) {
+	return EncodeIfChanged(img, maxWidth, quality, 0)
+}
+
+// EncodeIfChanged 同 Encode，但缩小后像素的哈希等于 skipHash 时不做 JPEG 编码（返回的 JPEG 为 nil），
+// 远程桌面推流用它跳过没有变化的画面，省掉约一半的耗时。skipHash 为 0 时总是编码。
+func EncodeIfChanged(img *image.RGBA, maxWidth, quality int, skipHash uint64) (*Frame, error) {
 	out := img
 	scale := 1.0
 	if maxWidth > 0 && img.Bounds().Dx() > maxWidth {
@@ -26,18 +34,43 @@ func Encode(img *image.RGBA, maxWidth, quality int) (*Frame, error) {
 	}
 	h := fnv.New64a()
 	_, _ = h.Write(out.Pix)
+	sum := h.Sum64()
+	if skipHash != 0 && sum == skipHash {
+		return &Frame{Width: out.Bounds().Dx(), Height: out.Bounds().Dy(), Scale: scale, Hash: sum}, nil
+	}
 	var buf bytes.Buffer
 	if err := jpeg.Encode(&buf, out, &jpeg.Options{Quality: quality}); err != nil {
 		return nil, err
 	}
-	return &Frame{JPEG: buf.Bytes(), Width: out.Bounds().Dx(), Height: out.Bounds().Dy(), Scale: scale, Hash: h.Sum64()}, nil
+	return &Frame{JPEG: buf.Bytes(), Width: out.Bounds().Dx(), Height: out.Bounds().Dy(), Scale: scale, Hash: sum}, nil
 }
 
-// Downscale 区域平均缩小，文字比最近邻清晰。
+// Downscale 区域平均缩小，文字比最近邻清晰。按行分段在多个 CPU 核上并行计算。
 func Downscale(src *image.RGBA, w, h int) *image.RGBA {
-	sw, sh := src.Bounds().Dx(), src.Bounds().Dy()
 	dst := image.NewRGBA(image.Rect(0, 0, w, h))
-	for y := 0; y < h; y++ {
+	workers := runtime.NumCPU()
+	if workers > 8 {
+		workers = 8
+	}
+	if workers < 1 || h < 64 {
+		workers = 1
+	}
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		y0, y1 := h*i/workers, h*(i+1)/workers
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			downscaleRows(src, dst, w, h, y0, y1)
+		}()
+	}
+	wg.Wait()
+	return dst
+}
+
+func downscaleRows(src, dst *image.RGBA, w, h, rowStart, rowEnd int) {
+	sw, sh := src.Bounds().Dx(), src.Bounds().Dy()
+	for y := rowStart; y < rowEnd; y++ {
 		y0 := y * sh / h
 		y1 := (y + 1) * sh / h
 		if y1 <= y0 {
@@ -64,5 +97,4 @@ func Downscale(src *image.RGBA, w, h int) *image.RGBA {
 			d[0], d[1], d[2], d[3] = uint8(r/n), uint8(g/n), uint8(b/n), 255
 		}
 	}
-	return dst
 }
