@@ -2,7 +2,7 @@
 # 构建手机端 release APK，输出到 dist/app/p2d.apk，并复制到 desktop/vendor/app/p2d.apk（供电脑端自动安装）。
 #
 # Windows 下 C++ 组件（react-native-worklets 等）的编译路径很容易超过 260 字符，
-# 所以先把 mobile/ 同步到一个短路径（默认 D:\p2dm）再构建。
+# 所以先把 mobile/ 同步到一个较短的路径（默认 D:\project_resource\p2dm）再构建。
 #
 # 用法：scripts/build-apk.sh [架构，默认 arm64-v8a,armeabi-v7a]
 # 可选环境变量：P2D_BUILD_DIR（短路径目录）、P2D_PROXY（如 127.0.0.1:1159，Gradle 下载依赖时使用）、
@@ -12,7 +12,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 ARCHS="${1:-arm64-v8a,armeabi-v7a}"
 SRC="$ROOT/mobile"
-BUILD="${P2D_BUILD_DIR:-/d/p2dm}"
+BUILD="${P2D_BUILD_DIR:-/d/project_resource/p2dm}"
 
 if [ ! -d "$SRC/android" ]; then
   echo "先生成原生工程：cd mobile && npx expo prebuild --platform android --no-install" >&2

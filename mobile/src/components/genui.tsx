@@ -3,7 +3,7 @@
 
 import { AlertTriangle, Check, CircleAlert, CircleCheck, Info, Loader, X } from 'lucide-react-native';
 import { useMemo, useState } from 'react';
-import { Pressable, View } from 'react-native';
+import { Pressable, ScrollView, View } from 'react-native';
 
 import { send, useConversation } from '@/agent/conversations';
 import { parseGenui, type GenuiNode, type Tone } from '@/agent/genui';
@@ -25,13 +25,22 @@ const TONE_TEXT: Record<Tone, string> = {
 };
 const TONE_ICON = { info: Info, success: CircleCheck, warning: AlertTriangle, error: CircleAlert };
 
-function Buttons({ items }: { items: { label: string; send: string; primary?: boolean }[] }) {
+/** 后续操作建议：一行气泡，按文字自适应宽度、完整显示；放不下时可以左右滑动查看 */
+function Buttons({ items }: { items: { label: string; send: string }[] }) {
   const { running } = useConversation();
   const [tapped, setTapped] = useState<string | null>(null);
   return (
-    <View className="flex-row flex-wrap gap-2">
-      {items.map((b, i) => {
-        const primary = b.primary ?? i === 0;
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      contentContainerClassName="gap-2"
+      className="-mx-1"
+      // ScrollView 默认 flexGrow: 1，放在对话列表里会撑出大片空白，把后面的消息挤到可见区域之外
+      style={{ flexGrow: 0 }}
+      contentContainerStyle={{ paddingHorizontal: 4 }}
+    >
+      {items.slice(0, 3).map((b) => {
+        const done = tapped === b.label;
         const disabled = running || tapped !== null;
         return (
           <Pressable
@@ -41,18 +50,21 @@ function Buttons({ items }: { items: { label: string; send: string; primary?: bo
               setTapped(b.label);
               void send(b.send);
             }}
+            accessibilityLabel={b.label}
             className={cn(
-              'h-9 flex-row items-center gap-1.5 rounded-full border px-4',
-              primary ? 'border-primary bg-primary' : 'border-border bg-background',
-              disabled && tapped !== b.label && 'opacity-40',
+              'h-9 flex-row items-center gap-1 rounded-full border px-4 active:bg-muted',
+              done ? 'border-primary/40 bg-primary/10' : 'border-border bg-background',
+              disabled && !done && 'opacity-40',
             )}
           >
-            {tapped === b.label ? <Icon as={Check} size={13} className={primary ? 'text-primary-foreground' : 'text-primary'} /> : null}
-            <Text className={cn('text-[13px] font-medium', primary ? 'text-primary-foreground' : 'text-foreground')}>{b.label}</Text>
+            {done ? <Icon as={Check} size={12} className="text-primary" /> : null}
+            <Text numberOfLines={1} className={cn('text-[13px]', done ? 'text-primary' : 'text-foreground')}>
+              {b.label}
+            </Text>
           </Pressable>
         );
       })}
-    </View>
+    </ScrollView>
   );
 }
 

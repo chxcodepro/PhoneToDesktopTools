@@ -123,3 +123,16 @@ export async function fetchStatus(): Promise<CoreStatus> {
 export async function disconnect(): Promise<void> {
   await request('POST', '/api/disconnect', 2000);
 }
+
+/** 局域网配对：打开 / 关闭「配对新手机」窗口，取消某部手机的配对 */
+export async function startPairing(): Promise<void> {
+  await request('POST', '/api/pairing/start', 2000);
+}
+
+export async function cancelPairing(): Promise<void> {
+  await request('POST', '/api/pairing/cancel', 2000);
+}
+
+export async function removePaired(id: string): Promise<void> {
+  await request('POST', `/api/paired/remove?id=${encodeURIComponent(id)}`, 2000);
+}

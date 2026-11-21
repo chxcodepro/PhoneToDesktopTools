@@ -55,7 +55,7 @@ export function NotConnectedCard() {
           <Icon as={Monitor} size={24} className="text-primary" />
         </View>
         <Text className="font-semibold">未连接电脑</Text>
-        <Button onPress={() => router.push('/connect')}>
+        <Button onPress={() => router.push('/devices')}>
           <Icon as={Plug} size={16} className="text-primary-foreground" />
           <Text>连接电脑</Text>
         </Button>

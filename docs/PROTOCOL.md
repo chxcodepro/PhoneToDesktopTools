@@ -26,16 +26,11 @@ adb -s <序列号> shell am start -a android.intent.action.VIEW \
 
 指定了包名，这个 Intent 只会投递给本 App。手机端收到 Deep Link 后立即连接。令牌按手机（`ro.serialno`）而不是按 adb 通道管理，手机的所有通道都断开后才作废，下次连接重新生成。
 
-### 1.2 WiFi 局域网连接（Android）
+### 1.2 WiFi：局域网直连
 
-不需要手机端改动，仍是上面的 adb 隧道，只是 adb 走网络（Core 默认开启，`-wifi=false` 关闭）：
+WiFi 连接不走 adb，而是手机直接连电脑的局域网 IP（详见第 9 节）。Deep Link 里额外带 `pcid`（电脑标识），手机 USB 连上后调用 `p2d/pc.info` 记下电脑的局域网地址，没配对过就调用 `p2d/pair.issue` 自动配对。拔掉数据线（令牌失效 / 连接断开）时，手机自动改用 WiFi 直连同一台电脑；插回数据线时电脑重新下发 Deep Link，手机切回 USB（可在手机「设备」页关闭）。
 
-1. 插着数据线时，Core 读取手机 WiFi 网卡（`wlan*`）的 IPv4 地址并记下（保存在用户配置目录 `PhoneToDesktop/wifi-peers.json`）；手机 adb 还不是网络模式时执行 `adb -s <序列号> tcpip 5555`（手机 adb 会重启一次，Core 等它回来后再继续）。
-2. 拔掉数据线后，Core 立即 `adb connect <ip>:5555`，连上后在 WiFi 通道上重新 `reverse`。期间（最多 25 秒）令牌保留，手机端用原令牌自动重连，不重新拉起 App；40 秒内没重连上才用 Deep Link 拉起。
-3. 数据线插回来时 USB 优先：在 USB 通道上 `reverse`（隧道改绑过来），再断开 WiFi 通道。
-4. 手机不在线时，Core 每 15 秒尝试连一次记住的地址；连上的设备 `ro.serialno` 与记录不符就断开并删掉记录。用户点「断开」后，插线前不再自动连 WiFi。
-
-限制：手机重启后 adb 网络模式失效，需要再插一次数据线；adb 网络连接同样需要手机已授权本机的 adb 密钥；Core 仍只监听 127.0.0.1。
+（之前的「adb 网络调试 + 自动 adb connect」方案已移除：它会让手机在局域网开着 5555 端口，且只能由电脑去连手机。）
 
 开发调试时，Core 可以用 `--dev-token <值>` 指定一个固定令牌。
 
@@ -141,3 +136,70 @@ Core 在同一端口提供 HTTP 接口，只接受本机访问：
 
 - `GET /api/status`：电脑信息、adb 是否可用、设备列表（序列号、型号、阶段）、当前会话
 - `POST /api/disconnect`：断开所有手机。设备在拔线前不会自动重连
+
+## 8. 扩展（MCP / Skill，自定义扩展）
+
+扩展的配置都保存在手机上（令牌类请求头 / 环境变量存手机安全存储），Agent 看到的工具 = 电脑工具 + 手机工具 + 扩展工具。电脑未连接时仍可使用手机工具和远程 MCP。
+
+### 8.1 远程 MCP（手机直连）
+
+手机用自己的网络直接连接，不经过电脑。支持 Streamable HTTP（默认）和旧版 SSE（地址以 `/sse` 结尾，或配置里 `"type": "sse"`）。工具合并到 Agent 时改名为 `<前缀>__<工具名>`（前缀由服务名生成，最多 64 字符），描述前加 `[MCP · 服务名]`。
+
+### 8.2 电脑上的 stdio MCP（电脑端转发）
+
+需要「执行命令」权限。进程按「手机序列号 / 扩展 ID」管理，手机断线重连（如切到 WiFi）后继续使用，手机断开或电脑端退出时结束。
+
+| 方法 | 参数 | 结果 |
+|---|---|---|
+| `p2d/mcp.start` | `id`，`command`，`args?`，`env?`，`cwd?` | `{name, tools}`；配置不变且进程还在时直接返回 |
+| `p2d/mcp.call` | `id`，`name`，`arguments?` | MCP `tools/call` 的结果原样返回；进程不在时报错含 `not_started`，手机端会重新 start 后重试 |
+| `p2d/mcp.stop` | `id` | `{}` |
+
+### 8.3 Skill
+
+文件存在手机上；`skill_run` 时按内容哈希同步到电脑缓存目录（`<用户缓存目录>/PhoneToDesktop/skills/<名称>-<哈希>/`，可用环境变量 `P2D_SKILL_DIR` 覆盖），再用 `shell_exec` 执行（受「执行命令」权限控制）。
+
+| 方法 | 参数 | 结果 |
+|---|---|---|
+| `p2d/skill.has` | `name`，`hash` | `{dir, exists}` |
+| `p2d/skill.sync` | `name`，`hash`，`files: [{path, data(base64)}]` | `{dir}`；需要「文件」写权限，路径不能跳出目录，单个 Skill 最多 32 MB |
+
+### 8.4 扩展相关的 Agent 工具（手机端）
+
+| 工具 | 说明 |
+|---|---|
+| `skill_read` | 读 Skill 的 SKILL.md 或附带文件（系统提示词里只放名称和描述） |
+| `skill_run` | 在电脑上执行 Skill 附带的脚本，按扩展名选解释器（.ps1 / .bat / .py / .js / .sh） |
+| `ext_list` / `ext_toggle` | 查看、启用 / 停用扩展 |
+| `ext_add_mcp` / `ext_install_skill` / `ext_create_skill` / `ext_remove` | 安装、新建、卸载；先在对话里弹出确认卡片，用户确认后才生效 |
+
+## 9. 局域网直连（WiFi）
+
+电脑端在 `0.0.0.0:39272`（`-lan-port`，0 表示关闭）提供局域网入口，只有三个路径：`/p2d/ping`（探测，返回 `{app:"p2d", pc, name}`）、`/p2d/pair`（配对）、`/p2d/secure`（加密会话）。状态接口等仍只接受本机访问。电脑身份和配对过的手机保存在用户配置目录 `PhoneToDesktop/lan.json`（仅当前用户可读）。
+
+### 9.1 配对（每台手机和电脑共享一个 32 字节密钥 K）
+
+| 方式 | 过程 |
+|---|---|
+| 插数据线（自动） | USB 会话里调用 `p2d/pair.issue {phone, name}`，电脑生成随机 K 返回（只允许 adb 隧道上的会话调用）。 |
+| 扫码 | 电脑端点「配对新手机」后显示二维码 `p2d://pair?h=IP1,IP2&p=39272&id=电脑标识&n=电脑名&s=一次性密钥P`（16 字节，3 分钟内有效）。 |
+| 输入 IP + 配对码 | 手机输入电脑 IP 后，电脑窗口显示 6 位配对码，用户在手机上输入核对。 |
+
+扫码 / 配对码走 `/p2d/pair`（WebSocket，明文 JSON）：
+
+1. 手机 → `{type:"pair", mode:"qr"|"code", phone, name, pub}`（X25519 公钥）；电脑端没打开配对窗口时返回 `{type:"error", code:"not_open"}`，同时只接受一台手机（`busy`）。
+2. 电脑 → `{type:"pair", pc, name, os, pub}`。双方算出 `shared = X25519(...)`、`T = SHA256(长度前缀拼接("p2d pair v1", pub手机, pub电脑, 手机ID, 电脑ID))`。
+3. 扫码：手机发 `{type:"confirm", mac: HMAC(P, "c"‖T)}`，`K = HKDF(shared, salt=P, info="p2d key"‖T)`。
+   配对码：双方显示 / 计算 `SAS = HKDF(shared, salt=T, info="p2d sas", 4 字节) mod 10⁶`，电脑窗口显示 SAS，用户在手机上输入，手机核对一致后发 `{type:"confirm", mac: HMAC(Kc, "c")}`，`Kc = HKDF(shared, T, "p2d confirm")`，`K = HKDF(shared, T, "p2d key")`。有人在中间转发时两边算出的码不同，用户会发现。
+4. 电脑核对后保存 K，返回 `{type:"ok", mac: HMAC(P或Kc, "s"‖…), pc, name, os, addrs, port}`，手机核对电脑的 mac。
+
+### 9.2 加密会话 `/p2d/secure`
+
+1. 手机 → `{type:"hello", phone, nc(16 字节随机), manual}`；未配对返回 `{type:"error", code:"unpaired"}`；电脑端点过「断开」时只接受 `manual:true`（用户手动点连接），否则返回 `suppressed`。
+2. 电脑 → `{type:"hello", pc, name, os, ns(16 字节随机)}`。
+3. `c2s ‖ s2c = HKDF(K, salt=nc‖ns, info="p2d secure v1", 64)`。之后每条消息都是二进制帧：`ChaCha20-Poly1305(密钥, nonce = 4 字节 0 + 8 字节大端计数器, 明文 = 帧类型(1 文本 / 2 二进制) ‖ 内容)`，两个方向各自从 0 计数。解密失败（密钥不对、篡改、重放）直接断开。
+4. 解开后的内容就是普通的 MCP JSON-RPC，和 USB 的 `/mcp` 完全一样。会话的 `serial` 为 `lan:<手机ID>`，`route` 为 `wifi`。
+
+手机在握手 `initialize` 的 `clientInfo` 里带 `deviceId`（手机标识）和 `device`（手机名），电脑上运行的 MCP 进程按手机标识归属，USB / WiFi 切换后继续使用。
+
+测试向量见 `desktop/core/internal/lan/crypto_test.go` 和 `mobile/tests/secure.test.ts`（两端必须一致）。

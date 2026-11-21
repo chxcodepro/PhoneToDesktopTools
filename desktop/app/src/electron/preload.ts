@@ -13,6 +13,9 @@ const api: P2DApi = {
   minimize: () => ipcRenderer.send('p2d:minimize'),
   hide: () => ipcRenderer.send('p2d:hide'),
   setOverlayInteractive: (interactive) => ipcRenderer.send('p2d:overlayInteractive', !!interactive),
+  startPairing: () => ipcRenderer.invoke('p2d:startPairing') as Promise<void>,
+  cancelPairing: () => ipcRenderer.invoke('p2d:cancelPairing') as Promise<void>,
+  removePaired: (id) => ipcRenderer.invoke('p2d:removePaired', id) as Promise<void>,
 };
 
 contextBridge.exposeInMainWorld('p2d', api);

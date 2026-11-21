@@ -390,6 +390,11 @@ export function createPhoneTools(deps: PhoneToolDeps): AgentTools {
   };
 }
 
+/** 是否是手机端工具 */
+export function isPhoneTool(name: string): boolean {
+  return PHONE_NAMES.has(name);
+}
+
 /** 合并手机工具和电脑工具：按名称分派 */
 export function combineTools(phone: AgentTools, pc: AgentTools): AgentTools {
   return {

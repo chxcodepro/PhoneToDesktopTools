@@ -15,10 +15,12 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"syscall"
 	"time"
 
 	"p2d/core/internal/adb"
+	"p2d/core/internal/lan"
 	"p2d/core/internal/screen"
 	"p2d/core/internal/server"
 	"p2d/core/internal/tools"
@@ -70,7 +72,7 @@ func main() {
 	pkg := flag.String("pkg", "com.p2d.mobile", "手机端包名")
 	devToken := flag.String("dev-token", "", "开发调试用的固定令牌（正式使用请留空）")
 	noADB := flag.Bool("no-adb", false, "不启动 adb 设备发现（仅调试）")
-	wifi := flag.Bool("wifi", true, "插数据线时开启手机的局域网调试，拔线后自动通过 WiFi 连接")
+	lanPort := flag.Int("lan-port", 39272, "局域网直连端口（手机输入电脑 IP 连接用），0 表示不开启")
 	showVersion := flag.Bool("version", false, "显示版本")
 	flag.Parse()
 
@@ -85,6 +87,8 @@ func main() {
 	reg := tools.NewRegistry()
 	tokens := server.NewTokenStore(*devToken)
 	srv := server.New(reg, tokens)
+	store := lan.OpenStore(stateDir())
+	srv.LAN = &server.LANConfig{Store: store, Pairing: lan.NewPairingWindow(func() {})}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -101,11 +105,9 @@ func main() {
 			Package:  *pkg,
 			Port:     *port,
 			HostName: host,
-			WiFi:     *wifi,
-			StateDir: stateDir(),
+			PCID:     store.PCID(),
 		}, tokens)
 		mgr.OnGone = func(id string) { srv.CloseSerial(id, "手机已断开连接") }
-		mgr.HasSession = srv.HasSerial
 		srv.Devices = mgr
 		log.Printf("adb：%s", findADB(*adbPath))
 	}
@@ -124,6 +126,18 @@ func main() {
 	if *devToken != "" {
 		log.Printf("开发令牌已启用：ws://127.0.0.1:%d/mcp?token=%s", *port, *devToken)
 	}
+	// 局域网直连：只接受配对过的手机，消息全程加密
+	if *lanPort > 0 {
+		lanLn, err := net.Listen("tcp", fmt.Sprintf(":%d", *lanPort))
+		if err != nil {
+			log.Printf("局域网直连未开启：无法监听端口 %d（%v）", *lanPort, err)
+		} else {
+			srv.LAN.Port = *lanPort
+			lanSrv := &http.Server{Handler: srv.LANHandler(), ReadHeaderTimeout: 10 * time.Second}
+			go func() { _ = lanSrv.Serve(lanLn) }()
+			log.Printf("局域网直连已开启：端口 %d，本机地址 %s", *lanPort, strings.Join(lan.Addrs(), "、"))
+		}
+	}
 	if mgr != nil {
 		go mgr.Run(ctx)
 		log.Printf("等待手机通过数据线连接…")
@@ -135,6 +149,7 @@ func main() {
 	log.Printf("正在退出…")
 	cancel()
 	srv.DisconnectAll()
+	srv.StopAllMCP()
 	if mgr != nil {
 		mgr.RemoveReverses()
 	}

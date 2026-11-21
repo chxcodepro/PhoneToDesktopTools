@@ -43,7 +43,7 @@ describe('p2d-ui', () => {
     assert.equal(stats.type === 'stats' && stats.items.length, 1);
     assert.equal(progress.type === 'progress' && progress.value, 100);
     assert.equal(steps.type === 'steps' && steps.items[1].status, 'todo');
-    assert.deepEqual(buttons.type === 'buttons' && buttons.items[1], { label: '稍后', send: '稍后', primary: undefined });
+    assert.deepEqual(buttons.type === 'buttons' && buttons.items[1], { label: '稍后', send: '稍后' });
   });
 
   it('支持 { title, items } 和单个组件；JSON 不合法或没有组件时返回 null', () => {

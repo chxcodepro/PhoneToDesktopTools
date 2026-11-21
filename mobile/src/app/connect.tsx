@@ -2,26 +2,25 @@
 // expo-router 会打开本页并带上参数；无需配对，拿到令牌后自动连接。
 
 import { router, useLocalSearchParams, useNavigation } from 'expo-router';
-import { Check, Monitor, Smartphone, X } from 'lucide-react-native';
+import { Check, Monitor, Smartphone, Wifi, X } from 'lucide-react-native';
 import { useEffect, useMemo } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { StatusDot } from '@/components/connection-status';
 import { Button } from '@/components/ui/button';
-import { Card, GroupTitle, Separator } from '@/components/ui/card';
+import { Card, Separator } from '@/components/ui/card';
 import { Icon } from '@/components/ui/icon';
 import { Text } from '@/components/ui/text';
 import { cn } from '@/lib/utils';
 import { parseConnectQuery } from '@/protocol/deepLink';
-import { connectWith, initConnection, osLabel, useConnection } from '@/state/connection';
+import { connectWith, initConnection, useConnection } from '@/state/connection';
 
 type StepState = 'pending' | 'active' | 'done' | 'error';
 
 export default function ConnectScreen() {
   const query = useLocalSearchParams();
   const linkParams = useMemo(() => parseConnectQuery(query), [query]);
-  const { status, detail, params, knownComputers } = useConnection();
+  const { status, detail, params } = useConnection();
   // 渲染期间不能调用 router.canGoBack()（冷启动通过 Deep Link 直接打开本页时路由尚未就绪）
   const navigation = useNavigation();
   const canGoBack = navigation.canGoBack();
@@ -89,40 +88,16 @@ export default function ConnectScreen() {
         ) : null}
         {!hasLink ? (
           <Text className="text-center text-sm text-muted-foreground">
-            用数据线连接电脑，并在手机上允许 USB 调试。连上一次后，同一 WiFi 下拔掉数据线也能继续用
+            用数据线连接电脑，并在手机上允许 USB 调试。连上一次后会自动配对，之后在同一 WiFi 下拔掉数据线也能继续用
           </Text>
         ) : null}
 
         <View className="flex-1" />
 
-        {knownComputers.length > 0 ? (
-          <View className="gap-3 pb-4">
-            <GroupTitle>连过的电脑</GroupTitle>
-            {knownComputers.map((k) => {
-              const current = params?.host === k.host;
-              return (
-                <View key={k.host} className="flex-row items-center gap-3">
-                  <View
-                    className={cn(
-                      'h-8 w-8 items-center justify-center rounded-md',
-                      current ? 'bg-primary/10' : 'bg-muted',
-                    )}>
-                    <Icon
-                      as={Monitor}
-                      size={14}
-                      className={current ? 'text-primary' : 'text-muted-foreground'}
-                    />
-                  </View>
-                  <View className="flex-1">
-                    <Text className="text-sm font-medium">{k.host}</Text>
-                    <Text className="text-xs text-muted-foreground">{osLabel(k.os)}</Text>
-                  </View>
-                  {current ? <StatusDot status={status} /> : null}
-                </View>
-              );
-            })}
-          </View>
-        ) : null}
+        <Button variant="outline" className="mb-2" onPress={() => router.replace('/devices')}>
+          <Icon as={Wifi} size={16} className="text-foreground" />
+          <Text>选择电脑 / WiFi 连接</Text>
+        </Button>
 
         {canGoBack ? (
           <Button variant="ghost" className="mb-4" onPress={() => router.back()}>

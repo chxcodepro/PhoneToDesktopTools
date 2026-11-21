@@ -47,7 +47,7 @@ P2D_PROXY=127.0.0.1:1159 bash scripts/build-apk.sh arm64-v8a   # 不需要代理
 ```
 
 - 输出 `dist/app/p2d.apk`，并复制到 `desktop/vendor/app/p2d.apk`（电脑端插线时自动安装）。
-- C++ 组件的编译路径很长，脚本会先把 `mobile/` 同步到短路径 `D:\p2dm`（可用 `P2D_BUILD_DIR` 修改）再构建。
+- C++ 组件的编译路径很长，脚本会先把 `mobile/` 同步到较短的路径 `D:\project_resource\p2dm`（可用 `P2D_BUILD_DIR` 修改）再构建。
 - 需要系统开启长路径（注册表 `HKLM\SYSTEM\CurrentControlSet\Control\FileSystem\LongPathsEnabled = 1`），并安装 CMake 3.31.6：下载 https://dl.google.com/android/repository/cmake-3.31.6-windows.zip ，解压到 `%LOCALAPPDATA%\Android\Sdk\cmake\3.31.6\`（解压后该目录下直接是 `bin\`、`share\`）。SDK 自带的 CMake 3.22.1 里的 ninja 不支持长路径。
 - 目前使用调试签名，正式发布前要换成自己的签名证书。
 

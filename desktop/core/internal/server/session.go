@@ -46,17 +46,35 @@ type rpcMessage struct {
 type SessionInfo struct {
 	ID          int64            `json:"id"`
 	Serial      string           `json:"serial"`
+	Route       string           `json:"route"`          // usb / wifi
+	Name        string           `json:"name,omitempty"` // 手机名（局域网直连时来自配对记录）
 	Client      string           `json:"client"`
 	ConnectedAt time.Time        `json:"connectedAt"`
 	Permissions perm.Permissions `json:"permissions"`
+}
+
+// wsConn 会话使用的 WebSocket 连接；局域网直连时是加密包装（见 lan.go）。
+type wsConn interface {
+	ReadMessage() (int, []byte, error)
+	WriteMessage(messageType int, data []byte) error
+	WriteControl(messageType int, data []byte, deadline time.Time) error
+	SetReadLimit(limit int64)
+	SetReadDeadline(t time.Time) error
+	SetWriteDeadline(t time.Time) error
+	SetPongHandler(h func(appData string) error)
+	Close() error
 }
 
 // Session 一条手机连接。
 type Session struct {
 	id     int64
 	serial string
-	conn   *websocket.Conn
+	route  string // usb / wifi
+	owner  string // 手机端的设备 ID（握手时告知 / 配对记录），用来在换通道后继续使用同一批 MCP 进程
+	name   string
+	conn   wsConn
 	reg    *tools.Registry
+	server *Server
 
 	writeMu sync.Mutex
 	mu      sync.Mutex
@@ -70,15 +88,15 @@ type Session struct {
 	uploads uploadState
 }
 
-func newSession(id int64, serial string, conn *websocket.Conn, reg *tools.Registry) *Session {
+func newSession(id int64, serial string, conn wsConn, reg *tools.Registry) *Session {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Session{id: id, serial: serial, conn: conn, reg: reg, perms: perm.Default(), since: time.Now(), ctx: ctx, cancel: cancel}
+	return &Session{id: id, serial: serial, route: "usb", conn: conn, reg: reg, perms: perm.Default(), since: time.Now(), ctx: ctx, cancel: cancel}
 }
 
 func (s *Session) Info() SessionInfo {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return SessionInfo{ID: s.id, Serial: s.serial, Client: s.client, ConnectedAt: s.since, Permissions: s.perms}
+	return SessionInfo{ID: s.id, Serial: s.serial, Route: s.route, Name: s.name, Client: s.client, ConnectedAt: s.since, Permissions: s.perms}
 }
 
 // Close 主动断开。
@@ -182,11 +200,21 @@ func (s *Session) dispatch(m rpcMessage) {
 		var p struct {
 			ProtocolVersion string `json:"protocolVersion"`
 			ClientInfo      struct {
-				Name    string `json:"name"`
-				Version string `json:"version"`
+				Name     string `json:"name"`
+				Version  string `json:"version"`
+				DeviceID string `json:"deviceId"` // 自定义扩展：手机端的设备 ID
+				Device   string `json:"device"`   // 手机名
 			} `json:"clientInfo"`
 		}
 		_ = json.Unmarshal(m.Params, &p)
+		s.mu.Lock()
+		if s.owner == "" && p.ClientInfo.DeviceID != "" {
+			s.owner = p.ClientInfo.DeviceID
+		}
+		if s.name == "" && p.ClientInfo.Device != "" {
+			s.name = p.ClientInfo.Device
+		}
+		s.mu.Unlock()
 		version := supportedVersions[0]
 		for _, v := range supportedVersions {
 			if v == p.ProtocolVersion {
@@ -288,6 +316,44 @@ func (s *Session) dispatch(m rpcMessage) {
 		if !notify {
 			s.reply(m.ID, res)
 		}
+	case "p2d/pair.issue", "p2d/pc.info", "p2d/pair.remove":
+		res, err := s.pairMethod(m.Method, m.Params)
+		if err != nil {
+			s.fail(m.ID, errInvalidRequest, err.Error())
+			return
+		}
+		if !notify {
+			s.reply(m.ID, res)
+		}
+	case "p2d/skill.has", "p2d/skill.sync", "p2d/mcp.start", "p2d/mcp.stop":
+		handlers := map[string]func(json.RawMessage) (any, error){
+			"p2d/skill.has":  s.skillHas,
+			"p2d/skill.sync": s.skillSync,
+			"p2d/mcp.start":  s.mcpStart,
+			"p2d/mcp.stop":   s.mcpStop,
+		}
+		// 启动 MCP 可能要等较久（npx 首次运行等），放到协程里，不阻塞其他消息
+		go func() {
+			res, err := handlers[m.Method](m.Params)
+			if err != nil {
+				s.fail(m.ID, errInvalidRequest, err.Error())
+				return
+			}
+			if !notify {
+				s.reply(m.ID, res)
+			}
+		}()
+	case "p2d/mcp.call":
+		go func() {
+			res, err := s.mcpCall(s.ctx, m.Params)
+			if err != nil {
+				s.fail(m.ID, errInvalidRequest, err.Error())
+				return
+			}
+			if !notify {
+				s.reply(m.ID, res)
+			}
+		}()
 	case "p2d/screen.stop":
 		s.stopStream()
 		if !notify {

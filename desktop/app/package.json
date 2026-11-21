@@ -18,9 +18,9 @@
     "dist:win64": "npm run build && npm run stage-core && electron-builder --win portable --x64",
     "dist:linux": "npm run build && npm run stage-core && electron-builder --linux dir AppImage --x64 --arm64"
   },
-  "dependencies": {},
   "devDependencies": {
     "@types/node": "^18.19.130",
+    "@types/qrcode": "^1.5.6",
     "@types/react": "^18.3.27",
     "@types/react-dom": "^18.3.7",
     "@vitejs/plugin-react": "4.7.0",
@@ -31,6 +31,7 @@
     "electron-builder": "26.18.0",
     "lucide-react": "0.577.0",
     "postcss": "^8.5.6",
+    "qrcode": "^1.5.4",
     "react": "18.3.1",
     "react-dom": "18.3.1",
     "tailwind-merge": "^2.6.0",

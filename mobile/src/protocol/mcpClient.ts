@@ -45,7 +45,7 @@ export interface McpClientOptions {
   /** 重连最大间隔，默认 30 秒 */
   reconnectMaxMs?: number;
   /** 客户端信息 */
-  clientInfo?: { name: string; version: string };
+  clientInfo?: { name: string; version: string; [extra: string]: string };
   /** 每次（重新）连接并握手完成后调用，例如发送权限设置 */
   onConnected?: (client: McpClient) => void | Promise<void>;
   /** 日志输出（调试用） */
@@ -171,11 +171,7 @@ export class McpClient {
   }
 
   /** 调用工具 */
-  async callTool(
-    name: string,
-    args: Record<string, unknown> = {},
-    options: { timeoutMs?: number } = {},
-  ): Promise<ToolResult> {
+  async callTool(name: string, args: Record<string, unknown> = {}, options: { timeoutMs?: number } = {}): Promise<ToolResult> {
     const res = (await this.request(
       'tools/call',
       { name, arguments: args },
@@ -285,7 +281,8 @@ export class McpClient {
       if (this.stopped) return;
       if (unauthorized || ev?.code === 4401) {
         this.stopped = true;
-        this.setStatus('unauthorized', '令牌无效，请重新插拔数据线');
+        // 局域网直连时 reason 是电脑端给的具体原因（未配对、电脑端已断开等）
+        this.setStatus('unauthorized', ev?.code === 4401 && ev.reason ? ev.reason : '令牌无效，请重新插拔数据线');
         return;
       }
       this.setStatus('disconnected');
@@ -439,10 +436,7 @@ export class McpClient {
   private scheduleReconnect(): void {
     if (this.stopped) return;
     this.clearReconnect();
-    const delay = Math.min(
-      this.opts.reconnectBaseMs * 2 ** this.reconnectAttempt,
-      this.opts.reconnectMaxMs,
-    );
+    const delay = Math.min(this.opts.reconnectBaseMs * 2 ** this.reconnectAttempt, this.opts.reconnectMaxMs);
     this.reconnectAttempt++;
     this.log(`${delay} ms 后重连（第 ${this.reconnectAttempt} 次）`);
     this.reconnectTimer = setTimeout(() => {

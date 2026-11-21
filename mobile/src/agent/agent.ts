@@ -37,8 +37,12 @@ export interface AgentOptions {
   fetch: FetchLike;
   supportsVision: boolean;
   supportsTools: boolean;
-  /** 电脑未连接时为 null */
+  /** 可用的工具；不支持工具时为 null */
   tools: AgentTools | null;
+  /** 电脑是否已连接（tools 里是否含电脑工具），默认 true；为 false 时只有手机端工具和扩展 */
+  pcConnected?: boolean;
+  /** 扩展（Skill / MCP）的说明；传函数时每一步重新获取（刚安装的扩展立即生效） */
+  extensionPrompt?: string[] | (() => string[]);
   computer?: ComputerInfo | null;
   /** 用户为当前模型填写的系统提示词，加在内置提示词之后 */
   customPrompt?: string;
@@ -62,10 +66,11 @@ function osName(os?: string): string {
 }
 
 export function buildSystemPrompt(
-  opts: Pick<AgentOptions, 'computer' | 'supportsVision' | 'tools' | 'supportsTools' | 'customPrompt'>,
+  opts: Pick<AgentOptions, 'computer' | 'supportsVision' | 'tools' | 'supportsTools' | 'customPrompt' | 'pcConnected' | 'extensionPrompt'>,
 ): string {
   const lines: string[] = [];
-  const connected = !!opts.tools && opts.supportsTools;
+  const toolsOn = !!opts.tools && opts.supportsTools;
+  const connected = toolsOn && opts.pcConnected !== false;
   if (connected) {
     const c = opts.computer;
     lines.push(
@@ -90,6 +95,11 @@ export function buildSystemPrompt(
       '- 删除或覆盖重要文件、结束进程、关机重启等不可逆操作前，先用一句话说明你要做什么。',
       '- 工具返回「没有权限」时，告诉用户需要在手机「设置 → 电脑权限」里开启哪一项，不要反复重试。',
     );
+  } else if (toolsOn) {
+    lines.push(
+      '你是运行在用户手机上的 AI 助手，可以通过 USB 数据线或局域网 WiFi 操作用户的电脑。',
+      '电脑当前未连接，电脑上的工具（命令、文件、屏幕、键鼠）暂不可用；可以用手机端的工具（联网搜索、读网页、MCP 服务、Skill 说明、定时任务）完成不需要电脑的事。需要操作电脑时，提醒用户用数据线连接电脑（连过一次后，在同一 WiFi 下也会自动连上）。',
+    );
   } else {
     lines.push(
       '你是运行在用户手机上的 AI 助手，可以通过 USB 数据线或局域网 WiFi 操作用户的电脑。',
@@ -98,7 +108,7 @@ export function buildSystemPrompt(
         : '电脑当前未连接，无法操作电脑。需要操作电脑时，请提醒用户用数据线连接电脑并允许 USB 调试。',
     );
   }
-  if (connected) {
+  if (toolsOn) {
     lines.push(
       '',
       '和用户交互：',
@@ -113,10 +123,12 @@ export function buildSystemPrompt(
     '  progress {"type":"progress","label":"磁盘已用","value":64}；',
     '  steps {"type":"steps","items":[{"title":"下载驱动","status":"done|current|todo|error","detail":"说明"}]}；',
     '  kv {"type":"kv","title":"系统信息","items":[{"label":"系统","value":"Windows 10"}]}；',
-    '  buttons {"type":"buttons","items":[{"label":"安装驱动","send":"点击后发给你的话"}]}（任务结束后给出后续操作建议，最多 4 个）。',
+    '  buttons {"type":"buttons","items":[{"label":"安装驱动","send":"点击后发给你的话"}]}（任务结束后给出后续操作建议：最多 3 个，手机上排成一行显示，label 简短（一般 4～8 个字），如「查看详情」「清理磁盘」，具体要求写在 send 里）。',
     '  多个组件放进数组：[{...},{...}]。',
   );
   lines.push('- 用户消息末尾的［发送时间 …］是系统附加的手机本地时间，用来理解「今天」「明天」「下周一」，不要在回答里提起它。');
+  const ext = typeof opts.extensionPrompt === 'function' ? opts.extensionPrompt() : opts.extensionPrompt;
+  if (toolsOn && ext?.length) lines.push(...ext, '');
   lines.push('用简体中文回答，简洁明了。任务完成后简要说明结果。');
   const custom = opts.customPrompt?.trim();
   if (custom) {
@@ -197,6 +209,20 @@ export function summarizeArgs(name: string, args: Record<string, unknown>): stri
       return '定时任务列表';
     case 'download_to_pc':
       return args.catalog_id ? `微软更新目录 ${s(args.catalog_id)}` : s(args.url);
+    case 'skill_read':
+      return `${s(args.name)}${args.path ? ` / ${s(args.path)}` : ''}`;
+    case 'skill_run':
+      return `${s(args.name)} / ${s(args.script)}${args.admin ? ' [管理员]' : ''}`;
+    case 'ext_add_mcp':
+      return s(args.name) || s(args.url) || 'JSON 配置';
+    case 'ext_install_skill':
+      return s(args.url);
+    case 'ext_create_skill':
+    case 'ext_toggle':
+    case 'ext_remove':
+      return s(args.name);
+    case 'ext_list':
+      return '扩展列表';
     default:
       if (typeof args.path === 'string') return args.path;
       return Object.values(args).map(s).join(' ').slice(0, 80);
@@ -288,8 +314,6 @@ export async function runAgent(history: ChatMessage[], opts: AgentOptions): Prom
   const emit = (e: AgentEvent) => opts.onEvent?.(e);
   const maxSteps = opts.maxSteps ?? 40;
   const useTools = !!opts.tools && opts.supportsTools;
-  const tools = useTools ? toToolSpecs(opts.tools!.list()) : undefined;
-  const system: ChatMessage = { role: 'system', content: buildSystemPrompt(opts) };
   // 模型实际不支持图片时（接口返回 400），本次运行改为不带图片
   let visionOk = true;
 
@@ -300,6 +324,9 @@ export async function runAgent(history: ChatMessage[], opts: AgentOptions): Prom
         emit({ type: 'notice', text: `已连续执行 ${maxSteps} 步，先停下来。可以回复「继续」让我接着做。` });
         break;
       }
+      // 每一步重新取工具和系统提示词：本次运行中刚安装的 MCP / Skill 下一步就能用
+      const tools = useTools ? toToolSpecs(opts.tools!.list()) : undefined;
+      const system: ChatMessage = { role: 'system', content: buildSystemPrompt(opts) };
       const pruned = pruneImages([...history, ...added]);
       const callModel = (msgs: ChatMessage[]) =>
         chat(

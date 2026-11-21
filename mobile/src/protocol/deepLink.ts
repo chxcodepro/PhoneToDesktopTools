@@ -32,12 +32,41 @@ export function parseConnectQuery(query: string | Record<string, unknown>): Conn
   if (!/^[A-Za-z0-9_-]{8,128}$/.test(token)) return null;
   const portRaw = Number(get('port'));
   const port = Number.isInteger(portRaw) && portRaw > 0 && portRaw < 65536 ? portRaw : DEFAULT_PORT;
+  const pcId = get('pcid');
   return {
     token,
     host: get('host') || '电脑',
     os: get('os') || 'unknown',
     port,
+    ...(/^[0-9a-f]{8,64}$/i.test(pcId) ? { pcId } : {}),
   };
+}
+
+/** 电脑端「配对新手机」二维码：p2d://pair?h=IP1,IP2&p=端口&id=电脑标识&n=电脑名&s=一次性密钥 */
+export interface PairLink {
+  addrs: string[];
+  port: number;
+  pcId: string;
+  name: string;
+  secret: string;
+}
+
+export function parsePairUrl(url: string | null | undefined): PairLink | null {
+  const m = /^p2d:\/\/\/?pair\/?\?(.*)$/i.exec((url ?? '').trim());
+  if (!m) return null;
+  const q: Record<string, string> = {};
+  for (const part of m[1].split('&')) {
+    const i = part.indexOf('=');
+    if (i > 0) q[safeDecode(part.slice(0, i))] = safeDecode(part.slice(i + 1));
+  }
+  const addrs = (q.h ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => /^[0-9a-fA-F.:[\]]+$/.test(s));
+  const port = Number(q.p);
+  if (!addrs.length || !Number.isInteger(port) || port <= 0 || port > 65535) return null;
+  if (!/^[0-9a-f]{8,64}$/i.test(q.id ?? '') || !/^[A-Za-z0-9_-]{16,64}$/.test(q.s ?? '')) return null;
+  return { addrs, port, pcId: q.id, name: q.n || '电脑', secret: q.s };
 }
 
 /** 拼接 WebSocket 地址（只连本机回环，流量经 adb reverse 到电脑） */

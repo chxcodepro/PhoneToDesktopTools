@@ -2,7 +2,7 @@
 import { app, BrowserWindow, globalShortcut, ipcMain, Menu, nativeImage, session, shell, Tray } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
-import { CoreProcess, disconnect, fetchStatus } from './core';
+import { cancelPairing, CoreProcess, disconnect, fetchStatus, removePaired, startPairing } from './core';
 import { OverlayManager } from './overlay';
 import { deviceNameFor, type AppStatus } from '../shared/types';
 
@@ -152,6 +152,10 @@ async function poll(): Promise<void> {
 function registerIpc(): void {
   ipcMain.handle('p2d:getStatus', () => current);
   ipcMain.handle('p2d:disconnect', () => doDisconnect());
+  // 配对操作完成后立即刷新一次状态，界面不用等下一轮轮询
+  ipcMain.handle('p2d:startPairing', () => startPairing().then(poll));
+  ipcMain.handle('p2d:cancelPairing', () => cancelPairing().then(poll));
+  ipcMain.handle('p2d:removePaired', (_e, id: unknown) => (typeof id === 'string' ? removePaired(id).then(poll) : undefined));
   ipcMain.on('p2d:minimize', () => mainWindow?.minimize());
   ipcMain.on('p2d:hide', () => mainWindow?.hide());
   ipcMain.on('p2d:overlayInteractive', (e, interactive: unknown) => {

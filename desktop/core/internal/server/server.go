@@ -8,12 +8,14 @@ import (
 	"net/http"
 	"os"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
 
+	"p2d/core/internal/stdiomcp"
 	"p2d/core/internal/tools"
 )
 
@@ -32,13 +34,18 @@ type Server struct {
 	reg     *tools.Registry
 	Tokens  *TokenStore
 	Devices DeviceSource
+	LAN     *LANConfig // 局域网直连，未开启时为 nil
+
+	// 用户在电脑上点了「断开」：局域网的自动重连先拒绝，手机上手动点「连接」才接受
+	lanSuppressed atomic.Bool
 
 	mu       sync.Mutex
 	sessions map[int64]*Session
 	nextID   int64
 	upgrader websocket.Upgrader
 	started  time.Time
-	OnChange func() // 会话变化时回调（GUI 刷新用）
+	OnChange func()                      // 会话变化时回调（GUI 刷新用）
+	mcp      map[string]*stdiomcp.Client // 电脑上运行的 stdio MCP（手机序列号/ID → 进程），断线重连后继续使用
 }
 
 func New(reg *tools.Registry, tokens *TokenStore) *Server {
@@ -46,6 +53,7 @@ func New(reg *tools.Registry, tokens *TokenStore) *Server {
 		reg:      reg,
 		Tokens:   tokens,
 		sessions: map[int64]*Session{},
+		mcp:      map[string]*stdiomcp.Client{},
 		started:  time.Now(),
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  64 << 10,
@@ -62,6 +70,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/mcp", s.handleMCP)
 	mux.HandleFunc("/api/status", s.handleStatus)
 	mux.HandleFunc("/api/disconnect", s.handleDisconnect)
+	mux.HandleFunc("/api/pairing/start", s.handlePairingAPI)
+	mux.HandleFunc("/api/pairing/cancel", s.handlePairingAPI)
+	mux.HandleFunc("/api/paired/remove", s.handlePairingAPI)
 	return localOnly(mux)
 }
 
@@ -88,7 +99,15 @@ func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
 	}
 	id := atomic.AddInt64(&s.nextID, 1)
 	sess := newSession(id, serial, conn, s.reg)
+	sess.server = s
+	s.lanSuppressed.Store(false) // 插线重新连接后，局域网也恢复自动重连
+	log.Printf("[会话 %d] 手机已连接（设备 %s）", id, serial)
+	s.runSession(sess, conn)
+}
 
+// runSession 登记会话并运行到断开（USB 和局域网共用）。
+func (s *Server) runSession(sess *Session, conn *websocket.Conn) {
+	id, serial := sess.id, sess.serial
 	s.mu.Lock()
 	// 同一台手机重连时，关闭旧连接
 	for oid, old := range s.sessions {
@@ -99,7 +118,6 @@ func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
 	}
 	s.sessions[id] = sess
 	s.mu.Unlock()
-	log.Printf("[会话 %d] 手机已连接（设备 %s）", id, serial)
 	s.changed()
 
 	sess.run()
@@ -160,6 +178,24 @@ func (s *Server) CloseSerial(serial, reason string) {
 	if len(toClose) > 0 {
 		s.changed()
 	}
+	// 手机断开后结束它启动的 MCP 进程（同一部手机还有别的通道在线时保留）
+	s.mu.Lock()
+	owners := map[string]bool{serial: true}
+	for _, sess := range toClose {
+		owners[sess.mcpOwner()] = true
+	}
+	for _, sess := range s.sessions {
+		delete(owners, sess.mcpOwner())
+	}
+	s.mu.Unlock()
+	s.stopMCP(func(key string) bool {
+		for o := range owners {
+			if strings.HasPrefix(key, o+"/") {
+				return true
+			}
+		}
+		return false
+	})
 }
 
 // DisconnectAll 断开所有手机，并作废令牌。
@@ -168,6 +204,7 @@ func (s *Server) DisconnectAll() {
 		s.Devices.SuppressAll()
 	}
 	s.Tokens.RevokeAll()
+	s.lanSuppressed.Store(true)
 	s.mu.Lock()
 	all := s.sessions
 	s.sessions = map[int64]*Session{}
@@ -175,6 +212,7 @@ func (s *Server) DisconnectAll() {
 	for _, sess := range all {
 		sess.Close("电脑端已断开连接")
 	}
+	s.StopAllMCP()
 	log.Printf("已断开所有手机")
 	s.changed()
 }
@@ -188,6 +226,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		"arch":     runtime.GOARCH,
 		"uptime":   int(time.Since(s.started).Seconds()),
 		"sessions": s.Sessions(),
+		"lan":      s.lanStatus(),
 	}
 	if s.Devices != nil {
 		st["adbAvailable"] = s.Devices.Available()

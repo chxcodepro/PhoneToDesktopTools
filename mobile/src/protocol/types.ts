@@ -91,4 +91,9 @@ export interface ConnectParams {
   host: string;
   os: string;
   port: number;
+  /** 电脑标识（用来关联「设备」里的记录，局域网直连也用它） */
+  pcId?: string;
 }
+
+/** 局域网直连的端口（电脑端默认） */
+export const DEFAULT_LAN_PORT = 39272;

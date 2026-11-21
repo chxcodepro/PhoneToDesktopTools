@@ -10,6 +10,7 @@ import { useColorScheme as useNativewindColorScheme } from 'nativewind';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 
 import { parseDraftUrl } from '@/protocol/deepLink';
+import { initExtensions } from '@/agent/extensionStore';
 import { initScheduler } from '@/agent/scheduler';
 import { handleIncomingUrl, initConnection } from '@/state/connection';
 import { setDraft } from '@/state/ui';
@@ -24,6 +25,7 @@ export default function RootLayout() {
   useEffect(() => {
     void initConnection();
     void initScheduler();
+    void initExtensions();
     // 默认竖屏；只有虚拟桌面页可以切到横屏（见 remote.tsx）
     void ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => undefined);
   }, []);
@@ -48,6 +50,7 @@ export default function RootLayout() {
         <Stack screenOptions={{ headerShown: false }}>
           <Stack.Screen name="(main)" />
           <Stack.Screen name="connect" />
+          <Stack.Screen name="pair" />
         </Stack>
       </ThemeProvider>
     </KeyboardProvider>

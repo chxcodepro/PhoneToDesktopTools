@@ -7,7 +7,7 @@
 //   progress  进度条      { type, label, value: 0~100, hint? }
 //   steps     步骤列表    { type, items: [{ title, status?: done|current|todo|error, detail? }] }
 //   kv        信息列表    { type, title?, items: [{ label, value }] }
-//   buttons   后续操作    { type, items: [{ label, send, primary? }] }，点击后把 send 作为用户消息发给 Agent
+//   buttons   后续操作    { type, items: [{ label, send }] }（最多 3 个，一行等宽显示），点击后把 send 作为用户消息发给 Agent
 // 顶层可以是单个组件、组件数组，或 { title?, items: [...] }。
 
 export const GENUI_LANG = 'p2d-ui';
@@ -20,7 +20,7 @@ export type GenuiNode =
   | { type: 'progress'; label: string; value: number; hint?: string }
   | { type: 'steps'; items: { title: string; status: 'done' | 'current' | 'todo' | 'error'; detail?: string }[] }
   | { type: 'kv'; title?: string; items: { label: string; value: string }[] }
-  | { type: 'buttons'; items: { label: string; send: string; primary?: boolean }[] };
+  | { type: 'buttons'; items: { label: string; send: string }[] };
 
 export interface GenuiSpec {
   title?: string;
@@ -73,8 +73,8 @@ function node(raw: Obj): GenuiNode | null {
       return items.length ? { type: 'kv', title: opt(raw.title, 100), items } : null;
     }
     case 'buttons': {
-      const items = list(raw.items, 4)
-        .map((i) => ({ label: str(i.label, 30), send: str(i.send, 500) || str(i.label, 30), primary: i.primary === true || undefined }))
+      const items = list(raw.items, 3)
+        .map((i) => ({ label: str(i.label, 30), send: str(i.send, 500) || str(i.label, 30) }))
         .filter((i) => i.label);
       return items.length ? { type: 'buttons', items } : null;
     }

@@ -53,7 +53,7 @@ export default function SettingsScreen() {
             <Text>断开</Text>
           </Button>
         ) : (
-          <Button size="sm" onPress={() => router.push('/connect')}>
+          <Button size="sm" onPress={() => router.push('/devices')}>
             <Text>连接</Text>
           </Button>
         )}

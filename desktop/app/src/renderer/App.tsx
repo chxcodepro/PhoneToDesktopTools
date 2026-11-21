@@ -1,9 +1,10 @@
 // 电脑端主窗口：等待连接 → 正在连接 → 已连接
-import { AlertTriangle, CheckCircle2, Circle, Minus, Monitor, OctagonX, Plug, Smartphone, Wifi, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Circle, Minus, Monitor, OctagonX, Plug, QrCode, Smartphone, Trash2, Wifi, X } from 'lucide-react';
+import QRCode from 'qrcode';
 import { useEffect, useState } from 'react';
 import { Badge, Button, Card, Kbd, Spinner } from '@/components/ui';
 import { cn, formatDuration, platformLabel } from '@/lib/utils';
-import { deviceFor, deviceNameFor, type AppStatus, type CoreDevice } from '../shared/types';
+import { deviceNameFor, type AppStatus, type CoreDevice, type CoreLan } from '../shared/types';
 
 function useAppStatus(): AppStatus {
   const [s, setS] = useState<AppStatus>({ coreOnline: false });
@@ -30,19 +31,22 @@ export function App() {
   const st = s.status;
   const session = st?.sessions?.[0];
   const connecting = st?.devices?.find((d) => CONNECTING_STAGES.includes(d.stage));
+  const [pairingView, setPairingView] = useState(false);
+  const lan = st?.lan;
 
   let body: JSX.Element;
-  if (session)
+  if (pairingView && lan?.enabled) body = <Pairing lan={lan} onClose={() => setPairingView(false)} />;
+  else if (session)
     body = (
       <Connected
         name={deviceNameFor(st, session.serial)}
-        wifi={deviceFor(st, session.serial)?.transport === 'wifi'}
+        wifi={session.route === 'wifi'}
         since={session.connectedAt}
         hotkey={s.hotkey}
       />
     );
   else if (connecting) body = <Connecting device={connecting} />;
-  else body = <Waiting s={s} />;
+  else body = <Waiting s={s} onPair={() => setPairingView(true)} />;
 
   return (
     <div className="flex h-full flex-col overflow-hidden border border-border bg-background">
@@ -121,8 +125,11 @@ const ok = <CheckCircle2 className="h-3.5 w-3.5 text-success-foreground" />;
 const warn = <AlertTriangle className="h-3.5 w-3.5 text-warning-foreground" />;
 const pending = <Circle className="h-3.5 w-3.5" />;
 
-function Waiting({ s }: { s: AppStatus }) {
+function Waiting({ s, onPair }: { s: AppStatus; onPair: () => void }) {
   const adb = s.status?.adbAvailable;
+  const lan = s.status?.lan;
+  const [showPaired, setShowPaired] = useState(false);
+  const paired = lan?.paired ?? [];
   return (
     <>
       <Hero animated />
@@ -136,7 +143,48 @@ function Waiting({ s }: { s: AppStatus }) {
         />
         {sep}
         <Row icon={warn} label="iPhone 驱动" right={<Badge variant="muted">暂不支持</Badge>} />
+        {sep}
+        <Row
+          icon={lan?.enabled ? ok : warn}
+          label="WiFi 直连"
+          right={lan?.enabled ? (lan.addrs?.[0] ?? '无局域网地址') : <Badge variant="warning">未开启</Badge>}
+        />
+        {paired.length ? (
+          <>
+            {sep}
+            <button className="w-full text-left" onClick={() => setShowPaired((v) => !v)}>
+              <Row icon={<Smartphone className="h-3.5 w-3.5" />} label="已配对的手机" right={`${paired.length} 部`} />
+            </button>
+            {showPaired
+              ? paired.map((p) => (
+                  <div key={p.id} className="flex items-center gap-2 px-3 pb-2 pl-9 text-xs text-muted-foreground">
+                    <span className="flex-1 truncate">{p.name}</span>
+                    <button
+                      aria-label={`取消与 ${p.name} 的配对`}
+                      className="rounded p-1 hover:bg-accent hover:text-destructive"
+                      onClick={() => void window.p2d.removePaired(p.id)}
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  </div>
+                ))
+              : null}
+          </>
+        ) : null}
       </Card>
+      {lan?.enabled && s.coreOnline ? (
+        <Button
+          variant="outline"
+          className="w-full"
+          onClick={() => {
+            onPair();
+            void window.p2d.startPairing();
+          }}
+        >
+          <QrCode className="h-4 w-4" />
+          配对新手机（WiFi）
+        </Button>
+      ) : null}
     </>
   );
 }
@@ -220,5 +268,92 @@ function Connected({ name, wifi, since, hotkey }: { name: string; wifi: boolean;
         ) : null}
       </div>
     </>
+  );
+}
+
+function useQr(text?: string): string | null {
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!text) return;
+    let alive = true;
+    void QRCode.toDataURL(text, { margin: 1, width: 300, errorCorrectionLevel: 'M' }).then((u) => alive && setUrl(u));
+    return () => {
+      alive = false;
+    };
+  }, [text]);
+  return text ? url : null;
+}
+
+/** 配对新手机：扫码，或在手机上输入 IP 后核对配对码 */
+function Pairing({ lan, onClose }: { lan: CoreLan; onClose: () => void }) {
+  const p = lan.pairing;
+  const now = useNow();
+  const qr = useQr(p?.active ? p.qr : undefined);
+  const left = p?.expiresAt ? Math.max(0, Math.round((new Date(p.expiresAt).getTime() - now) / 1000)) : 0;
+  const close = () => {
+    void window.p2d.cancelPairing();
+    onClose();
+  };
+
+  if (p?.state === 'done') {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
+        <CheckCircle2 className="h-12 w-12 text-success-foreground" />
+        <div className="text-lg font-bold">已配对 {p.phoneName}</div>
+        <div className="text-xs text-muted-foreground">以后在同一局域网内，手机上选这台电脑就能直接连接，不用插线。</div>
+        <Button className="mt-2 w-full" onClick={onClose}>
+          完成
+        </Button>
+      </div>
+    );
+  }
+  if (!p?.active) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
+        <div className="text-sm text-muted-foreground">配对已结束</div>
+        <div className="flex w-full gap-2">
+          <Button variant="outline" className="flex-1" onClick={onClose}>
+            返回
+          </Button>
+          <Button className="flex-1" onClick={() => void window.p2d.startPairing()}>
+            重新配对
+          </Button>
+        </div>
+      </div>
+    );
+  }
+  const mmss = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
+  if (p.state === 'code' && p.code) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
+        <div className="text-sm">「{p.phoneName}」请求配对</div>
+        <div className="font-mono text-4xl font-bold tracking-[0.2em]">
+          {p.code.slice(0, 3)} {p.code.slice(3)}
+        </div>
+        <div className="text-xs text-muted-foreground">在手机上输入这 6 位数字完成配对</div>
+        <div className="text-[11px] text-muted-foreground">剩余 {mmss}</div>
+        <Button variant="outline" className="mt-auto w-full" onClick={close}>
+          取消
+        </Button>
+      </div>
+    );
+  }
+  return (
+    <div className="flex flex-1 flex-col items-center gap-2.5 text-center">
+      <div className="text-sm font-semibold">用 PhoneToDesktop 扫码配对</div>
+      <div className="flex h-[150px] w-[150px] items-center justify-center rounded-lg border border-border bg-white p-1.5">
+        {qr ? <img src={qr} alt="配对二维码" className="h-full w-full" /> : <Spinner />}
+      </div>
+      <div className="text-xs text-muted-foreground">或在手机「设备 → 添加电脑」里输入：</div>
+      <div className="flex flex-wrap justify-center gap-1.5">
+        {(lan.addrs ?? []).slice(0, 3).map((a) => (
+          <Kbd key={a}>{a}</Kbd>
+        ))}
+      </div>
+      <div className="text-[11px] text-muted-foreground">手机和电脑需要在同一个 WiFi / 局域网 · 剩余 {mmss}</div>
+      <Button variant="outline" className="mt-auto w-full" onClick={close}>
+        取消
+      </Button>
+    </div>
   );
 }

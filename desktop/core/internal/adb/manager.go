@@ -1,5 +1,5 @@
-// Package adb 自动发现 USB / WiFi 连接的安卓手机：自动安装 App、建立 adb reverse 隧道、通过 Deep Link 下发令牌并启动 App。
-// 令牌和会话按手机（ro.serialno）而不是按通道区分，拔掉数据线切到 WiFi 时会话可以无缝续上，见 wifi.go。
+// Package adb 自动发现 USB 连接的安卓手机：自动安装 App、建立 adb reverse 隧道、通过 Deep Link 下发令牌并启动 App。
+// 令牌和会话按手机（ro.serialno）而不是按通道区分，见 phones.go。WiFi 连接改由局域网直连（internal/lan）完成。
 package adb
 
 import (
@@ -58,9 +58,7 @@ type Config struct {
 	Package  string // 手机端包名
 	Port     int    // 隧道端口
 	HostName string // 显示在手机上的电脑名
-	WiFi     bool   // 是否启用 WiFi 局域网连接
-	WiFiPort int    // 手机 adb 网络模式的端口，默认 5555
-	StateDir string // 记住的 WiFi 手机等状态的保存目录，为空则不保存
+	PCID     string // 电脑标识，随 Deep Link 告诉手机（手机用它关联设备记录）
 }
 
 // Manager 设备管理器。
@@ -73,14 +71,10 @@ type Manager struct {
 	available bool
 	lastErr   string
 
-	OnGone     func(id string) // 手机断开（所有通道都断了）
-	OnChange   func()
-	HasSession func(id string) bool // 手机端是否已连上（切换通道后检查用）
+	OnGone   func(id string) // 手机断开（所有通道都断了）
+	OnChange func()
 
-	phones     map[string]*phone    // 已下发令牌的手机（ro.serialno → 令牌等）
-	peers      map[string]*peer     // 记住的可通过 WiFi 连接的手机
-	dialed     map[string]string    // 自动 adb connect 过的地址 → 预期的手机
-	restarting map[string]time.Time // 正在切换 adb 网络模式的 USB 通道，期间短暂消失不算拔出
+	phones map[string]*phone // 已下发令牌的手机（ro.serialno → 令牌等）
 
 	// 只在轮询协程中访问
 	failCount   int       // 连续获取设备列表失败的次数
@@ -110,15 +104,9 @@ func (m *Manager) restartServer(ctx context.Context) {
 }
 
 func New(cfg Config, tokens TokenIssuer) *Manager {
-	if cfg.WiFiPort == 0 {
-		cfg.WiFiPort = 5555
-	}
 	m := &Manager{
 		cfg: cfg, tokens: tokens, devices: map[string]*Device{},
-		phones: map[string]*phone{}, peers: map[string]*peer{}, dialed: map[string]string{}, restarting: map[string]time.Time{},
-	}
-	if cfg.WiFi {
-		m.loadPeers()
+		phones: map[string]*phone{},
 	}
 	return m
 }
@@ -141,15 +129,12 @@ func (m *Manager) Snapshot() any {
 	return out
 }
 
-// SuppressAll 用户点「断开」后，已连接设备在拔线前不再自动连接（WiFi 也不再自动连）。
+// SuppressAll 用户点「断开」后，已连接设备在拔线前不再自动连接。
 func (m *Manager) SuppressAll() {
 	m.mu.Lock()
 	for _, d := range m.devices {
 		d.Stage = StageSuppressed
 		d.Message = "已断开，重新插拔数据线可再次连接"
-	}
-	for _, p := range m.peers {
-		p.suppressed = true
 	}
 	m.phones = map[string]*phone{}
 	m.mu.Unlock()
@@ -284,7 +269,7 @@ func (m *Manager) poll(ctx context.Context) {
 				changed = true
 			}
 		default:
-			if _, r := m.restarting[l.serial]; !r && d.Stage != StageOffline && d.Stage != StageSuppressed {
+			if d.Stage != StageOffline && d.Stage != StageSuppressed {
 				d.Stage = StageOffline
 				d.Message = "设备离线，请重新插拔数据线"
 				changed = true
@@ -298,14 +283,8 @@ func (m *Manager) poll(ctx context.Context) {
 	}
 
 	m.mu.Lock()
-	now := time.Now()
 	for serial, d := range m.devices {
 		if seen[serial] {
-			continue
-		}
-		// 切换 adb 网络模式时 USB 通道会短暂消失，不算拔出
-		if until, ok := m.restarting[serial]; ok && now.Before(until) {
-			d.State = "offline"
 			continue
 		}
 		delete(m.devices, serial)
@@ -317,7 +296,7 @@ func (m *Manager) poll(ctx context.Context) {
 		changed = true
 	}
 	m.mu.Unlock()
-	// 令牌按手机管理：所有通道都断了才作废（能走 WiFi 的先等一会儿）
+	// 令牌按手机管理：所有通道都断了才作废
 	if m.checkPhones(ctx) {
 		changed = true
 	}
@@ -370,22 +349,8 @@ func (m *Manager) setup(ctx context.Context, serial string) {
 			}
 		}
 	}
-	expected, auto := m.dialed[serial]
-	delete(m.dialed, serial)
 	m.mu.Unlock()
 	if transport == TransportWiFi {
-		if auto && expected != id {
-			// 局域网里这个地址已经换成了别的设备
-			log.Printf("%s 已经不是之前那台手机（%s），断开", serial, expected)
-			m.mu.Lock()
-			if p := m.peers[expected]; p != nil && p.Addr == serial {
-				delete(m.peers, expected)
-			}
-			m.mu.Unlock()
-			m.savePeers()
-			_, _ = m.run(ctx, 5*time.Second, "disconnect", serial)
-			return
-		}
 		if other != nil && other.Transport == TransportUSB {
 			log.Printf("设备 %s 已通过数据线连接，断开 WiFi 通道 %s", id, serial)
 			_, _ = m.run(ctx, 5*time.Second, "disconnect", serial)
@@ -401,14 +366,6 @@ func (m *Manager) setup(ctx context.Context, serial string) {
 			d.Model = name
 		}
 		m.mu.Unlock()
-	}
-
-	// 插着数据线时顺便准备好 WiFi 连接（拔线后自动切过去）
-	if transport == TransportUSB && m.cfg.WiFi {
-		m.prepareWiFi(ctx, serial, id, name)
-		if m.suppressed(serial) {
-			return
-		}
 	}
 
 	// 1. 检查并安装手机端
@@ -469,7 +426,6 @@ func (m *Manager) setup(ctx context.Context, serial string) {
 			log.Printf("设备 %s：已切换到 %s 通道，等待手机端重连", id, transport)
 		}
 		markReady()
-		go m.ensureSession(ctx, serial, id, token)
 		return
 	}
 
@@ -493,6 +449,9 @@ func (m *Manager) launchApp(ctx context.Context, serial, token string) error {
 	q.Set("host", m.cfg.HostName)
 	q.Set("os", runtime.GOOS)
 	q.Set("port", fmt.Sprint(m.cfg.Port))
+	if m.cfg.PCID != "" {
+		q.Set("pcid", m.cfg.PCID)
+	}
 	link := "p2d://connect?" + q.Encode()
 	// adb shell 会把参数拼接后交给手机上的 sh 执行，因此用单引号包住链接（url 编码后不含单引号）
 	_, err := m.run(ctx, 15*time.Second, "-s", serial, "shell",

@@ -24,10 +24,25 @@ const TOOL_LABEL: Record<string, string> = {
   schedule_list: '查看定时任务',
   schedule_update: '修改定时任务',
   schedule_delete: '删除定时任务',
+  skill_read: '读取 Skill',
+  skill_run: '运行 Skill 脚本',
+  ext_list: '查看扩展',
+  ext_add_mcp: '添加 MCP',
+  ext_install_skill: '安装 Skill',
+  ext_create_skill: '创建 Skill',
+  ext_toggle: '开关扩展',
+  ext_remove: '卸载扩展',
 };
+
+/** 工具的中文名；MCP 工具（前缀__工具名）显示为「MCP：工具名」 */
+export function toolLabel(name: string): string {
+  if (TOOL_LABEL[name]) return TOOL_LABEL[name];
+  const i = name.indexOf('__');
+  return i > 0 ? `MCP：${name.slice(i + 2)}` : name;
+}
 
 export function liveText(live: LiveAction | null, running: boolean): string {
   if (!live) return running ? 'Agent 正在思考…' : '';
-  const label = TOOL_LABEL[live.name] ?? live.name;
+  const label = toolLabel(live.name);
   return live.summary ? `${label}：${live.summary}` : label;
 }

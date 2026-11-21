@@ -6,6 +6,7 @@ import {
   AlarmClock,
   ChevronRight,
   Cpu,
+  Laptop,
   Monitor,
   MoreHorizontal,
   Puzzle,
@@ -142,8 +143,9 @@ export function ConversationDrawer({ open, ctl }: { open: boolean; ctl: DrawerCo
   const insets = useSafeAreaInsets();
   const { list, currentId } = useConversation();
   const model = useModelConfig();
-  const { status, params } = useConnection();
+  const { status, params, route, pcId } = useConnection();
   const [query, setQuery] = useState('');
+  const [showAll, setShowAll] = useState(false);
 
   // 返回键先关抽屉
   useEffect(() => {
@@ -161,7 +163,10 @@ export function ConversationDrawer({ open, ctl }: { open: boolean; ctl: DrawerCo
   };
 
   const q = query.trim().toLowerCase();
-  const groups = groupByDay(q ? list.filter((c) => c.title.toLowerCase().includes(q)) : list);
+  // 每台电脑各自的对话：默认只显示当前电脑的（旧对话没有归属，都显示）
+  const mine = showAll || !pcId ? list : list.filter((c) => !c.pcId || c.pcId === pcId);
+  const hidden = list.length - mine.length;
+  const groups = groupByDay(q ? mine.filter((c) => c.title.toLowerCase().includes(q)) : mine);
   const activeModel = model.presets[model.active]?.model;
   const enabledCount = useSchedules().tasks.filter((t) => t.enabled).length;
 
@@ -231,18 +236,19 @@ export function ConversationDrawer({ open, ctl }: { open: boolean; ctl: DrawerCo
               onPress={() => go('/settings')}
             />
             <EntryRow
-              icon={Monitor}
-              label="虚拟桌面"
+              icon={Laptop}
+              label="设备"
               value={
                 <>
                   <StatusDot status={status} />
                   <Text numberOfLines={1} className="flex-shrink text-sm text-muted-foreground">
-                    {params && status === 'connected' ? params.host : '未连接'}
+                    {params && status === 'connected' ? `${params.host} · ${route === 'wifi' ? 'WiFi' : 'USB'}` : '未连接'}
                   </Text>
                 </>
               }
-              onPress={() => go('/remote')}
+              onPress={() => go('/devices')}
             />
+            <EntryRow icon={Monitor} label="虚拟桌面" onPress={() => go('/remote')} />
             <EntryRow
               icon={AlarmClock}
               label="定时任务"
@@ -254,6 +260,14 @@ export function ConversationDrawer({ open, ctl }: { open: boolean; ctl: DrawerCo
 
           {/* 历史对话 */}
           <ScrollView className="flex-1" contentContainerClassName="px-3 pb-4 pt-2" keyboardShouldPersistTaps="handled">
+            {pcId && (hidden > 0 || showAll) ? (
+              <Pressable onPress={() => setShowAll((v) => !v)} hitSlop={6} className="flex-row items-center px-3 pt-3">
+                <Text className="flex-1 text-[13px] text-muted-foreground">
+                  {showAll ? '所有电脑的对话' : `「${params?.host ?? '当前电脑'}」的对话`}
+                </Text>
+                <Text className="text-[13px] text-primary">{showAll ? '只看当前电脑' : `全部（另有 ${hidden} 个）`}</Text>
+              </Pressable>
+            ) : null}
             {groups.length === 0 ? (
               <Text className="py-10 text-center text-sm text-muted-foreground">{q ? '没有找到相关对话' : '暂无历史对话'}</Text>
             ) : null}

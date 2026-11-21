@@ -36,6 +36,37 @@ export interface CoreSession {
   client: string;
   connectedAt: string;
   permissions: CorePermissions;
+  /** usb：数据线（adb 隧道）；wifi：局域网直连 */
+  route?: 'usb' | 'wifi';
+  /** 手机名（局域网直连时来自配对记录） */
+  name?: string;
+}
+
+export interface CorePairing {
+  active: boolean;
+  /** waiting：等手机连接；code：显示配对码；done：刚配对成功 */
+  state?: 'waiting' | 'code' | 'done' | '';
+  code?: string;
+  phoneName?: string;
+  expiresAt?: string;
+  /** 二维码内容（p2d://pair?...） */
+  qr?: string;
+}
+
+export interface CorePairedPhone {
+  id: string;
+  name: string;
+  pairedAt: string;
+  lastSeen?: string;
+}
+
+export interface CoreLan {
+  enabled: boolean;
+  port?: number;
+  addrs?: string[];
+  pcId?: string;
+  pairing?: CorePairing;
+  paired?: CorePairedPhone[];
 }
 
 export interface CoreStatus {
@@ -47,6 +78,7 @@ export interface CoreStatus {
   sessions: CoreSession[];
   adbAvailable?: boolean;
   devices?: CoreDevice[];
+  lan?: CoreLan;
 }
 
 /** 主进程推送给渲染进程的状态 */
@@ -70,6 +102,11 @@ export interface P2DApi {
   minimize(): void;
   hide(): void;
   setOverlayInteractive(interactive: boolean): void;
+  /** 打开「配对新手机」窗口（3 分钟） */
+  startPairing(): Promise<void>;
+  cancelPairing(): Promise<void>;
+  /** 取消与某部手机的配对 */
+  removePaired(id: string): Promise<void>;
 }
 
 /** 会话所在手机当前在线的通道（同一台手机可能同时有 USB 和 WiFi 两条，USB 优先） */
@@ -81,5 +118,8 @@ export function deviceFor(status: CoreStatus | undefined, serial: string): CoreD
 /** 根据会话的序列号找设备名 */
 export function deviceNameFor(status: CoreStatus | undefined, serial: string): string {
   if (serial === 'dev') return '调试设备';
+  const named = status?.sessions?.find((s) => s.serial === serial)?.name;
+  if (named) return named;
+  if (serial.startsWith('lan:')) return status?.lan?.paired?.find((p) => `lan:${p.id}` === serial)?.name || '手机';
   return deviceFor(status, serial)?.model || serial;
 }

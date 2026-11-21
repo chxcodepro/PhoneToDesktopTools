@@ -49,7 +49,7 @@ function RoundButton({ icon, onPress, active, label }: { icon: LucideIcon; onPre
 
 export default function AgentScreen() {
   const conv = useConversation();
-  const { status, params } = useConnection();
+  const { status, params, route } = useConnection();
   const ui = useUi();
   const focused = useIsFocused();
   // 实时画面小窗：只在用户点右上角按钮时打开 / 关闭；进入虚拟桌面等页面时暂停
@@ -115,9 +115,7 @@ export default function AgentScreen() {
           </Text>
           {/* 当前设备和连接状态；未连接时点击去连接 */}
           <Pressable
-            onPress={() => {
-              if (status !== 'connected') router.push('/connect');
-            }}
+            onPress={() => router.push('/devices')}
             hitSlop={6}
             className="mt-0.5 flex-row items-center gap-1.5"
           >
@@ -135,7 +133,7 @@ export default function AgentScreen() {
                     : 'text-muted-foreground',
               )}
             >
-              {params || status !== 'idle' ? STATUS_LABEL[status] : ''}
+              {params || status !== 'idle' ? STATUS_LABEL[status] + (status === 'connected' && route === 'wifi' ? ' · WiFi' : '') : ''}
             </Text>
           </Pressable>
         </View>

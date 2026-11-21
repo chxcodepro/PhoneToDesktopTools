@@ -11,10 +11,12 @@ import { runAgent, type AgentEvent, type AgentTools } from './agent';
 import { formatSize, isSmallTextFile, readText, uploadToPc, type Attachment } from './attachments';
 import { canCompress, compressHistory, isContextOverflow } from './compress';
 import { downloadToPc } from './downloads';
+import { extensionApi, extensionPrompt } from './extensionStore';
+import { createExtensionTools, isExtensionTool } from './extensionTools';
 import type { ChatMessage, ContentPart, FetchLike, UsageStats } from './llm';
 import { resolveActiveModel, type ResolvedModel } from './modelConfig';
 import {
-  combineTools,
+  isPhoneTool,
   createPhoneTools,
   type AskAnswer,
   type AskOption,
@@ -105,11 +107,15 @@ export interface ConversationMeta {
   id: string;
   title: string;
   updatedAt: number;
+  /** 属于哪台电脑（每台电脑各自的对话）；旧对话没有 */
+  pcId?: string;
 }
 
 export interface ConversationState {
   list: ConversationMeta[];
   currentId: string | null;
+  /** 当前对话属于哪台电脑 */
+  pcId: string | null;
   title: string;
   items: UiItem[];
   history: ChatMessage[];
@@ -129,6 +135,7 @@ const MAX_CONVERSATIONS = 50;
 export const conversationStore = createStore<ConversationState>({
   list: [],
   currentId: null,
+  pcId: null,
   title: '新对话',
   items: [],
   history: [],
@@ -150,9 +157,30 @@ export function initConversations(): Promise<void> {
     initPromise = (async () => {
       const list = await loadJson<ConversationMeta[]>(INDEX_KEY, []);
       conversationStore.set({ list, ready: true });
+      watchComputer();
     })();
   }
   return initPromise;
+}
+
+/** 换了一台电脑：当前对话属于别的电脑时，切到这台电脑最近的对话（没有就新建）。Agent 正在执行时不切换 */
+function watchComputer(): void {
+  let last = connectionStore.get().pcId;
+  connectionStore.subscribe(() => {
+    const pc = connectionStore.get().pcId;
+    if (!pc || pc === last) return;
+    last = pc;
+    const s = conversationStore.get();
+    if (s.running) return;
+    if (!s.currentId) {
+      conversationStore.set({ pcId: pc });
+      return;
+    }
+    if (!s.pcId || s.pcId === pc) return;
+    const latest = s.list.find((c) => c.pcId === pc);
+    if (latest) void openConversation(latest.id);
+    else newConversation();
+  });
 }
 
 /** 持久化时去掉图片数据（体积太大），历史中的图片替换为文字 */
@@ -175,7 +203,7 @@ async function save(): Promise<void> {
     stats: s.stats,
     totalTokens: s.totalTokens,
   });
-  const meta: ConversationMeta = { id: s.currentId, title: s.title, updatedAt: Date.now() };
+  const meta: ConversationMeta = { id: s.currentId, title: s.title, updatedAt: Date.now(), pcId: s.pcId ?? undefined };
   const list = [meta, ...s.list.filter((c) => c.id !== s.currentId)];
   const dropped = list.slice(MAX_CONVERSATIONS);
   conversationStore.set({ list: list.slice(0, MAX_CONVERSATIONS) });
@@ -185,7 +213,15 @@ async function save(): Promise<void> {
 
 export function newConversation(): void {
   if (conversationStore.get().running) stop();
-  conversationStore.set({ currentId: null, title: '新对话', items: [], history: [], stats: null, totalTokens: 0 });
+  conversationStore.set({
+    currentId: null,
+    pcId: connectionStore.get().pcId,
+    title: '新对话',
+    items: [],
+    history: [],
+    stats: null,
+    totalTokens: 0,
+  });
 }
 
 export async function openConversation(id: string): Promise<void> {
@@ -200,6 +236,7 @@ export async function openConversation(id: string): Promise<void> {
   if (!data) return;
   conversationStore.set({
     currentId: id,
+    pcId: conversationStore.get().list.find((c) => c.id === id)?.pcId ?? null,
     title: data.title,
     items: data.items,
     history: data.history,
@@ -306,7 +343,21 @@ export function registerScheduleApi(api: ScheduleApi): void {
   phoneDeps.schedules = api;
 }
 
-const agentTools = combineTools(phoneTools, pcTools);
+/** 扩展：已安装 MCP 的工具、skill_read / skill_run、ext_* */
+const extTools = createExtensionTools({ api: extensionApi, askUser });
+
+/** 交给 Agent 的工具：电脑工具（已连接时）+ 手机工具 + 扩展，按名称分派 */
+function buildTools(withPc: boolean): AgentTools {
+  return {
+    list: () => [...(withPc ? pcTools.list() : []), ...phoneTools.list(), ...extTools.list()],
+    call: (name, args, signal) =>
+      isPhoneTool(name)
+        ? phoneTools.call(name, args, signal)
+        : isExtensionTool(name)
+          ? extTools.call(name, args, signal)
+          : pcTools.call(name, args, signal),
+  };
+}
 
 function mutateItems(fn: (items: UiItem[]) => UiItem[]): void {
   conversationStore.set((s) => ({ items: fn(s.items) }));
@@ -519,6 +570,7 @@ export async function send(text: string, attachments: Attachment[] = [], opts: S
   }));
   conversationStore.set({
     currentId: s.currentId ?? uid('c'),
+    pcId: s.pcId ?? connectionStore.get().pcId,
     title: s.items.length === 0 ? (opts.title || t || attachments[0]?.name || '新对话').slice(0, 24) : s.title,
     items: [...s.items, { kind: 'user', id: userItemId, text: t, attachments: uiAtts.length ? uiAtts : undefined }],
     running: true,
@@ -557,7 +609,9 @@ export async function send(text: string, attachments: Attachment[] = [], opts: S
         fetch: expoFetch as unknown as FetchLike,
         supportsVision: model.supportsVision,
         supportsTools: model.supportsTools,
-        tools: connected ? agentTools : null,
+        tools: buildTools(connected),
+        pcConnected: connected,
+        extensionPrompt,
         computer: conn.params ? { host: conn.params.host, os: conn.params.os } : null,
         customPrompt: [model.systemPrompt, opts.extraPrompt].filter(Boolean).join('\n\n'),
         signal,
