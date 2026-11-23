@@ -27,10 +27,12 @@ import {
   getPairKey,
   initDevices,
   randomBytes,
+  setLastPc,
   setPairKey,
   upsertDevice,
   type Route,
 } from './devices';
+import { pickStartup } from './startup';
 import { loadJson, saveJson, StorageKeys } from './storage';
 import { createStore, useStore } from './store';
 
@@ -116,15 +118,20 @@ export function initConnection(): Promise<void> {
       // 是电脑端插线拉起的（带新令牌）：交给 Deep Link 处理，不要先用旧令牌连
       const initial = await Linking.getInitialURL().catch(() => null);
       if (parseConnectUrl(initial)) return;
-      // 冷启动：先试上次的 USB 令牌（失败会自动切 WiFi），没有就自动连上次用过的电脑
       const last = await loadLastConnect();
+      // 冷启动：上次用的电脑。USB 令牌属于它就先试 USB（失败会自动切 WiFi），否则 WiFi 连它
+      const { devices, lastPcId } = devicesStore.get();
+      const pick = pickStartup(devices, lastPcId, last);
       if (client) return;
-      if (last) {
+      if (pick.useUsb && last) {
         connectWith(last);
         return;
       }
-      const recent = devicesStore.get().devices.find((d) => d.paired);
-      if (recent) void connectLan(recent.pcId, { manual: false }).catch(() => undefined);
+      if (!pick.pcId) return;
+      // 先显示这台电脑（没配对过的不自动连）
+      connectionStore.set({ pcId: pick.pcId });
+      if (getDevice(pick.pcId)?.paired)
+        void connectLan(pick.pcId, { manual: false }).catch(() => undefined);
     })();
   }
   return initPromise;
@@ -242,6 +249,7 @@ async function syncPcOverUsb(mc: McpClient, params: ConnectParams): Promise<void
       lastRoute: 'usb',
     });
     if (lastUsb === params) lastUsb = { ...params, pcId: info.pc };
+    setLastPc(info.pc);
     if (client && connectionStore.get().route === 'usb') connectionStore.set({ pcId: info.pc });
     const haveKey = !!(await getPairKey(info.pc));
     if (!info.paired || !haveKey) {
@@ -311,7 +319,14 @@ export async function connectLan(pcId: string, opts: { manual: boolean; addrs?: 
   const seq = ++connectSeq;
   if (!client || cur.status !== 'connected') connectionStore.set({ pcId, status: 'connecting', detail: '正在通过 WiFi 连接…' });
 
-  const addr = await findReachable([...(opts.addrs ?? []), dev.lastAddr ?? '', ...dev.addrs], dev.port, pcId);
+  let addr: string;
+  try {
+    addr = await findReachable([...(opts.addrs ?? []), dev.lastAddr ?? '', ...dev.addrs], dev.port, pcId);
+  } catch (e) {
+    // 没有别的连接时，状态从「正在连接」回到「未连接」，并显示原因（不然会一直转圈）
+    if (seq === connectSeq && !client) connectionStore.set({ status: 'idle', detail: e instanceof Error ? e.message : String(e) });
+    throw e;
+  }
   // 探测期间用户点了断开，或者插线 / 切换了别的连接：放弃这次
   if (seq !== connectSeq || (userStopped && !opts.manual)) return;
   const host = addr.includes(':') ? `[${addr}]` : addr;
@@ -342,6 +357,7 @@ export async function connectLan(pcId: string, opts: { manual: boolean; addrs?: 
       const tools = await mc.listTools();
       connectionStore.set({ serverInfo: mc.serverInfo, tools });
       upsertDevice({ pcId, lastAddr: addr, lastConnectedAt: Date.now(), lastRoute: 'wifi' });
+      setLastPc(pcId);
       // 顺便刷新电脑的地址列表（换了网络 / DHCP 重新分配后）
       try {
         const info = (await mc.request('p2d/pc.info', { phone: devicesStore.get().phoneId }, 10_000)) as {
@@ -387,6 +403,7 @@ export function canUseUsb(pcId: string | null): boolean {
 
 /** 切换到另一台电脑（WiFi 直连） */
 export async function connectDevice(pcId: string): Promise<void> {
+  setLastPc(pcId); // 用户选了这台：即使这次没连上，下次打开 App 也显示它
   if (canUseUsb(pcId) && connectionStore.get().route === 'usb' && connectionStore.get().pcId === pcId) return;
   await connectLan(pcId, { manual: true });
 }

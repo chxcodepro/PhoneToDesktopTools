@@ -2,12 +2,13 @@
 // 每台电脑有各自的对话：切换电脑后，Agent 页显示那台电脑的对话。
 
 import { router } from 'expo-router';
-import { Monitor, MoreHorizontal, Plug, Plus, Wifi } from 'lucide-react-native';
+import { Monitor, MoreHorizontal, Pencil, Plug, Plus, Trash2, Wifi } from 'lucide-react-native';
 import { useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, View } from 'react-native';
 
 import { conversationStore, stop } from '@/agent/conversations';
 import { formatDateTime } from '@/agent/schedule';
+import { ActionSheet } from '@/components/action-sheet';
 import { AddPcSheet } from '@/components/devices/add-pc-sheet';
 import { Screen } from '@/components/screen';
 import { FieldLabel, Sheet } from '@/components/sheet';
@@ -179,33 +180,9 @@ export default function DevicesScreen() {
   const [name, setName] = useState('');
   const [error, setError] = useState<string | null>(null);
 
-  const more = (d: PcDevice) =>
-    Alert.alert(deviceLabel(d), d.addrs.length ? `地址：${d.addrs.slice(0, 3).join('、')}` : undefined, [
-      {
-        text: '重命名',
-        onPress: () => {
-          setName(deviceLabel(d));
-          setRenaming(d);
-        },
-      },
-      {
-        text: '删除',
-        style: 'destructive',
-        onPress: () =>
-          Alert.alert('删除这台电脑？', `删除后需要重新配对才能 WiFi 连接。${d.pcId === pcId ? '当前连接会断开。' : ''}`, [
-            { text: '取消', style: 'cancel' },
-            {
-              text: '删除',
-              style: 'destructive',
-              onPress: () => {
-                if (d.pcId === pcId) disconnect();
-                void removeDevice(d.pcId);
-              },
-            },
-          ]),
-      },
-      { text: '取消', style: 'cancel' },
-    ]);
+  // 菜单关闭后保留 menuFor：面板淡出时内容不变
+  const [menuFor, setMenuFor] = useState<PcDevice | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   return (
     <Screen
@@ -226,7 +203,18 @@ export default function DevicesScreen() {
 
       <GroupTitle>我的电脑</GroupTitle>
       {devices.length ? (
-        devices.map((d) => <DeviceRow key={d.pcId} d={d} current={d.pcId === pcId} onMore={() => more(d)} onError={setError} />)
+        devices.map((d) => (
+          <DeviceRow
+            key={d.pcId}
+            d={d}
+            current={d.pcId === pcId}
+            onMore={() => {
+              setMenuFor(d);
+              setMenuOpen(true);
+            }}
+            onError={setError}
+          />
+        ))
       ) : (
         <Text className="px-1 py-4 text-center text-sm text-muted-foreground">还没有记录。用数据线连一次电脑，或点右上角「添加」。</Text>
       )}
@@ -253,6 +241,40 @@ export default function DevicesScreen() {
           setAdding(false);
           pendingPairStore.set({ link: null });
         }}
+      />
+      <ActionSheet
+        visible={menuOpen}
+        icon={Monitor}
+        title={deviceLabel(menuFor ?? undefined)}
+        subtitle={menuFor ? [osLabel(menuFor.os), menuFor.addrs.slice(0, 3).join('、')].filter(Boolean).join(' · ') : undefined}
+        onClose={() => setMenuOpen(false)}
+        actions={
+          menuFor
+            ? [
+                {
+                  label: '重命名',
+                  icon: Pencil,
+                  onPress: () => {
+                    setName(deviceLabel(menuFor));
+                    setRenaming(menuFor);
+                  },
+                },
+                {
+                  label: '删除',
+                  icon: Trash2,
+                  destructive: true,
+                  confirm: {
+                    title: `删除「${deviceLabel(menuFor)}」？`,
+                    message: `删除后需要重新配对才能 WiFi 连接。${menuFor.pcId === pcId ? '当前连接会断开。' : ''}`,
+                  },
+                  onPress: () => {
+                    if (menuFor.pcId === pcId) disconnect();
+                    void removeDevice(menuFor.pcId);
+                  },
+                },
+              ]
+            : []
+        }
       />
       <Sheet visible={!!renaming} title="重命名" onClose={() => setRenaming(null)}>
         <FieldLabel>名称</FieldLabel>

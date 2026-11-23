@@ -42,12 +42,15 @@ export interface DevicesState {
   phoneName: string;
   /** 插上数据线时自动从 WiFi 切到 USB */
   preferUsb: boolean;
+  /** 上次用的电脑（在「设备」里选过、或最后连上的）：打开 App 时显示 / 连接它 */
+  lastPcId: string | null;
   ready: boolean;
 }
 
 const LIST_KEY = 'p2d.devices.v1';
 const PHONE_ID_KEY = 'p2d.phoneId';
 const PREFER_USB_KEY = 'p2d.preferUsb';
+const LAST_PC_KEY = 'p2d.lastPc';
 const keyName = (pcId: string) => `p2d.pc.${pcId.replace(/[^A-Za-z0-9._-]/g, '_')}`;
 
 function defaultPhoneName(): string {
@@ -63,6 +66,7 @@ export const devicesStore = createStore<DevicesState>({
   phoneId: '',
   phoneName: defaultPhoneName(),
   preferUsb: true,
+  lastPcId: null,
   ready: false,
 });
 
@@ -81,10 +85,11 @@ let initPromise: Promise<void> | null = null;
 export function initDevices(): Promise<void> {
   if (!initPromise) {
     initPromise = (async () => {
-      const [list, id, prefer] = await Promise.all([
+      const [list, id, prefer, lastPc] = await Promise.all([
         AsyncStorage.getItem(LIST_KEY).catch(() => null),
         AsyncStorage.getItem(PHONE_ID_KEY).catch(() => null),
         AsyncStorage.getItem(PREFER_USB_KEY).catch(() => null),
+        AsyncStorage.getItem(LAST_PC_KEY).catch(() => null),
       ]);
       let phoneId = id ?? '';
       if (!/^[0-9a-f]{16,64}$/.test(phoneId)) {
@@ -97,7 +102,7 @@ export function initDevices(): Promise<void> {
       } catch {
         devices = [];
       }
-      devicesStore.set({ devices, phoneId, preferUsb: prefer !== '0', ready: true });
+      devicesStore.set({ devices, phoneId, preferUsb: prefer !== '0', lastPcId: lastPc || null, ready: true });
     })();
   }
   return initPromise;
@@ -132,6 +137,7 @@ export function upsertDevice(patch: Partial<PcDevice> & { pcId: string }): PcDev
   devicesStore.set({ devices });
   void persist();
   for (const d of dups) {
+    if (devicesStore.get().lastPcId === d.pcId) setLastPc(next.pcId);
     // 旧 pcId 的配对密钥已经没用了（电脑端换了标识，对应的配对记录也不在了）
     void SecureStore.deleteItemAsync(keyName(d.pcId)).catch(() => undefined);
     for (const fn of mergeListeners) fn(d.pcId, next.pcId);
@@ -159,7 +165,15 @@ export async function forgetPairKey(pcId: string): Promise<void> {
 export async function removeDevice(pcId: string): Promise<void> {
   await SecureStore.deleteItemAsync(keyName(pcId)).catch(() => undefined);
   devicesStore.set((s) => ({ devices: s.devices.filter((d) => d.pcId !== pcId) }));
+  if (devicesStore.get().lastPcId === pcId) setLastPc(null);
   await persist();
+}
+
+/** 记下「上次用的电脑」 */
+export function setLastPc(pcId: string | null): void {
+  if (devicesStore.get().lastPcId === pcId) return;
+  devicesStore.set({ lastPcId: pcId });
+  void (pcId ? AsyncStorage.setItem(LAST_PC_KEY, pcId) : AsyncStorage.removeItem(LAST_PC_KEY)).catch(() => undefined);
 }
 
 export function renameDevice(pcId: string, alias: string): void {
