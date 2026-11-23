@@ -67,7 +67,8 @@ func (s *Session) skillHas(raw json.RawMessage) (any, error) {
 // safeJoin 把相对路径拼到 dir 下，拒绝绝对路径和 ..
 func safeJoin(dir, rel string) (string, error) {
 	rel = strings.ReplaceAll(rel, "\\", "/")
-	if rel == "" || strings.HasPrefix(rel, "/") || filepath.IsAbs(rel) || filepath.VolumeName(rel) != "" {
+	// 含冒号的（盘符、Windows 备用数据流）在所有平台都拒绝，行为一致
+	if rel == "" || strings.HasPrefix(rel, "/") || strings.Contains(rel, ":") || filepath.IsAbs(rel) || filepath.VolumeName(rel) != "" {
 		return "", fmt.Errorf("文件路径不合法：%s", rel)
 	}
 	for _, part := range strings.Split(rel, "/") {
