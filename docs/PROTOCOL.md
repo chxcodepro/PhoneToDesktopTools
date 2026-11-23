@@ -84,7 +84,7 @@ WiFi 连接不走 adb，而是手机直接连电脑的局域网 IP（详见第 9
 | `fs_write` | `path`，`content`，`encoding?`（`utf-8` / `gbk`） | 自动创建上级目录 |
 | `fs_edit` | `path`，`old_string`，`new_string`，`replace_all?` | `old_string` 必须唯一匹配（除非 `replace_all`）；保留原文件的编码和换行符 |
 | `fs_search` | `path`，`name?`（通配符），`content?`（包含的文字），`max_results?`（默认 100） | 搜索文件名和文件内容 |
-| `doc_read` | `path`，`sheet?`，`max_rows?`（默认 200），`pages?`（PDF 页码，如 `1-3,5`） | 读取 docx / xlsx / pptx / pdf 的文字；Excel 按工作表输出，制表符分隔；PDF 按页输出，单次约 200 KB，超出时提示用 `pages` 继续。PDF 解析为纯 Go 实现（`internal/pdftext`）：支持压缩对象流、交叉引用流、损坏文件重建、只设权限密码的加密文件（RC4 / AES-128 / AES-256），中文靠 ToUnicode 或 GBK / UCS2 等预定义编码；扫描件、设了打开密码的文件返回说明 |
+| `doc_read` | `path`，`sheet?`，`max_rows?`（默认 200），`pages?`（PDF 页码，如 `1-3,5`） | 读取 docx / xlsx / pptx / pdf，以及 Office 97-2003 的 doc / xls / ppt 和 WPS 的 wps / et / dps 的文字（旧格式按文件内容识别，纯 Go 实现：`internal/olddoc`，含复合文档、Word 分段表、Excel BIFF8 共享字符串与日期格式、PPT 持久化目录；加密文件和 Word 6 / Excel 5 等更老的格式返回说明；扩展名是 .doc 但实际是 RTF / 网页的文件提示改用 `fs_read`）；Excel 按工作表输出，制表符分隔；PDF 按页输出，单次约 200 KB，超出时提示用 `pages` 继续。PDF 解析为纯 Go 实现（`internal/pdftext`）：支持压缩对象流、交叉引用流、损坏文件重建、只设权限密码的加密文件（RC4 / AES-128 / AES-256），中文靠 ToUnicode 或 GBK / UCS2 等预定义编码；扫描件、设了打开密码的文件返回说明 |
 | `fs_delete` | `path` | 移到回收站（Windows 回收站；Linux 放到 `~/.local/share/Trash`） |
 | `screen_capture` | `display?`（默认 0），`max_width?`（默认 1280），`quality?`（默认 70） | 返回 JPEG 图片，外加一段文字说明缩放比例：`屏幕坐标 = 截图坐标 ÷ scale + 显示器偏移` |
 | `input_mouse` | `action`：`move` / `click` / `double_click` / `right_click` / `middle_click` / `down` / `up` / `scroll` / `drag`；`x`、`y`；`to_x`、`to_y`（drag 用）；`dy`（scroll 用，正数向上） | 坐标为屏幕坐标（虚拟桌面像素） |

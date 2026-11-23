@@ -91,9 +91,29 @@ func TestDocReadPptxAndOldFormat(t *testing.T) {
 	if isErr || strings.Index(txt, "第 1 页") > strings.Index(txt, "第 2 页") || !strings.Contains(txt, "标题\n要点") {
 		t.Fatalf("pptx 读取不对：\n%s", txt)
 	}
-	old := filepath.Join(t.TempDir(), "旧.doc")
-	_ = os.WriteFile(old, []byte("x"), 0o644)
-	if txt, isErr := call(t, r, "doc_read", map[string]any{"path": old}); !isErr || !strings.Contains(txt, "另存为") {
-		t.Fatalf("旧格式应提示另存：%s", txt)
+	// 扩展名和内容对不上
+	dir := t.TempDir()
+	for name, body := range map[string]string{
+		"坏.doc":   "x",
+		"网页.doc":  "<html><body>导出的网页</body></html>",
+		"富文本.doc": `{\rtf1\ansi 内容}`,
+	} {
+		p := filepath.Join(dir, name)
+		_ = os.WriteFile(p, []byte(body), 0o644)
+		txt, isErr := call(t, r, "doc_read", map[string]any{"path": p})
+		if !isErr {
+			t.Errorf("%s 应报错：%s", name, txt)
+		}
+		if name != "坏.doc" && !strings.Contains(txt, "fs_read") {
+			t.Errorf("%s 应提示改用 fs_read：%s", name, txt)
+		}
+	}
+	// 扩展名是 .doc，内容其实是 docx：照常读取
+	misnamed := filepath.Join(dir, "其实是新格式.doc")
+	writeZip(t, misnamed, map[string]string{
+		"word/document.xml": `<w:document ` + wNS + `><w:body><w:p><w:r><w:t>新格式内容</w:t></w:r></w:p></w:body></w:document>`,
+	})
+	if txt, isErr := call(t, r, "doc_read", map[string]any{"path": misnamed}); isErr || !strings.Contains(txt, "新格式内容") {
+		t.Fatalf("扩展名不对的 docx 应能读：%s", txt)
 	}
 }

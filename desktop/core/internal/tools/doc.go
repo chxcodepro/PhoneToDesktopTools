@@ -26,13 +26,13 @@ const maxDocText = 200 * 1024
 func registerDoc(r *Registry) {
 	r.Add(&Tool{
 		Name: "doc_read",
-		Description: "读取 Word（.docx）、Excel（.xlsx）、PowerPoint（.pptx）、PDF 文件的文字内容，不需要打开 Office / WPS / PDF 阅读器。" +
-			"Excel 按工作表输出，每行用制表符分隔单元格，行首是行号。PDF 按页输出，长文档用 pages 分段读取；扫描件（图片）读不出文字。" +
-			"旧格式 .doc/.xls/.ppt 不支持，可先让用户另存为新格式。",
+		Description: "读取 Word（.docx / .doc）、Excel（.xlsx / .xls）、PowerPoint（.pptx / .ppt）、PDF 文件的文字内容，不需要打开 Office / WPS / PDF 阅读器；" +
+			"WPS 的 .wps / .et / .dps 也可以。Excel 按工作表输出，每行用制表符分隔单元格，行首是行号。PDF 按页输出，长文档用 pages 分段读取；扫描件（图片）读不出文字。" +
+			"Word 6.0 / 95、Excel 5.0 / 95 等更老的格式不支持，可让用户另存为新格式。",
 		InputSchema: object(map[string]prop{
 			"path":     str("文件路径"),
-			"sheet":    str("只读取指定的工作表名称（xlsx）"),
-			"max_rows": intg("每个工作表最多读取的行数（xlsx），默认 200"),
+			"sheet":    str("只读取指定的工作表名称（xlsx / xls）"),
+			"max_rows": intg("每个工作表最多读取的行数（xlsx / xls），默认 200"),
 			"pages":    str("只读取 PDF 的这些页，如 1-3,5；默认从第 1 页读到内容上限"),
 		}, "path"),
 		Category: perm.CatFS, Kind: perm.Read, Handler: docRead,
@@ -51,9 +51,18 @@ func docRead(ctx context.Context, raw json.RawMessage) (*Result, error) {
 	}
 	p := resolvePath(a.Path)
 	ext := strings.ToLower(filepath.Ext(p))
+	// 旧版 Office / WPS 文档按内容识别（扩展名不可靠；加了密码的 docx 也是这种格式）
+	if isCFB(p) {
+		text, err := readLegacy(p, a.Sheet, a.MaxRows)
+		if err != nil {
+			return nil, err
+		}
+		return TextResult(truncateMiddle(p+"\n"+text, maxDocText)), nil
+	}
+	if err := checkMisnamed(p, ext); err != nil {
+		return nil, err
+	}
 	switch ext {
-	case ".doc", ".xls", ".ppt", ".wps", ".et", ".dps":
-		return nil, fmt.Errorf("暂不支持旧格式 %s，请让用户用 Office/WPS 另存为 %sx 格式", ext, strings.TrimSuffix(ext, "x"))
 	case ".pdf":
 		text, err := readPDF(p, a.Pages)
 		if err != nil {
