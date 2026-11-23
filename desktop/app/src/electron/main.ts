@@ -1,6 +1,7 @@
 // PhoneToDesktop 电脑端主进程：启动 Core、轮询状态、主窗口、托盘、被控红框、断开热键。
 import { app, BrowserWindow, globalShortcut, ipcMain, Menu, nativeImage, session, shell, Tray } from 'electron';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { cancelPairing, CoreProcess, disconnect, fetchStatus, removePaired, startPairing } from './core';
 import { OverlayManager } from './overlay';
@@ -18,6 +19,12 @@ let quitting = false;
 let current: AppStatus = { coreOnline: false };
 const core = new CoreProcess();
 let overlays: OverlayManager | null = null; // screen 模块需在 ready 之后使用
+
+// Win7 / Win8（系统版本号 6.x）上用 GPU 绘制全屏透明的被控红框窗口，会让主进程卡死（Win7 虚拟机稳定复现），
+// 这些系统改用软件绘制。界面很简单，不需要 GPU。
+if (process.platform === 'win32' && Number(os.release().split('.')[0]) < 10) {
+  app.disableHardwareAcceleration();
+}
 
 // 只允许运行一个实例
 if (!app.requestSingleInstanceLock()) {

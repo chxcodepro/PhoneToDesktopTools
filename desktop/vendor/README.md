@@ -14,4 +14,4 @@ desktop/vendor/
     └── p2d.apk          手机端安装包（mobile 构建产物）
 ```
 
-下载地址见 [docs/TESTING.md](../../docs/TESTING.md)。哪个版本的 adb 能在 Win7 上运行，需要在 Win7 实测后确定。
+下载地址见 [docs/TESTING.md](../../docs/TESTING.md)。Windows 版 adb 必须用 **33.0.3**：更新的版本用到了 Win8 / Win10 才有的系统函数，在 Win7 上启动失败或连接手机时崩溃（实测结果见 TESTING.md 1.5）。

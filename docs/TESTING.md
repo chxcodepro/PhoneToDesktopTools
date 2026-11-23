@@ -12,8 +12,7 @@
 |---|---|---|
 | SHA-2 签名补丁 KB4474419 | https://www.catalog.update.microsoft.com/Search.aspx?q=KB4474419 | 没打这个补丁的 Win7 装不上新签名的驱动 |
 | 服务堆栈更新 KB4490628 | https://www.catalog.update.microsoft.com/Search.aspx?q=KB4490628 | 安装上一个补丁的前置条件 |
-| adb（最新版） | https://dl.google.com/android/repository/platform-tools-latest-windows.zip | 先试最新版。37.x 的 adb.exe 是 32 位程序，PE 头标记的最低系统为 Vista，32/64 位 Win7 都可能直接运行 |
-| adb（较旧版本，备用） | https://dl.google.com/android/repository/platform-tools_r33.0.3-windows.zip<br>https://dl.google.com/android/repository/platform-tools_r31.0.3-windows.zip | 最新版在 Win7 上运行不了时依次换旧版本试 |
+| adb 33.0.3（项目内置的版本） | https://dl.google.com/android/repository/platform-tools_r33.0.3-windows.zip | 能在 Win7 上用的最新版本，见 1.5 |
 | Google USB 驱动 | https://dl.google.com/android/repository/usb_driver_r13-windows.zip | Win7 不会自动安装 ADB 驱动 |
 | 小米手机驱动（如用小米手机） | 小米官网或「小米手机助手」安装包中的 USB 驱动 | Google 驱动不认非 Google 品牌手机时使用 |
 
@@ -35,7 +34,9 @@ C:\p2d-test\
 ### 1.3 测试步骤
 
 1. 先装 KB4490628，重启；再装 KB4474419，重启。
-2. 手机插上并直通到虚拟机，在设备管理器里给「Android」设备安装驱动（手动指定 USB 驱动解压后的目录）。
+2. 手机插上并直通到虚拟机，在设备管理器里给「其他设备」下带黄色感叹号的手机（名字里带 ADB 的那个）安装驱动：
+   右键「更新驱动程序软件」→「浏览计算机」→「从计算机的设备驱动程序列表中选择」→「从磁盘安装」，选 USB 驱动里的 `android_winusb.inf`，
+   再选「Android ADB Interface」，提示不建议安装时选仍然安装。Google 驱动里没有写其他品牌手机的 ID（如一加 `VID_22D9`），所以要这样手动指定。
 3. 双击运行 `p2d-core.exe`（会出现一个命令行窗口，显示运行日志）。
 4. 看日志：
    - `发现设备 …（状态 unauthorized）`：在手机上点「允许 USB 调试」。
@@ -51,7 +52,32 @@ C:\p2d-test\
 
 ### 1.4 打包进安装包
 
-确定能用的 adb 版本后，放到仓库 `desktop/vendor/adb/windows-amd64/` 和 `windows-386/`，手机端 APK 放到 `desktop/vendor/app/p2d.apk`，再运行 `npm run dist:win64`，它们会被一起打进便携版（见 desktop/vendor/README.md）。
+adb 33.0.3 放到仓库 `desktop/vendor/adb/windows-amd64/` 和 `windows-386/`，手机端 APK 放到 `desktop/vendor/app/p2d.apk`，再运行 `npm run dist:win64`，它们会被一起打进便携版（见 desktop/vendor/README.md）。
+
+### 1.5 测试结果（2026年11月23日，Win7 旗舰版 SP1 x64 虚拟机，一加 13）
+
+系统已打 KB4474419 / KB4490628，自带 UCRT（`ucrtbase.dll`）。没有 Aero（VMware 未开 3D，Win7 用的是 Basic 主题）。
+
+| 项目 | 结果 |
+|---|---|
+| 电脑端（Go 1.20 编译）启动 | 正常 |
+| WiFi 扫码配对、局域网连接、重启后自动重连 | 正常 |
+| 截图、命令、中文文件读写、键盘输入中文、回收站 | 正常 |
+| 控件树：任务栏、记事本文字、菜单勾选状态、保存对话框 | 正常（标题栏「关闭」按钮见下） |
+| 读取 docx、旧版 xls、加密 PDF（含共享文件夹里的文件） | 正常 |
+| 远程桌面推流和点击 | 正常，虚拟机里只有 2–6 帧/秒 |
+| USB：装 Google 驱动后识别手机、自动启动手机端并连接 | 正常（adb 33.0.3） |
+| 电脑端界面（Electron 22）：状态、计时、红框、顶部悬浮条、断开按钮 | 正常（修复后，见下） |
+| 32 位系统 | 未测（没有 32 位镜像，32 位系统已很少见，不再测试） |
+| 开启 Aero 时的红框 | 未测 |
+
+测出并已修复的问题：
+
+- **adb 版本**：37.x 调用了 Win8 才有的 `WaitOnAddress`，在 Win7 上直接启动失败（`0xc0000139`）。34.0.5 能启动，但生成随机数用的是 Win10 才有的 `ProcessPrng`，生成密钥、和手机认证时都会崩溃。33.0.3 用的是 `RtlGenRandom`，Win7 上一切正常。Win10 上也验证过 33.0.3 的 USB 连接。以后升级 adb 前，先用 `strings adb.exe | grep ProcessPrng` 和导入表检查。
+- **控件树点击标题栏「关闭」**：Win7 的标题栏按钮声称支持 Invoke，调用却失败。现在一种点击方式失败会换下一种（DoDefaultAction）。
+- **电脑端界面卡死（未响应）**：手机一连上，界面要显示全屏透明的红框窗口，用 GPU 绘制时主进程卡死。Win7/8 上改为软件绘制（`app.disableHardwareAcceleration()`）。
+
+注意：没打补丁的纯净 Win7 可能没有 UCRT（KB2999226），adb 33 会因缺少 `api-ms-win-crt-*.dll` 无法运行。
 
 ## 2. 银河麒麟虚拟机（x86_64）
 

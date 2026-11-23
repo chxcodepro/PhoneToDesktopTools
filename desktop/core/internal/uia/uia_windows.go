@@ -396,16 +396,17 @@ func (s *session) act(e, win com) (string, error) {
 	if !i.enabled {
 		return "", errors.New(label + " 当前不可用（灰色）")
 	}
-	try := func(id int, iid *guid, method int, done string) (bool, string) {
+	// try 返回：控件是否支持这种操作、成功时的提示、失败时的 HRESULT
+	try := func(id int, iid *guid, method int, done string) (bool, string, int32) {
 		pat := e.pattern(id, iid)
 		if !pat.ok() {
-			return false, ""
+			return false, "", 0
 		}
 		defer pat.release()
 		if hr := pat.call0(method); hr < 0 {
-			return true, ""
+			return true, "", hr
 		}
-		return true, done + label
+		return true, done + label, 0
 	}
 	switch s.p.Action {
 	case "click":
@@ -418,6 +419,7 @@ func (s *session) act(e, win com) (string, error) {
 			}
 			ep.release()
 		}
+		var failHR int32
 		for _, t := range []struct {
 			id     int
 			iid    *guid
@@ -430,12 +432,17 @@ func (s *session) act(e, win com) (string, error) {
 			{patternExpand, &iidExpandPattern, expandExpand, "已展开"},
 			{patternLegacy, &iidLegacyPattern, legacyDoDefaultAction, "已点击"},
 		} {
-			if supported, msg := try(t.id, t.iid, t.method, t.done); supported {
-				if msg == "" {
-					return "", errors.New(label + " 操作失败，请改用 input_mouse 点击 " + i.center())
-				}
+			// 一种方式失败就换下一种：Win7 标题栏的「关闭」等按钮声称支持 Invoke 却调用失败，DoDefaultAction 可以
+			supported, msg, hr := try(t.id, t.iid, t.method, t.done)
+			if msg != "" {
 				return msg, nil
 			}
+			if supported && failHR == 0 {
+				failHR = hr
+			}
+		}
+		if failHR != 0 {
+			return "", fmt.Errorf("%s 操作失败（0x%08X），请改用 input_mouse 点击 %s", label, uint32(failHR), i.center())
 		}
 		return "", errors.New(label + " 不支持直接点击，请用 input_mouse 点击它的坐标 " + i.center())
 	case "set_value":
