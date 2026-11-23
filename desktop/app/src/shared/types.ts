@@ -64,6 +64,8 @@ export interface CoreLan {
   enabled: boolean;
   port?: number;
   addrs?: string[];
+  /** Tailscale 虚拟局域网的地址（100.64.0.0/10），装了 Tailscale 才有 */
+  tailscale?: string;
   pcId?: string;
   pairing?: CorePairing;
   paired?: CorePairedPhone[];

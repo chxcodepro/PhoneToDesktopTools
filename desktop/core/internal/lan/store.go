@@ -162,6 +162,15 @@ func (s *Store) List() []PhoneInfo {
 // 虚拟网卡（虚拟机、WSL、VPN 等），手机一般连不到，排在后面
 var virtualIface = []string{"vmware", "virtualbox", "vbox", "vethernet", "hyper-v", "wsl", "docker", "loopback", "tailscale", "zerotier", "utun", "tun", "tap", "npcap", "bluetooth", "蓝牙"}
 
+// tailscaleNet Tailscale（以及 Headscale 等兼容实现）给设备分配的地址段，即运营商级 NAT 地址段 100.64.0.0/10
+var tailscaleNet = &net.IPNet{IP: net.IPv4(100, 64, 0, 0), Mask: net.CIDRMask(10, 32)}
+
+// IsTailscale 是不是 Tailscale 虚拟局域网的地址：手机也登录同一个 Tailscale 账号时，不在同一个 WiFi 也能用它连接
+func IsTailscale(ip string) bool {
+	p := net.ParseIP(ip)
+	return p != nil && p.To4() != nil && tailscaleNet.Contains(p)
+}
+
 // Addrs 本机局域网 IPv4 地址，真实网卡在前。
 func Addrs() []string {
 	type cand struct {

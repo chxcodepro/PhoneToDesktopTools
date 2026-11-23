@@ -104,7 +104,7 @@ export function AddPcSheet({ visible, initialLink, onClose }: { visible: boolean
   const startIp = () => {
     const a = parseAddress(ip);
     if (!a) {
-      setMessage('请输入电脑的 IP 地址，如 192.168.1.5（电脑端窗口里能看到）');
+      setMessage('请输入电脑的 IP 地址，如 192.168.1.5；用 Tailscale 远程连接时填 100 开头的地址（电脑端窗口里能看到）');
       return;
     }
     setMessage('正在连接电脑…');
@@ -181,7 +181,7 @@ export function AddPcSheet({ visible, initialLink, onClose }: { visible: boolean
               setIp(v);
               setMessage('');
             }}
-            placeholder="如 192.168.1.5"
+            placeholder="如 192.168.1.5，Tailscale 填 100.x.x.x"
             keyboardType="numbers-and-punctuation"
             autoCapitalize="none"
             autoCorrect={false}

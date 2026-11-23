@@ -232,9 +232,15 @@ function Waiting({ s, onPair }: { s: AppStatus; onPair: () => void }) {
           <Row
             icon={lan?.enabled ? ok : warn}
             label="WiFi 直连"
-            right={lan?.enabled ? (lan.addrs?.[0] ?? '无局域网地址') : <Badge variant="warning">未开启</Badge>}
+            right={lan?.enabled ? (lan.addrs?.find((a) => a !== lan.tailscale) ?? lan.addrs?.[0] ?? '无局域网地址') : <Badge variant="warning">未开启</Badge>}
           />
         )}
+        {lan?.enabled && lan.tailscale ? (
+          <>
+            {sep}
+            <Row icon={ok} label="Tailscale 远程" right={lan.tailscale} />
+          </>
+        ) : null}
         {paired.length ? (
           <>
             {sep}

@@ -365,7 +365,7 @@ func (s *Server) lanStatus() map[string]any {
 		q.Set("s", p.Secret)
 		pairing["qr"] = "p2d://pair?" + q.Encode()
 	}
-	return map[string]any{
+	st := map[string]any{
 		"enabled": s.LAN.Port > 0,
 		"port":    s.LAN.Port,
 		"addrs":   addrs,
@@ -373,6 +373,14 @@ func (s *Server) lanStatus() map[string]any {
 		"pairing": pairing,
 		"paired":  s.LAN.Store.List(),
 	}
+	// Tailscale 地址单独给出，界面上提示用户：手机也装 Tailscale 时，不在同一个 WiFi 也能输入这个地址连接
+	for _, a := range addrs {
+		if lan.IsTailscale(a) {
+			st["tailscale"] = a
+			break
+		}
+	}
+	return st
 }
 
 func (s *Server) handlePairingAPI(w http.ResponseWriter, r *http.Request) {

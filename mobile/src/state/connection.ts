@@ -254,7 +254,13 @@ async function syncPcOverUsb(mc: McpClient, params: ConnectParams): Promise<void
   }
 }
 
-/** 探测哪个地址能连上（同时试，先通先用）；返回地址 */
+/** Tailscale 虚拟局域网的地址（100.64.0.0/10）：可能经中继服务器转发，第一次握手比局域网慢 */
+export function isTailscaleAddr(a: string): boolean {
+  const m = /^100\.(\d+)\.\d+\.\d+$/.exec(a);
+  return !!m && Number(m[1]) >= 64 && Number(m[1]) <= 127;
+}
+
+/** 探测哪个地址能连上（同时试，先通先用）；返回地址。Tailscale 地址多等一会 */
 export async function findReachable(addrs: string[], port: number, pcId: string, timeoutMs = 2500): Promise<string> {
   const list = [...new Set(addrs.filter(Boolean))];
   if (!list.length) throw new Error('不知道这台电脑的局域网地址，请插一次数据线或重新配对');
@@ -272,7 +278,7 @@ export async function findReachable(addrs: string[], port: number, pcId: string,
         done = true;
         reject(
           new Error(
-            '连不上电脑：请确认电脑端已打开、手机和电脑在同一个 WiFi / 局域网，并且电脑防火墙允许了 PhoneToDesktop。' +
+            '连不上电脑：请确认电脑端已打开、手机和电脑在同一个 WiFi / 局域网（或者都连着同一个 Tailscale），并且电脑防火墙允许了 PhoneToDesktop。' +
               '手机开着 VPN / 代理（如 NekoBox、Clash）时，要在其中打开「绕过局域网」，或把 PhoneToDesktop 设为不走代理。',
           ),
         );
@@ -281,7 +287,7 @@ export async function findReachable(addrs: string[], port: number, pcId: string,
     for (const a of list) {
       const ctl = new AbortController();
       ctls.push(ctl);
-      const timer = setTimeout(() => ctl.abort(), timeoutMs);
+      const timer = setTimeout(() => ctl.abort(), isTailscaleAddr(a) ? Math.max(timeoutMs, 6000) : timeoutMs);
       const host = a.includes(':') ? `[${a}]` : a;
       fetch(`http://${host}:${port}/p2d/ping`, { signal: ctl.signal })
         .then((r) => r.json() as Promise<{ app?: string; pc?: string }>)
