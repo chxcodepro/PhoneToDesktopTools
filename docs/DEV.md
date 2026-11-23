@@ -124,7 +124,7 @@ ML Kit 的依赖在 dl.google.com，下载超时时可手动下载，放进本�
 
 ## 电脑端界面（desktop/app）
 
-Electron 22.3.27（最后支持 Win7）+ React 18 + Tailwind CSS v3，Vite 构建。主进程负责启动 Core、每秒轮询 `/api/status`、托盘、被控红框和断开热键（依次尝试 `Ctrl+Alt+Q`、`Ctrl+Alt+Shift+Q`、`Ctrl+Shift+F12`，使用第一个未被占用的）。
+Electron 22.3.27（最后支持 Win7）+ React 18 + Tailwind CSS v3，Vite 构建。主进程负责启动 Core、每秒轮询 `/api/status`、托盘、被控红框、断开热键和开机自启（依次尝试 `Ctrl+Alt+Q`、`Ctrl+Alt+Shift+Q`、`Ctrl+Shift+F12`，使用第一个未被占用的）。
 
 ```bash
 cd desktop/app
@@ -136,6 +136,7 @@ npm run dist:win64                  # 打包 Windows x64 便携版，输出到 r
 
 - **Electron 二进制**：本机代理环境下 Electron 自带的下载器会 TLS 握手失败。可以手动从 `https://cdn.npmmirror.com/binaries/electron/22.3.27/` 下载 `electron-v22.3.27-win32-x64.zip`，解压到 `node_modules/electron/dist/`，再写入 `node_modules/electron/path.txt`（内容为 `electron.exe`）。
 - **打包时**：设置 `ELECTRON_BUILDER_BINARIES_MIRROR=https://cdn.npmmirror.com/binaries/electron-builder-binaries/`；x64 可加 `-c.electronDist=node_modules/electron/dist -c.electronVersion=22.3.27` 复用已下载的 Electron。打包前需先运行 `bash scripts/build-core.sh`，`stage-core` 会把各平台 Core 复制到 `core-bin/`。
+- **开机自启**（`src/electron/autostart.ts`）：只在打包后生效，第一次运行默认开启，选择存在 `userData/settings.json`。Windows 用 `reg add` 写 `HKCU\...\Run\PhoneToDesktop`（路径带引号，便携版登记 exe 本身而不是临时解压目录），Linux 写 `~/.config/autostart/phonetodesktop.desktop`；都带 `--hidden`，开机后只在托盘。每次启动按选择重新登记，exe 换位置也能跟上。
 - **开发用环境变量**（打包后同样生效，但只在调试时使用）：
   - `P2D_CORE_ARGS`：传给 Core 的额外参数，如 `-dev-token e2etoken`、`-no-adb`
   - `P2D_PORT`：改用其他端口（同时传给 Core），避免与正在运行的 Core 冲突

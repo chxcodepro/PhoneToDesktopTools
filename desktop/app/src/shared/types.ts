@@ -98,6 +98,8 @@ export interface AppStatus {
   controllerName?: string;
   /** 实际注册成功的断开热键，例如 ["Ctrl","Alt","Q"]；全部被占用时为空 */
   hotkey?: string[];
+  /** 开机自动启动：是否支持（开发模式不支持）、是否开启 */
+  autostart?: { supported: boolean; enabled: boolean };
 }
 
 /** preload 暴露给页面的接口 */
@@ -117,6 +119,8 @@ export interface P2DApi {
   installDriver(): Promise<{ ok: boolean; message?: string }>;
   /** 放行防火墙（会弹出系统的密码框），完成后返回结果 */
   allowFirewall(): Promise<{ ok: boolean; message?: string }>;
+  /** 开启 / 关闭开机自动启动 */
+  setAutostart(on: boolean): Promise<void>;
 }
 
 /** 会话所在手机当前在线的通道（同一台手机可能同时有 USB 和 WiFi 两条，USB 优先） */

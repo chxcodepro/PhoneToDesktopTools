@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { allowFirewall, cancelPairing, CoreProcess, disconnect, fetchStatus, installDriver, removePaired, startPairing } from './core';
+import { getAutostart, initAutostart, setAutostart } from './autostart';
 import { OverlayManager } from './overlay';
 import { deviceNameFor, type AppStatus } from '../shared/types';
 
@@ -114,23 +115,39 @@ function updateTray(s: AppStatus): void {
   }
 }
 
+function trayMenu(): Menu {
+  const auto = getAutostart();
+  return Menu.buildFromTemplate([
+    { label: '显示窗口', click: () => showMainWindow() },
+    { label: '断开连接', click: () => void doDisconnect() },
+    ...(auto.supported
+      ? [{ label: '开机自动启动', type: 'checkbox' as const, checked: auto.enabled, click: () => toggleAutostart(!getAutostart().enabled) }]
+      : []),
+    { type: 'separator' },
+    {
+      label: '退出',
+      click: () => {
+        quitting = true;
+        app.quit();
+      },
+    },
+  ]);
+}
+
+function toggleAutostart(on: boolean): void {
+  try {
+    setAutostart(on);
+  } catch (e) {
+    console.error('设置开机启动失败：', e);
+  }
+  tray?.setContextMenu(trayMenu()); // 菜单只在开关变化时重建（每秒重建会让麒麟上的菜单闪退）
+  void poll();
+}
+
 function createTray(): void {
   tray = new Tray(nativeImage.createFromPath(iconPath('tray-idle.png')));
   tray.setToolTip('PhoneToDesktop');
-  tray.setContextMenu(
-    Menu.buildFromTemplate([
-      { label: '显示窗口', click: () => showMainWindow() },
-      { label: '断开连接', click: () => void doDisconnect() },
-      { type: 'separator' },
-      {
-        label: '退出',
-        click: () => {
-          quitting = true;
-          app.quit();
-        },
-      },
-    ]),
-  );
+  tray.setContextMenu(trayMenu());
   tray.on('click', () => showMainWindow());
 }
 
@@ -150,9 +167,10 @@ async function poll(): Promise<void> {
       status,
       controllerName: sess ? deviceNameFor(status, sess.serial) : undefined,
       hotkey,
+      autostart: getAutostart(),
     };
   } catch {
-    next = { coreOnline: false, coreError: core.lastError || undefined, hotkey };
+    next = { coreOnline: false, coreError: core.lastError || undefined, hotkey, autostart: getAutostart() };
     core.ensureRunning();
   }
   current = next;
@@ -176,6 +194,7 @@ function registerIpc(): void {
       .finally(() => void poll());
   ipcMain.handle('p2d:installDriver', () => fix(installDriver));
   ipcMain.handle('p2d:allowFirewall', () => fix(allowFirewall));
+  ipcMain.handle('p2d:setAutostart', (_e, on: unknown) => toggleAutostart(on === true));
   ipcMain.on('p2d:minimize', () => mainWindow?.minimize());
   ipcMain.on('p2d:hide', () => mainWindow?.hide());
   ipcMain.on('p2d:overlayInteractive', (e, interactive: unknown) => {
@@ -198,6 +217,7 @@ app.on('web-contents-created', (_e, contents) => {
 
 app.whenReady().then(() => {
   session.defaultSession.setPermissionRequestHandler((_wc, _perm, cb) => cb(false));
+  initAutostart();
   registerIpc();
   overlays = new OverlayManager(rendererDir, preloadPath);
   core.start();

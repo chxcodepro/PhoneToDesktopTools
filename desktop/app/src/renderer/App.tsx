@@ -57,6 +57,17 @@ export function App() {
           <Monitor className="h-3 w-3" />
           {st?.hostname ?? '本机'}
         </span>
+        {s.autostart?.supported ? (
+          <label className="flex cursor-pointer items-center gap-1.5 hover:text-foreground">
+            <input
+              type="checkbox"
+              className="h-3 w-3 accent-primary"
+              checked={s.autostart.enabled}
+              onChange={(e) => void window.p2d.setAutostart(e.target.checked)}
+            />
+            开机自启
+          </label>
+        ) : null}
         <span>{platformLabel(st?.os, st?.arch)}</span>
       </footer>
     </div>
