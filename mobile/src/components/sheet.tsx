@@ -14,13 +14,34 @@ export function Sheet({
   onClose,
   children,
   scroll = true,
+  fit = false,
 }: {
   visible: boolean;
   title: string;
   onClose: () => void;
   children: React.ReactNode;
   scroll?: boolean;
+  /** 按内容高度只占屏幕底部（内容少的面板用），弹出键盘时整体上移 */
+  fit?: boolean;
 }) {
+  if (fit) {
+    return (
+      <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+        <KeyboardAvoidingView style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)' }} behavior="padding">
+          <Pressable className="flex-1" onPress={onClose} />
+          <SafeAreaView edges={['bottom']} className="max-h-[92%] rounded-t-3xl bg-background">
+            <View className="flex-row items-center px-4 pb-2 pt-4">
+              <Text className="flex-1 text-base font-semibold">{title}</Text>
+              <Pressable onPress={onClose} hitSlop={10} accessibilityLabel="关闭">
+                <Icon as={X} size={18} className="text-muted-foreground" />
+              </Pressable>
+            </View>
+            <View className="gap-3 px-4 pb-4">{children}</View>
+          </SafeAreaView>
+        </KeyboardAvoidingView>
+      </Modal>
+    );
+  }
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <Pressable className="h-[8%] bg-black/40" onPress={onClose} />

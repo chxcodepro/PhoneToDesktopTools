@@ -191,9 +191,6 @@ export function ScheduleForm({ visible, task, onClose }: { visible: boolean; tas
             )}
 
             {error ? <Text className="text-xs text-destructive">{error}</Text> : null}
-            <Text className="text-xs text-muted-foreground">
-              到点时需要手机上的 App 开着（或点开到点通知）且电脑已连接；无人值守时 Agent 只做查询和低风险操作。
-            </Text>
             <Button onPress={save}>
               <Text>保存</Text>
             </Button>

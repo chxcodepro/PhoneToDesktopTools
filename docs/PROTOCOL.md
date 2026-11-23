@@ -65,11 +65,11 @@ WiFi 连接不走 adb，而是手机直接连电脑的局域网 IP（详见第 9
 
 | level | 允许的工具 |
 |---|---|
-| `readonly` | 只读类：`sys_info`、`fs_list`、`fs_read`、`fs_search`、`doc_read`、`screen_capture` |
-| `standard` | 只读类 + `fs_write`、`fs_edit`、`input_mouse`、`input_keyboard` |
+| `readonly` | 只读类：`sys_info`、`fs_list`、`fs_read`、`fs_search`、`doc_read`、`screen_capture`、`ui_tree` |
+| `standard` | 只读类 + `fs_write`、`fs_edit`、`input_mouse`、`input_keyboard`、`ui_act` |
 | `full` | 全部，包括 `shell_exec`、`fs_delete` |
 
-四个开关再按类别收紧：`shell` → `shell_exec`；`fs` → `fs_*` 和 `doc_read`；`screen` → `screen_capture`；`input` → `input_*`。
+四个开关再按类别收紧：`shell` → `shell_exec`；`fs` → `fs_*` 和 `doc_read`；`screen` → `screen_capture`、`ui_tree`；`input` → `input_*`、`ui_act`。
 
 连接建立后、收到 `p2d/setPermissions` 之前，默认 `readonly`。手机端应在 `initialize` 之后立即发送一次，用户修改设置时再次发送。
 
@@ -84,11 +84,13 @@ WiFi 连接不走 adb，而是手机直接连电脑的局域网 IP（详见第 9
 | `fs_write` | `path`，`content`，`encoding?`（`utf-8` / `gbk`） | 自动创建上级目录 |
 | `fs_edit` | `path`，`old_string`，`new_string`，`replace_all?` | `old_string` 必须唯一匹配（除非 `replace_all`）；保留原文件的编码和换行符 |
 | `fs_search` | `path`，`name?`（通配符），`content?`（包含的文字），`max_results?`（默认 100） | 搜索文件名和文件内容 |
-| `doc_read` | `path`，`sheet?`，`max_rows?`（默认 200） | 读取 docx / xlsx / pptx 的文字；Excel 按工作表输出，制表符分隔 |
+| `doc_read` | `path`，`sheet?`，`max_rows?`（默认 200），`pages?`（PDF 页码，如 `1-3,5`） | 读取 docx / xlsx / pptx / pdf 的文字；Excel 按工作表输出，制表符分隔；PDF 按页输出，单次约 200 KB，超出时提示用 `pages` 继续。PDF 解析为纯 Go 实现（`internal/pdftext`）：支持压缩对象流、交叉引用流、损坏文件重建、只设权限密码的加密文件（RC4 / AES-128 / AES-256），中文靠 ToUnicode 或 GBK / UCS2 等预定义编码；扫描件、设了打开密码的文件返回说明 |
 | `fs_delete` | `path` | 移到回收站（Windows 回收站；Linux 放到 `~/.local/share/Trash`） |
 | `screen_capture` | `display?`（默认 0），`max_width?`（默认 1280），`quality?`（默认 70） | 返回 JPEG 图片，外加一段文字说明缩放比例：`屏幕坐标 = 截图坐标 ÷ scale + 显示器偏移` |
 | `input_mouse` | `action`：`move` / `click` / `double_click` / `right_click` / `middle_click` / `down` / `up` / `scroll` / `drag`；`x`、`y`；`to_x`、`to_y`（drag 用）；`dy`（scroll 用，正数向上） | 坐标为屏幕坐标（虚拟桌面像素） |
 | `input_keyboard` | `action`：`type`（输入 `text`，支持中文）或 `key`（按组合键 `keys`，如 `ctrl+c`、`alt+f4`、`enter`） | |
+| `ui_tree` | `window?`（标题包含即可；不填为前台窗口；`任务栏`），`name?`，`type?`，`list_windows?`，`max?`（默认 150） | 读取界面元素（控件树）：每行 `[类型] 名称 (x, y)`，坐标为元素中心的屏幕坐标；输入框附带当前值。窗口最小化时，只有同时满足 `ui_act` 的权限（`standard` 以上且开着 `input`）才会先还原，否则不动窗口、只返回提示。Windows 直接调用系统 UI Automation（COM，Win7 起都有）；Linux 暂不支持 |
+| `ui_act` | `name`，`action`：`click` / `set_value` / `focus` / `toggle` / `expand` / `collapse`；`window?`，`type?`，`index?`，`value?` | 按名称操作元素，不依赖坐标；同名时优先选支持该动作的元素。不支持的元素返回坐标，改用 `input_mouse` |
 
 ## 5. 远程桌面推流（自定义扩展）
 

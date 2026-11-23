@@ -107,10 +107,6 @@ export function AddMcpSheet({ visible, onClose }: { visible: boolean; onClose: (
         </View>
       ) : null}
       {error ? <Text className="text-xs text-destructive">{error}</Text> : null}
-      <Text className="text-xs text-muted-foreground">
-        远程 MCP 由手机直接连接（走手机网络，电脑可以离线）；带 command 的配置在电脑上运行，需要电脑装有对应环境（Node.js / Python / uv
-        等）。令牌、密钥类的请求头和环境变量存在手机安全存储里，不会发给大模型。
-      </Text>
       <Button onPress={save} disabled={busy}>
         <Text>{busy ? '正在添加…' : '添加'}</Text>
       </Button>

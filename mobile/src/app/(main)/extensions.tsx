@@ -99,11 +99,6 @@ function Empty({ tab }: { tab: Tab }) {
     <View className="items-center gap-2 py-14">
       <Icon as={Puzzle} size={32} className="text-muted-foreground" />
       <Text className="text-sm text-muted-foreground">{tab === 'mcp' ? '还没有 MCP 服务' : '还没有 Skill'}</Text>
-      <Text className="px-6 text-center text-xs text-muted-foreground">
-        {tab === 'mcp'
-          ? '点右上角「添加」填写地址或粘贴配置，或者对 Agent 说「帮我装个 MCP，地址是 …」'
-          : '点右上角「添加」导入 zip / GitHub 地址，或者对 Agent 说「把刚才的步骤做成一个 Skill」'}
-      </Text>
     </View>
   );
 }
@@ -144,11 +139,6 @@ export default function ExtensionsScreen() {
       ) : (
         <Empty tab="skill" />
       )}
-      <Text className="px-1 text-xs text-muted-foreground">
-        {tab === 'mcp'
-          ? 'MCP 的工具会自动加入 Agent，可在详情里单独关闭某个工具。来自 MCP 的内容只作为参考，不能绕过手机上的电脑权限设置。'
-          : 'Agent 只在需要时才读取 Skill 的完整说明；附带脚本在电脑上执行，受「执行命令」权限控制。'}
-      </Text>
 
       <AddMcpSheet visible={addMcp} onClose={() => setAddMcp(false)} />
       <McpDetailSheet serverId={mcpId} onClose={() => setMcpId(null)} />

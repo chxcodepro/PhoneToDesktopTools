@@ -38,14 +38,11 @@ description: 一句话说明这个 Skill 做什么、什么时候用
 
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
-function Choice({ icon, title, desc, onPress }: { icon: typeof Link2; title: string; desc: string; onPress: () => void }) {
+function Choice({ icon, title, onPress }: { icon: typeof Link2; title: string; onPress: () => void }) {
   return (
     <Pressable onPress={onPress} className="flex-row items-center gap-3 rounded-xl border border-border p-3 active:bg-muted">
       <Icon as={icon} size={20} className="text-primary" />
-      <View className="flex-1">
-        <Text className="text-sm font-medium">{title}</Text>
-        <Text className="text-xs text-muted-foreground">{desc}</Text>
-      </View>
+      <Text className="flex-1 text-sm font-medium">{title}</Text>
     </Pressable>
   );
 }
@@ -144,19 +141,11 @@ export function ImportSkillSheet({ visible, onClose, onCreate }: { visible: bool
         </>
       ) : (
         <>
-          <Choice
-            icon={FolderInput}
-            title="从文件导入"
-            desc="选择 .zip 压缩包或 SKILL.md（微信 / QQ 收到的文件也可以）"
-            onPress={() => void pickFile()}
-          />
+          <Choice icon={FolderInput} title="从文件导入" onPress={() => void pickFile()} />
           <View className="gap-2 rounded-xl border border-border p-3">
             <View className="flex-row items-center gap-3">
               <Icon as={Link2} size={20} className="text-primary" />
-              <View className="flex-1">
-                <Text className="text-sm font-medium">从网址导入</Text>
-                <Text className="text-xs text-muted-foreground">GitHub 仓库或子目录地址、zip 下载地址、SKILL.md 地址</Text>
-              </View>
+              <Text className="flex-1 text-sm font-medium">从网址导入</Text>
             </View>
             <View className="flex-row gap-2">
               <Input
@@ -175,7 +164,6 @@ export function ImportSkillSheet({ visible, onClose, onCreate }: { visible: bool
           <Choice
             icon={FilePlus}
             title="新建"
-            desc="自己写 SKILL.md；也可以直接对 Agent 说「把刚才的步骤做成 Skill」"
             onPress={() => {
               onClose();
               onCreate();

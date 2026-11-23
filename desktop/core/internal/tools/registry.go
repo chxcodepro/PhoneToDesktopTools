@@ -27,6 +27,20 @@ type Result struct {
 // Handler 执行工具。返回 error 时会转换为 isError 结果。
 type Handler func(ctx context.Context, args json.RawMessage) (*Result, error)
 
+// permsKey 是调用时的权限在 ctx 里的键。
+type permsKey struct{}
+
+// allowed 供 Handler 判断本次调用是否还有另一类权限（如只读工具想顺带做一点会改变电脑状态的事）。
+// ctx 里没有权限时一律视为不允许。
+func allowed(ctx context.Context, cat perm.Category, kind perm.Kind) bool {
+	p, ok := ctx.Value(permsKey{}).(perm.Permissions)
+	if !ok {
+		return false
+	}
+	ok, _ = p.Allow(cat, kind)
+	return ok
+}
+
 // Tool 描述一个工具。
 type Tool struct {
 	Name        string
@@ -59,6 +73,7 @@ func NewRegistry() *Registry {
 	registerDoc(r)
 	registerScreen(r)
 	registerInput(r)
+	registerUI(r)
 	return r
 }
 
@@ -97,7 +112,7 @@ func (r *Registry) Call(ctx context.Context, p perm.Permissions, name string, ar
 			res = ErrorResult(fmt.Sprintf("工具 %s 内部错误：%v", name, e))
 		}
 	}()
-	res, err := t.Handler(ctx, args)
+	res, err := t.Handler(context.WithValue(ctx, permsKey{}, p), args)
 	if err != nil {
 		return ErrorResult(err.Error()), true
 	}

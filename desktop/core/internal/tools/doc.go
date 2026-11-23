@@ -18,20 +18,22 @@ import (
 	"p2d/core/internal/perm"
 )
 
-// doc_read：读取 Office Open XML 文档（docx / xlsx / pptx，WPS 默认也保存为这些格式）的文字内容。
-// 纯 Go 实现，不依赖 Office / WPS。
+// doc_read：读取 Office Open XML 文档（docx / xlsx / pptx，WPS 默认也保存为这些格式）和 PDF 的文字内容。
+// 纯 Go 实现，不依赖 Office / WPS / PDF 阅读器。
 
 const maxDocText = 200 * 1024
 
 func registerDoc(r *Registry) {
 	r.Add(&Tool{
 		Name: "doc_read",
-		Description: "读取 Word（.docx）、Excel（.xlsx）、PowerPoint（.pptx）文件的文字内容，不需要打开 Office / WPS。" +
-			"Excel 按工作表输出，每行用制表符分隔单元格，行首是行号。旧格式 .doc/.xls/.ppt 不支持，可先让用户另存为新格式。",
+		Description: "读取 Word（.docx）、Excel（.xlsx）、PowerPoint（.pptx）、PDF 文件的文字内容，不需要打开 Office / WPS / PDF 阅读器。" +
+			"Excel 按工作表输出，每行用制表符分隔单元格，行首是行号。PDF 按页输出，长文档用 pages 分段读取；扫描件（图片）读不出文字。" +
+			"旧格式 .doc/.xls/.ppt 不支持，可先让用户另存为新格式。",
 		InputSchema: object(map[string]prop{
 			"path":     str("文件路径"),
 			"sheet":    str("只读取指定的工作表名称（xlsx）"),
 			"max_rows": intg("每个工作表最多读取的行数（xlsx），默认 200"),
+			"pages":    str("只读取 PDF 的这些页，如 1-3,5；默认从第 1 页读到内容上限"),
 		}, "path"),
 		Category: perm.CatFS, Kind: perm.Read, Handler: docRead,
 	})
@@ -42,6 +44,7 @@ func docRead(ctx context.Context, raw json.RawMessage) (*Result, error) {
 		Path    string `json:"path"`
 		Sheet   string `json:"sheet"`
 		MaxRows int    `json:"max_rows"`
+		Pages   string `json:"pages"`
 	}
 	if err := decode(raw, &a); err != nil {
 		return nil, err
@@ -51,6 +54,12 @@ func docRead(ctx context.Context, raw json.RawMessage) (*Result, error) {
 	switch ext {
 	case ".doc", ".xls", ".ppt", ".wps", ".et", ".dps":
 		return nil, fmt.Errorf("暂不支持旧格式 %s，请让用户用 Office/WPS 另存为 %sx 格式", ext, strings.TrimSuffix(ext, "x"))
+	case ".pdf":
+		text, err := readPDF(p, a.Pages)
+		if err != nil {
+			return nil, err
+		}
+		return TextResult(p + "\n" + text), nil
 	}
 	zr, err := zip.OpenReader(p)
 	if err != nil {
@@ -74,7 +83,7 @@ func docRead(ctx context.Context, raw json.RawMessage) (*Result, error) {
 	case files["ppt/presentation.xml"] != nil:
 		text, err = readPptx(files)
 	default:
-		return nil, errors.New("无法识别的文档类型，只支持 docx / xlsx / pptx")
+		return nil, errors.New("无法识别的文档类型，只支持 docx / xlsx / pptx / pdf")
 	}
 	if err != nil {
 		return nil, err

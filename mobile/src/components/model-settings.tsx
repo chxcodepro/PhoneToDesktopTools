@@ -16,7 +16,6 @@ import { Text } from '@/components/ui/text';
 import { defaultContextWindow, formatWindow } from '@/agent/contextWindow';
 import { chat, configProblem, listModels, type FetchLike } from '@/agent/llm';
 import {
-  contextWindowOf,
   getApiKey,
   initModelConfig,
   resolveActiveModel,
@@ -227,9 +226,6 @@ function PresetForm() {
             );
           })}
         </View>
-        <Text className="text-xs text-muted-foreground">
-          {`当前按 ${formatWindow(contextWindowOf(s))} 计算；用到 75% 时会自动压缩较早的对话`}
-        </Text>
       </Field>
 
       <Field
@@ -260,9 +256,6 @@ function PresetForm() {
           textAlignVertical="top"
           className="min-h-24 max-h-60 rounded-md border border-input bg-background px-3 py-2.5 text-sm leading-5 text-foreground"
         />
-        <Text className="text-xs text-muted-foreground">
-          {`各渠道都能用、各存一份，当前编辑的是「${PRESET_OPTIONS.find((p) => p.value === id)?.label ?? ''}」的提示词。加在内置提示词之后，内置的安全规则仍然优先`}
-        </Text>
       </Field>
 
       <Card>

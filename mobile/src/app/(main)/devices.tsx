@@ -74,7 +74,8 @@ function CurrentCard({ onError }: { onError: (m: string) => void }) {
   const { status, route, pcId, addr, detail } = useConnection();
   const { devices } = useDevices();
   const dev = devices.find((d) => d.pcId === pcId);
-  if (!pcId && status === 'idle') return null;
+  // 没连接、也没有这台电脑的记录（如刚删除）时不显示
+  if (status === 'idle' && !dev) return null;
   const busy = status === 'connecting';
   const statusText =
     status === 'connected'

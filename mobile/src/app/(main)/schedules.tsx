@@ -130,16 +130,10 @@ export default function SchedulesScreen() {
         <View className="items-center gap-2 py-16">
           <Icon as={AlarmClock} size={32} className="text-muted-foreground" />
           <Text className="text-sm text-muted-foreground">还没有定时任务</Text>
-          <Text className="px-6 text-center text-xs text-muted-foreground">
-            点右上角「新建」，或直接对 Agent 说「每天早上 8 点给电脑做一次体检」
-          </Text>
         </View>
       ) : (
         tasks.map((t) => <TaskCard key={t.id} t={t} onEdit={() => open(t)} />)
       )}
-      <Text className="px-1 text-xs text-muted-foreground">
-        到点时手机会弹出通知；App 开着且电脑已连接时自动执行，App 在后台时点开通知即可执行（30 分钟内会补执行）。
-      </Text>
       <ScheduleForm visible={formOpen} task={editing} onClose={() => setFormOpen(false)} />
     </Screen>
   );

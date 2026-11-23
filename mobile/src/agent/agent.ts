@@ -86,9 +86,12 @@ export function buildSystemPrompt(
         ? '- 命令：使用 bash 语法。需要 root 的命令设置 shell_exec 的 admin: true（不要写 sudo），电脑上会弹出密码框，提醒用户在电脑上输入密码。'
         : '- 命令：使用 cmd 语法（Win7 自带 PowerShell 2.0，功能有限）。需要管理员权限的命令设置 shell_exec 的 admin: true，电脑上会弹出 UAC 授权框，提醒用户在电脑上点「是」。',
     );
+    lines.push(
+      '- 操作界面优先用控件树：ui_tree 读出窗口里的按钮、输入框、菜单等（名称和屏幕坐标，没有文字的图标也有名称），ui_act 按名称直接点击、填写、展开，比按坐标点更准；读不到元素的程序（游戏、远程桌面、自绘界面）再用截图 + input_mouse。',
+    );
     if (opts.supportsVision) {
       lines.push(
-        '- 操作界面：先 screen_capture 查看屏幕，按返回的 scale 和偏移把截图坐标换算成屏幕坐标，再用 input_mouse / input_keyboard 操作；操作后再截图确认结果。',
+        '- 看屏幕：screen_capture 截图，按返回的 scale 和偏移把截图坐标换算成屏幕坐标，再用 input_mouse / input_keyboard 操作；操作后再截图确认结果。',
       );
     } else {
       lines.push(
@@ -196,6 +199,20 @@ export function summarizeArgs(name: string, args: Record<string, unknown>): stri
       return args.action === 'key' ? s(args.keys) : `输入「${s(args.text).slice(0, 40)}」`;
     case 'screen_capture':
       return `显示器 ${args.display ?? 0}`;
+    case 'ui_tree':
+      if (args.list_windows) return '所有窗口';
+      return [s(args.window) || '前台窗口', s(args.name) && `「${s(args.name)}」`, s(args.type)].filter(Boolean).join(' · ');
+    case 'ui_act': {
+      const verb: Record<string, string> = {
+        click: '点击',
+        set_value: '填写',
+        focus: '聚焦',
+        toggle: '切换',
+        expand: '展开',
+        collapse: '收起',
+      };
+      return `${verb[s(args.action)] ?? s(args.action)}「${s(args.name)}」`;
+    }
     case 'sys_info':
       return '系统信息';
     case 'web_search':

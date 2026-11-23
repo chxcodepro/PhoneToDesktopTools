@@ -197,10 +197,13 @@ export function connectWith(params: ConnectParams): void {
     },
     onLog: __DEV__ ? (m) => console.log('[mcp]', m) : undefined,
   });
+  // 这条 USB 连接是否连上过：刚被电脑端拉起时（如刚装完 / 更新完 App）头几次连接可能失败，多等一会儿再切 WiFi
+  let everConnected = false;
   c.onStatus((status, detail) => {
     if (client !== c) return;
     connectionStore.set({ status, detail });
     if (status === 'connected') {
+      everConnected = true;
       clearFallback();
       void saveLastConnect(params);
     }
@@ -208,7 +211,7 @@ export function connectWith(params: ConnectParams): void {
       void saveLastConnect(null);
       scheduleFallback(c, connectionStore.get().pcId ?? params.pcId, 300);
     }
-    if (status === 'disconnected') scheduleFallback(c, connectionStore.get().pcId ?? params.pcId, 3000);
+    if (status === 'disconnected') scheduleFallback(c, connectionStore.get().pcId ?? params.pcId, everConnected ? 3000 : 12_000);
   });
   replaceClient(c);
   c.connect();
