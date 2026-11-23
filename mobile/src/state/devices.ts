@@ -8,6 +8,7 @@ import { Platform } from 'react-native';
 
 import { fromBase64, toBase64, toHex } from '@/protocol/secure';
 
+import { findSameMachine, mergeInto } from './deviceMerge';
 import { createStore, useStore } from './store';
 
 export type Route = 'usb' | 'wifi';
@@ -16,6 +17,8 @@ export interface PcDevice {
   pcId: string;
   /** 电脑名（电脑端告知） */
   name: string;
+  /** 电脑端的机器指纹（新版电脑端告知）：pcId 变了也能认出是同一台电脑 */
+  mid?: string;
   /** 用户起的名字，优先显示 */
   alias?: string;
   os: string;
@@ -104,16 +107,35 @@ export function getDevice(pcId: string | null | undefined): PcDevice | undefined
   return pcId ? devicesStore.get().devices.find((d) => d.pcId === pcId) : undefined;
 }
 
-/** 新增或更新一台电脑（按最近连接排序） */
+type MergeListener = (fromPcId: string, toPcId: string) => void;
+const mergeListeners = new Set<MergeListener>();
+
+/** 同一台电脑的旧记录被合并时通知（例如把旧 pcId 下的对话归到新 pcId） */
+export function onDeviceMerged(fn: MergeListener): () => void {
+  mergeListeners.add(fn);
+  return () => mergeListeners.delete(fn);
+}
+
+/** 新增或更新一台电脑（按最近连接排序）。带机器指纹时，顺便合并同一台电脑 pcId 不同的旧记录 */
 export function upsertDevice(patch: Partial<PcDevice> & { pcId: string }): PcDevice {
   const list = devicesStore.get().devices;
   const old = list.find((d) => d.pcId === patch.pcId);
   const clean = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined)) as Partial<PcDevice>;
-  const next: PcDevice = { name: '电脑', os: 'unknown', addrs: [], port: 0, paired: false, ...old, ...clean, pcId: patch.pcId };
-  const rest = list.filter((d) => d.pcId !== patch.pcId);
+  let next: PcDevice = { name: '电脑', os: 'unknown', addrs: [], port: 0, paired: false, ...old, ...clean, pcId: patch.pcId };
+  let rest = list.filter((d) => d.pcId !== patch.pcId);
+  const dups = findSameMachine(next, rest);
+  if (dups.length) {
+    next = mergeInto(next, dups);
+    rest = rest.filter((d) => !dups.includes(d));
+  }
   const devices = [next, ...rest].sort((a, b) => (b.lastConnectedAt ?? 0) - (a.lastConnectedAt ?? 0));
   devicesStore.set({ devices });
   void persist();
+  for (const d of dups) {
+    // 旧 pcId 的配对密钥已经没用了（电脑端换了标识，对应的配对记录也不在了）
+    void SecureStore.deleteItemAsync(keyName(d.pcId)).catch(() => undefined);
+    for (const fn of mergeListeners) fn(d.pcId, next.pcId);
+  }
   return next;
 }
 

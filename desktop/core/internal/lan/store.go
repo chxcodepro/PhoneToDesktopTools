@@ -35,6 +35,7 @@ type Store struct {
 	mu     sync.Mutex
 	path   string
 	pcID   string
+	mid    string
 	phones map[string]*Phone
 }
 
@@ -45,10 +46,16 @@ type storeFile struct {
 
 // OpenStore 读取（或新建）状态文件；dir 为空时只保存在内存里。
 func OpenStore(dir string) *Store {
-	s := &Store{phones: map[string]*Phone{}}
+	s := &Store{phones: map[string]*Phone{}, mid: MachineID()}
+	readOnly := false
 	if dir != "" {
 		s.path = filepath.Join(dir, "lan.json")
-		if b, err := os.ReadFile(s.path); err == nil {
+		b, err := os.ReadFile(s.path)
+		if err != nil && !os.IsNotExist(err) {
+			// 文件在但暂时读不了（被占用等）：不要用新标识覆盖它
+			readOnly = true
+		}
+		if err == nil {
 			var f storeFile
 			if json.Unmarshal(b, &f) == nil {
 				s.pcID = f.PCID
@@ -61,11 +68,19 @@ func OpenStore(dir string) *Store {
 		}
 	}
 	if s.pcID == "" {
-		s.pcID = hex.EncodeToString(Random(rand.Reader, 8))
-		s.save()
+		// 优先用本机标识派生，lan.json 换了位置或丢了也能得到同一个 pcId；取不到才随机
+		if s.pcID = derivedPCID(); s.pcID == "" {
+			s.pcID = hex.EncodeToString(Random(rand.Reader, 8))
+		}
+		if !readOnly {
+			s.save()
+		}
 	}
 	return s
 }
+
+// MachineID 机器指纹（见 machine.go），取不到时为空。
+func (s *Store) MachineID() string { return s.mid }
 
 func (s *Store) save() {
 	if s.path == "" {

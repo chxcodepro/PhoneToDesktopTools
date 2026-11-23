@@ -30,6 +30,7 @@ export async function pairByQr(link: PairLink): Promise<string> {
   });
   upsertDevice({
     pcId: r.pcId,
+    mid: r.mid,
     name: r.name,
     os: r.os,
     addrs: r.addrs.length ? r.addrs : link.addrs,
@@ -77,6 +78,7 @@ export async function pairByCode(
   });
   upsertDevice({
     pcId: r.pcId,
+    mid: r.mid,
     name: r.name,
     os: r.os,
     addrs: [host, ...r.addrs.filter((a) => a !== host)],

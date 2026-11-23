@@ -47,7 +47,15 @@ func (s *Server) pcName() string {
 // pcInfo 告诉手机的电脑信息（地址列表用于之后的 WiFi 直连）。
 func (s *Server) pcInfo() map[string]any {
 	info := map[string]any{"pc": s.LAN.Store.PCID(), "name": s.pcName(), "os": runtime.GOOS, "port": s.LAN.Port, "addrs": lan.Addrs()}
+	s.addMachineID(info)
 	return info
+}
+
+// addMachineID 附上机器指纹 mid（新增字段，旧版手机端会忽略）：手机端据此合并同一台电脑的重复记录。
+func (s *Server) addMachineID(m map[string]any) {
+	if mid := s.LAN.Store.MachineID(); mid != "" {
+		m["mid"] = mid
+	}
 }
 
 // pairMethod 经 USB（本机）会话调用的配对相关方法。
@@ -316,7 +324,9 @@ func (s *Server) handleSecure(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ns := lan.Random(rand.Reader, 16)
-	if err := writeJSON(conn, map[string]any{"type": "hello", "pc": s.LAN.Store.PCID(), "name": s.pcName(), "os": runtime.GOOS, "ns": b64(ns)}); err != nil {
+	helloMsg := map[string]any{"type": "hello", "pc": s.LAN.Store.PCID(), "name": s.pcName(), "os": runtime.GOOS, "ns": b64(ns)}
+	s.addMachineID(helloMsg)
+	if err := writeJSON(conn, helloMsg); err != nil {
 		_ = conn.Close()
 		return
 	}

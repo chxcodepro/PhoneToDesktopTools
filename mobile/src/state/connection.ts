@@ -223,6 +223,7 @@ async function syncPcOverUsb(mc: McpClient, params: ConnectParams): Promise<void
   try {
     const info = (await mc.request('p2d/pc.info', { phone: d.phoneId }, 10_000)) as {
       pc: string;
+      mid?: string;
       name: string;
       os: string;
       addrs?: string[];
@@ -232,6 +233,7 @@ async function syncPcOverUsb(mc: McpClient, params: ConnectParams): Promise<void
     if (!info?.pc) return;
     upsertDevice({
       pcId: info.pc,
+      mid: typeof info.mid === 'string' && info.mid ? info.mid : undefined,
       name: info.name,
       os: info.os,
       addrs: info.addrs ?? [],
@@ -321,7 +323,7 @@ export async function connectLan(pcId: string, opts: { manual: boolean; addrs?: 
         manual,
         random: randomBytes,
         createRaw: (u) => new WebSocket(u) as unknown as RawSocket,
-        onHello: (h) => upsertDevice({ pcId, name: h.name || dev.name, os: h.os || dev.os }),
+        onHello: (h) => upsertDevice({ pcId, mid: h.mid, name: h.name || dev.name, os: h.os || dev.os }),
         onReject: (code) => {
           if (code === 'unpaired') void forgetPairKey(pcId);
         },

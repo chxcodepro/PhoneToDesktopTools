@@ -139,7 +139,7 @@ export interface SecureSocketOptions {
   random: RandomBytes;
   createRaw: (url: string) => RawSocket;
   /** 握手成功时告诉调用方电脑信息 */
-  onHello?: (info: { pc: string; name: string; os: string }) => void;
+  onHello?: (info: { pc: string; name: string; os: string; mid?: string }) => void;
   /** 电脑端拒绝的原因代码（unpaired / suppressed 等） */
   onReject?: (code: string, message: string) => void;
 }
@@ -186,7 +186,7 @@ export class SecureSocket implements WebSocketLike {
       if (this.closed) return;
       if (!this.rd) {
         // 握手：第一条是明文 JSON
-        let m: { type?: string; ns?: string; pc?: string; name?: string; os?: string; code?: string; message?: string };
+        let m: { type?: string; ns?: string; pc?: string; mid?: string; name?: string; os?: string; code?: string; message?: string };
         try {
           m = JSON.parse(typeof ev.data === 'string' ? ev.data : dec.decode(toBytes(ev.data) ?? new Uint8Array()));
         } catch {
@@ -206,7 +206,7 @@ export class SecureSocket implements WebSocketLike {
         this.wr = new FrameCipher(c2s);
         this.rd = new FrameCipher(s2c);
         this.readyState = 1;
-        opts.onHello?.({ pc: m.pc ?? '', name: m.name ?? '', os: m.os ?? '' });
+        opts.onHello?.({ pc: m.pc ?? '', name: m.name ?? '', os: m.os ?? '', mid: typeof m.mid === 'string' && m.mid ? m.mid : undefined });
         this.onopen?.({});
         return;
       }
@@ -257,6 +257,8 @@ export class SecureSocket implements WebSocketLike {
 
 export interface PairResult {
   pcId: string;
+  /** 电脑端的机器指纹（旧版电脑端没有） */
+  mid?: string;
   name: string;
   os: string;
   key: Uint8Array;
@@ -361,8 +363,9 @@ export function pairWithPc(opts: PairOptions): Promise<PairResult> {
         if (!expectServerMac || toHex(got) !== toHex(expectServerMac))
           return done(new PairError('mismatch', '电脑端校验失败，配对可能被干扰'));
         step = 'done';
-        const r = m as unknown as { pc: string; name: string; os: string; addrs?: string[]; port?: number };
-        return done(null, { pcId: r.pc, name: r.name, os: r.os, key: key!, addrs: r.addrs ?? [], port: Number(r.port) || 0 });
+        const r = m as unknown as { pc: string; mid?: string; name: string; os: string; addrs?: string[]; port?: number };
+        const mid = typeof r.mid === 'string' && r.mid ? r.mid : undefined;
+        return done(null, { pcId: r.pc, mid, name: r.name, os: r.os, key: key!, addrs: r.addrs ?? [], port: Number(r.port) || 0 });
       }
     };
   });

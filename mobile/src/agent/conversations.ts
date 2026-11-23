@@ -5,6 +5,7 @@ import { fetch as expoFetch } from 'expo/fetch';
 import { formatOcr } from '@/agent/ocr';
 import { describeScreenshot, ocrAvailable, recognizeText } from '@/native/ocr';
 import { connectionStore, getClient } from '@/state/connection';
+import { onDeviceMerged } from '@/state/devices';
 import { loadJson, saveJson } from '@/state/storage';
 import { createStore, useStore } from '@/state/store';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -160,6 +161,7 @@ export function initConversations(): Promise<void> {
       const list = await loadJson<ConversationMeta[]>(INDEX_KEY, []);
       conversationStore.set({ list, ready: true });
       watchComputer();
+      onDeviceMerged((from, to) => void remapPcId(from, to));
     })();
   }
   return initPromise;
@@ -183,6 +185,15 @@ function watchComputer(): void {
     if (latest) void openConversation(latest.id);
     else newConversation();
   });
+}
+
+/** 同一台电脑的重复记录被合并：旧 pcId 下的对话归到新 pcId，按电脑筛选时不会被藏起来 */
+async function remapPcId(from: string, to: string): Promise<void> {
+  const s = conversationStore.get();
+  if (!s.list.some((c) => c.pcId === from) && s.pcId !== from) return;
+  const list = s.list.map((c) => (c.pcId === from ? { ...c, pcId: to } : c));
+  conversationStore.set({ list, ...(s.pcId === from ? { pcId: to } : {}) });
+  await saveJson(INDEX_KEY, list);
 }
 
 /** 持久化时去掉图片数据（体积太大），历史中的图片替换为文字 */

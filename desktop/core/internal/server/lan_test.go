@@ -43,6 +43,31 @@ func recv(t *testing.T, c *websocket.Conn) map[string]any {
 	return m
 }
 
+// checkMID 电脑信息里应带上机器指纹 mid（本机取不到系统标识时不带）
+func checkMID(t *testing.T, srv *Server, m map[string]any) {
+	t.Helper()
+	want := srv.LAN.Store.MachineID()
+	got, has := m["mid"]
+	if want == "" {
+		if has {
+			t.Errorf("没有机器指纹时不应带 mid：%v", m)
+		}
+		return
+	}
+	if got != want {
+		t.Errorf("mid 不对：%v，应为 %s", got, want)
+	}
+}
+
+func TestPCInfoHasMachineID(t *testing.T) {
+	srv, _ := newLANServer(t)
+	info := srv.pcInfo()
+	if info["pc"] != srv.LAN.Store.PCID() {
+		t.Fatalf("pc 不对：%v", info)
+	}
+	checkMID(t, srv, info)
+}
+
 // pair 模拟手机配对，返回配对密钥
 func pair(t *testing.T, srv *Server, url, mode, phoneID string) []byte {
 	c := lanDial(t, url+"/p2d/pair")
@@ -78,6 +103,7 @@ func pair(t *testing.T, srv *Server, url, mode, phoneID string) []byte {
 	if ok["type"] != "ok" || !hmac.Equal(unb64(ok["mac"].(string)), serverMAC) {
 		t.Fatalf("配对确认失败：%v", ok)
 	}
+	checkMID(t, srv, ok)
 	return key
 }
 
@@ -89,6 +115,9 @@ func secureCall(t *testing.T, url, phoneID string, key []byte, manual bool) (map
 	h := recv(t, c)
 	if h["type"] != "hello" {
 		return h, nil
+	}
+	if mid := h["mid"]; mid != nil && mid == "" {
+		t.Errorf("hello 里的 mid 不应为空字符串：%v", h)
 	}
 	c2s, s2c := lan.SessionKeys(key, nc, unb64(h["ns"].(string)))
 	wr, _ := lan.NewCipher(c2s)

@@ -91,11 +91,13 @@ func localOnly(next http.Handler) http.Handler {
 func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
 	serial, ok := s.Tokens.Lookup(r.URL.Query().Get("token"))
 	if !ok {
+		log.Printf("拒绝数据线连接：令牌无效（手机端可能还在用旧令牌）")
 		http.Error(w, "令牌无效，请重新插拔数据线", http.StatusUnauthorized)
 		return
 	}
 	conn, err := s.upgrader.Upgrade(w, r, nil)
 	if err != nil {
+		log.Printf("数据线连接握手失败：%v", err)
 		return
 	}
 	id := atomic.AddInt64(&s.nextID, 1)
