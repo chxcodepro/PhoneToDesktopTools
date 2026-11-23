@@ -77,6 +77,8 @@ export interface CoreStatus {
   uptime: number;
   sessions: CoreSession[];
   adbAvailable?: boolean;
+  /** adb 不可用的原因（如缺少运行库） */
+  adbError?: string;
   devices?: CoreDevice[];
   lan?: CoreLan;
 }

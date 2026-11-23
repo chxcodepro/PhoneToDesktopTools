@@ -119,6 +119,16 @@ func (m *Manager) Available() bool {
 	return m.available
 }
 
+// Problem adb 不可用的原因（可用时为空）
+func (m *Manager) Problem() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.available {
+		return ""
+	}
+	return m.lastErr
+}
+
 // Snapshot 设备列表（用于状态接口）。
 func (m *Manager) Snapshot() any {
 	m.mu.Lock()
@@ -163,6 +173,9 @@ func (m *Manager) run(ctx context.Context, timeout time.Duration, args ...string
 		return s, fmt.Errorf("adb %s 超时", strings.Join(args, " "))
 	}
 	if err != nil {
+		if hint := explainExit(err); hint != "" {
+			return s, fmt.Errorf("%s（adb %s：%v）", hint, strings.Join(args, " "), err)
+		}
 		return s, fmt.Errorf("adb %s 失败：%v %s", strings.Join(args, " "), err, s)
 	}
 	return s, nil

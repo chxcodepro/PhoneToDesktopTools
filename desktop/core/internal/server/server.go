@@ -26,7 +26,8 @@ var Version = "dev"
 type DeviceSource interface {
 	Snapshot() any
 	Available() bool
-	SuppressAll() // 用户点「断开」后，拔线前不再自动连接
+	Problem() string // adb 不可用的原因
+	SuppressAll()    // 用户点「断开」后，拔线前不再自动连接
 }
 
 // Server MCP 服务。
@@ -230,6 +231,9 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	if s.Devices != nil {
 		st["adbAvailable"] = s.Devices.Available()
+		if p := s.Devices.Problem(); p != "" {
+			st["adbError"] = p
+		}
 		st["devices"] = s.Devices.Snapshot()
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")

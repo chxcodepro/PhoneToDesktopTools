@@ -41,6 +41,15 @@
     overflow: hidden;
   }
 
+  /* 内容放不下时才出现的细滚动条（Win7 默认滚动条很宽） */
+  ::-webkit-scrollbar {
+    width: 6px;
+  }
+  ::-webkit-scrollbar-thumb {
+    border-radius: 3px;
+    background: hsl(var(--border));
+  }
+
   /* 被控提示窗口：完全透明 */
   html.overlay,
   html.overlay body {

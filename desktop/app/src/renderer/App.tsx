@@ -51,7 +51,7 @@ export function App() {
   return (
     <div className="flex h-full flex-col overflow-hidden border border-border bg-background">
       <TitleBar />
-      <div className="flex min-h-0 flex-1 flex-col gap-3.5 p-5">{body}</div>
+      <div className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto p-5">{body}</div>
       <footer className="flex h-10 shrink-0 items-center justify-between border-t border-border px-3.5 text-xs text-muted-foreground">
         <span className="flex items-center gap-1.5">
           <Monitor className="h-3 w-3" />
@@ -141,6 +141,9 @@ function Waiting({ s, onPair }: { s: AppStatus; onPair: () => void }) {
           label="Android 驱动"
           right={adb ? <Badge variant="success">就绪</Badge> : <Badge variant="warning">未就绪</Badge>}
         />
+        {!adb && s.status?.adbError ? (
+          <div className="line-clamp-3 break-all px-3 pb-2.5 pl-9 text-xs text-warning-foreground">{s.status.adbError.replace(/（adb .*$/, '')}</div>
+        ) : null}
         {sep}
         <Row icon={warn} label="iPhone 驱动" right={<Badge variant="muted">暂不支持</Badge>} />
         {sep}

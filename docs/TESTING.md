@@ -77,7 +77,10 @@ adb 33.0.3 放到仓库 `desktop/vendor/adb/windows-amd64/` 和 `windows-386/`�
 - **控件树点击标题栏「关闭」**：Win7 的标题栏按钮声称支持 Invoke，调用却失败。现在一种点击方式失败会换下一种（DoDefaultAction）。
 - **电脑端界面卡死（未响应）**：手机一连上，界面要显示全屏透明的红框窗口，用 GPU 绘制时主进程卡死。Win7/8 上改为软件绘制（`app.disableHardwareAcceleration()`）。
 
-注意：没打补丁的纯净 Win7 可能没有 UCRT（KB2999226），adb 33 会因缺少 `api-ms-win-crt-*.dll` 无法运行。
+没打补丁的纯净 Win7 可能没有 UCRT（KB2999226），adb 33 会因缺少 `api-ms-win-crt-*.dll` 无法运行。
+现在安装包在 adb 旁边自带了微软可再发行的 UCRT（来源和许可见 desktop/vendor/README.md），Win7 上实测 adb 加载的是自带的副本，Win10 上也复测正常。
+这种情况下电脑端界面会在「Android 驱动 未就绪」下面说明原因和处理办法（adb 因缺少 DLL、缺少系统函数或文件损坏而无法启动时都会提示）。
+已在 Win7 上拿掉 adb 的一个 DLL 模拟验证过提示。
 
 ## 2. 银河麒麟虚拟机（x86_64）
 
