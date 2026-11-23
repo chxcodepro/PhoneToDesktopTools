@@ -133,6 +133,11 @@ export async function cancelPairing(): Promise<void> {
   await request('POST', '/api/pairing/cancel', 2000);
 }
 
+/** 安装手机 USB 驱动：电脑端弹出 UAC，等用户确认并装完（最多 10 分钟） */
+export async function installDriver(): Promise<{ ok: boolean; message?: string }> {
+  return JSON.parse(await request('POST', '/api/driver/install', 11 * 60_000)) as { ok: boolean; message?: string };
+}
+
 export async function removePaired(id: string): Promise<void> {
   await request('POST', `/api/paired/remove?id=${encodeURIComponent(id)}`, 2000);
 }

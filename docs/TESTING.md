@@ -13,8 +13,7 @@
 | SHA-2 签名补丁 KB4474419 | https://www.catalog.update.microsoft.com/Search.aspx?q=KB4474419 | 没打这个补丁的 Win7 装不上新签名的驱动 |
 | 服务堆栈更新 KB4490628 | https://www.catalog.update.microsoft.com/Search.aspx?q=KB4490628 | 安装上一个补丁的前置条件 |
 | adb 33.0.3（项目内置的版本） | https://dl.google.com/android/repository/platform-tools_r33.0.3-windows.zip | 能在 Win7 上用的最新版本，见 1.5 |
-| Google USB 驱动 | https://dl.google.com/android/repository/usb_driver_r13-windows.zip | Win7 不会自动安装 ADB 驱动 |
-| 小米手机驱动（如用小米手机） | 小米官网或「小米手机助手」安装包中的 USB 驱动 | Google 驱动不认非 Google 品牌手机时使用 |
+| Google USB 驱动（备用） | https://dl.google.com/android/repository/usb_driver_r13-windows.zip | 电脑端界面里的「安装驱动」不能用时手动安装（见 1.3 第 2 步） |
 
 补丁选择与虚拟机位数一致的版本（x64 或 x86）。
 
@@ -34,7 +33,10 @@ C:\p2d-test\
 ### 1.3 测试步骤
 
 1. 先装 KB4490628，重启；再装 KB4474419，重启。
-2. 手机插上并直通到虚拟机，在设备管理器里给「其他设备」下带黄色感叹号的手机（名字里带 ADB 的那个）安装驱动：
+2. 手机插上并直通到虚拟机。Win7 不会自动给手机装驱动：运行电脑端界面，它会显示「缺少驱动」，点「安装驱动」，
+   在 UAC 窗口点「是」，提示「无法验证此驱动程序软件的发布者」时点「始终安装此驱动程序软件」。
+   驱动是电脑端自带的驱动描述文件（只用系统自带的 WinUSB，所有品牌手机通用，没有微软签名所以会有这个提示）。
+   备用的手动方法：在设备管理器里给「其他设备」下带黄色感叹号的手机（名字里带 ADB 的那个）
    右键「更新驱动程序软件」→「浏览计算机」→「从计算机的设备驱动程序列表中选择」→「从磁盘安装」，选 USB 驱动里的 `android_winusb.inf`，
    再选「Android ADB Interface」，提示不建议安装时选仍然安装。Google 驱动里没有写其他品牌手机的 ID（如一加 `VID_22D9`），所以要这样手动指定。
 3. 双击运行 `p2d-core.exe`（会出现一个命令行窗口，显示运行日志）。
@@ -67,6 +69,7 @@ adb 33.0.3 放到仓库 `desktop/vendor/adb/windows-amd64/` 和 `windows-386/`�
 | 读取 docx、旧版 xls、加密 PDF（含共享文件夹里的文件） | 正常 |
 | 远程桌面推流和点击 | 正常，虚拟机里只有 2–6 帧/秒 |
 | USB：装 Google 驱动后识别手机、自动启动手机端并连接 | 正常（adb 33.0.3） |
+| 电脑端界面「安装驱动」：检测到缺驱动的手机，一键装上自带驱动后自动连接 | 正常（这台虚拟机关闭了 UAC，UAC 确认窗口未测） |
 | 电脑端界面（Electron 22）：状态、计时、红框、顶部悬浮条、断开按钮 | 正常（修复后，见下） |
 | 32 位系统 | 未测（没有 32 位镜像，32 位系统已很少见，不再测试） |
 | 开启 Aero 时的红框 | 未测 |

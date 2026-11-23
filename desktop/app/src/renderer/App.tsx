@@ -125,6 +125,41 @@ const ok = <CheckCircle2 className="h-3.5 w-3.5 text-success-foreground" />;
 const warn = <AlertTriangle className="h-3.5 w-3.5 text-warning-foreground" />;
 const pending = <Circle className="h-3.5 w-3.5" />;
 
+/** 插上了手机，但 ADB 接口还没有驱动（Win7 常见）：一键安装 */
+function DriverMissing({ names }: { names: string[] }) {
+  const [installing, setInstalling] = useState(false);
+  const [error, setError] = useState('');
+  const install = () => {
+    setInstalling(true);
+    setError('');
+    void window.p2d
+      .installDriver()
+      .then((r) => setError(r.ok ? '' : (r.message ?? '驱动安装失败')))
+      .finally(() => setInstalling(false));
+  };
+  return (
+    <div className="pb-2.5">
+      <Row icon={warn} label="Android 驱动" right={<Badge variant="warning">缺少驱动</Badge>} />
+      <div className="flex flex-col gap-2 px-3 pl-9 text-xs text-muted-foreground">
+        <span>
+          已插上手机{names[0] ? `「${names[0]}」` : ''}，需要安装 USB 驱动才能用数据线连接。
+        </span>
+        {installing ? (
+          <span className="flex items-start gap-1.5 text-foreground">
+            <Spinner className="mt-0.5 h-3 w-3 shrink-0" />
+            <span>正在安装：请在弹出的窗口中点「是」；提示无法验证发布者时，点「始终安装此驱动程序软件」</span>
+          </span>
+        ) : (
+          <Button size="sm" className="self-start" onClick={install}>
+            安装驱动
+          </Button>
+        )}
+        {error ? <span className="text-destructive">{error}</span> : null}
+      </div>
+    </div>
+  );
+}
+
 function Waiting({ s, onPair }: { s: AppStatus; onPair: () => void }) {
   const adb = s.status?.adbAvailable;
   const lan = s.status?.lan;
@@ -136,11 +171,15 @@ function Waiting({ s, onPair }: { s: AppStatus; onPair: () => void }) {
       <div className="text-center text-lg font-bold">{s.coreOnline ? '等待手机连接' : '正在启动服务…'}</div>
       {!s.coreOnline && s.coreError && <div className="text-center text-xs text-destructive">{s.coreError}</div>}
       <Card className="mt-auto">
-        <Row
-          icon={adb ? ok : warn}
-          label="Android 驱动"
-          right={adb ? <Badge variant="success">就绪</Badge> : <Badge variant="warning">未就绪</Badge>}
-        />
+        {s.status?.driverMissing?.length ? (
+          <DriverMissing names={s.status.driverMissing.map((d) => d.name)} />
+        ) : (
+          <Row
+            icon={adb ? ok : warn}
+            label="Android 驱动"
+            right={adb ? <Badge variant="success">就绪</Badge> : <Badge variant="warning">未就绪</Badge>}
+          />
+        )}
         {!adb && s.status?.adbError ? (
           <div className="line-clamp-3 break-all px-3 pb-2.5 pl-9 text-xs text-warning-foreground">{s.status.adbError.replace(/（adb .*$/, '')}</div>
         ) : null}

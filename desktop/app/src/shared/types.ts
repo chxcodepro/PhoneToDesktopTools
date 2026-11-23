@@ -79,6 +79,8 @@ export interface CoreStatus {
   adbAvailable?: boolean;
   /** adb 不可用的原因（如缺少运行库） */
   adbError?: string;
+  /** 已插上但还没装 USB 驱动的手机（Windows） */
+  driverMissing?: { name: string; instanceId: string }[];
   devices?: CoreDevice[];
   lan?: CoreLan;
 }
@@ -109,6 +111,8 @@ export interface P2DApi {
   cancelPairing(): Promise<void>;
   /** 取消与某部手机的配对 */
   removePaired(id: string): Promise<void>;
+  /** 安装手机 USB 驱动（会弹出管理员确认），装完返回结果 */
+  installDriver(): Promise<{ ok: boolean; message?: string }>;
 }
 
 /** 会话所在手机当前在线的通道（同一台手机可能同时有 USB 和 WiFi 两条，USB 优先） */

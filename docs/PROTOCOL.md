@@ -136,8 +136,9 @@ WiFi 连接不走 adb，而是手机直接连电脑的局域网 IP（详见第 9
 
 Core 在同一端口提供 HTTP 接口，只接受本机访问：
 
-- `GET /api/status`：电脑信息、adb 是否可用、设备列表（序列号、型号、阶段）、当前会话
+- `GET /api/status`：电脑信息、adb 是否可用（不可用时 `adbError` 说明原因）、设备列表（序列号、型号、阶段）、当前会话；Windows 上有已插上但缺 USB 驱动的手机时带 `driverMissing: [{name, instanceId}]`
 - `POST /api/disconnect`：断开所有手机。设备在拔线前不会自动重连
+- `POST /api/driver/install`（Windows）：以管理员身份（弹出 UAC）安装电脑端自带的 ADB 接口驱动（WinUSB，按兼容标识 `USB\Class_FF&SubClass_42&Prot_01` 匹配所有品牌手机），等安装结束返回 `{ok, message?}`。已装厂商驱动的手机不受影响
 
 ## 8. 扩展（MCP / Skill，自定义扩展）
 

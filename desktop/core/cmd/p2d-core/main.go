@@ -24,6 +24,7 @@ import (
 	"p2d/core/internal/screen"
 	"p2d/core/internal/server"
 	"p2d/core/internal/tools"
+	"p2d/core/internal/usbdriver"
 )
 
 func exeDir() string {
@@ -74,11 +75,15 @@ func main() {
 	noADB := flag.Bool("no-adb", false, "不启动 adb 设备发现（仅调试）")
 	lanPort := flag.Int("lan-port", 39272, "局域网直连端口（手机输入电脑 IP 连接用），0 表示不开启")
 	showVersion := flag.Bool("version", false, "显示版本")
+	installDriver := flag.String("install-adb-driver", "", "（内部使用）以管理员身份安装手机 USB 驱动，结果写入指定文件")
 	flag.Parse()
 
 	if *showVersion {
 		fmt.Println("p2d-core", server.Version)
 		return
+	}
+	if *installDriver != "" {
+		os.Exit(usbdriver.RunInstallCommand(*installDriver))
 	}
 	log.SetFlags(log.Ltime)
 	screen.Init()
@@ -89,6 +94,17 @@ func main() {
 	srv := server.New(reg, tokens)
 	store := lan.OpenStore(stateDir())
 	srv.LAN = &server.LANConfig{Store: store, Pairing: lan.NewPairingWindow(func() {})}
+	if usbdriver.Supported {
+		srv.Driver = &server.DriverConfig{
+			Missing: func() any {
+				if l := usbdriver.Missing(); len(l) > 0 {
+					return l
+				}
+				return nil
+			},
+			Install: usbdriver.InstallElevated,
+		}
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

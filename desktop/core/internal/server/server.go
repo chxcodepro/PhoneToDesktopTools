@@ -35,7 +35,8 @@ type Server struct {
 	reg     *tools.Registry
 	Tokens  *TokenStore
 	Devices DeviceSource
-	LAN     *LANConfig // 局域网直连，未开启时为 nil
+	LAN     *LANConfig    // 局域网直连，未开启时为 nil
+	Driver  *DriverConfig // 手机 USB 驱动检测与安装（仅 Windows），不支持时为 nil
 
 	// 用户在电脑上点了「断开」：局域网的自动重连先拒绝，手机上手动点「连接」才接受
 	lanSuppressed atomic.Bool
@@ -74,6 +75,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/pairing/start", s.handlePairingAPI)
 	mux.HandleFunc("/api/pairing/cancel", s.handlePairingAPI)
 	mux.HandleFunc("/api/paired/remove", s.handlePairingAPI)
+	mux.HandleFunc("/api/driver/install", s.handleDriverInstall)
 	return localOnly(mux)
 }
 
@@ -237,6 +239,11 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 			st["adbError"] = p
 		}
 		st["devices"] = s.Devices.Snapshot()
+	}
+	if s.Driver != nil {
+		if m := s.Driver.Missing(); m != nil {
+			st["driverMissing"] = m
+		}
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	_ = json.NewEncoder(w).Encode(st)
