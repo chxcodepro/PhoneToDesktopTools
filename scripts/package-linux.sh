@@ -76,14 +76,59 @@ Priority: optional
 Description: PhoneToDesktop 电脑端
  用手机通过数据线或 WiFi 控制这台电脑。
 CONTROL
-  # Chromium 沙箱需要 setuid 的 chrome-sandbox（没有它 Electron 在部分系统上无法启动）
+  # 安装后：Chromium 沙箱需要 setuid 的 chrome-sandbox（没有它 Electron 在部分系统上无法启动）；
+  # 和 WPS 一样把图标放到每个用户的桌面（麒麟用户习惯从桌面打开）以及新用户的桌面模板 /etc/skel/桌面
   cat > "$root/DEBIAN/postinst" <<'POSTINST'
 #!/bin/sh
 set -e
 chmod 4755 /opt/PhoneToDesktop/chrome-sandbox || true
 command -v update-desktop-database >/dev/null && update-desktop-database -q || true
+. /opt/PhoneToDesktop/desktop-dirs.sh
+for_each_desktop place || true
 POSTINST
-  chmod 755 "$root/DEBIAN/postinst"
+  cat > "$root/DEBIAN/postrm" <<'POSTRM'
+#!/bin/sh
+set -e
+if [ "$1" = remove ] || [ "$1" = purge ]; then
+  # 程序目录此时已删除，desktop-dirs.sh 不在了，这里单独写一遍查找桌面目录的逻辑
+  for h in /root /home/*; do
+    [ -d "$h" ] || continue
+    for d in "$h/桌面" "$h/Desktop"; do rm -f "$d/phonetodesktop.desktop"; done
+    f="$h/.config/user-dirs.dirs"
+    if [ -f "$f" ]; then
+      d=$(sed -n 's/^XDG_DESKTOP_DIR="\(.*\)"$/\1/p' "$f" | sed "s|\$HOME|$h|")
+      [ -n "$d" ] && rm -f "$d/phonetodesktop.desktop"
+    fi
+  done
+  rm -f /etc/skel/桌面/phonetodesktop.desktop /etc/skel/Desktop/phonetodesktop.desktop
+fi
+POSTRM
+  # 查找每个用户的桌面目录（user-dirs.dirs 里的 XDG_DESKTOP_DIR，没有时用「桌面」或「Desktop」）
+  cat > "$root$DEST/desktop-dirs.sh" <<'DIRS'
+# 由 postinst 调用：for_each_desktop place
+SRC=/usr/share/applications/phonetodesktop.desktop
+place() { # place <桌面目录> <属主>
+  [ -d "$1" ] || return 0
+  cp "$SRC" "$1/phonetodesktop.desktop"
+  chown "$2" "$1/phonetodesktop.desktop" 2>/dev/null || true
+  chmod 755 "$1/phonetodesktop.desktop"
+}
+for_each_desktop() {
+  for h in /root /home/*; do
+    [ -d "$h" ] || continue
+    u=$(stat -c %U "$h")
+    d=""
+    f="$h/.config/user-dirs.dirs"
+    [ -f "$f" ] && d=$(sed -n 's/^XDG_DESKTOP_DIR="\(.*\)"$/\1/p' "$f" | sed "s|\$HOME|$h|")
+    if [ -z "$d" ] || [ ! -d "$d" ]; then
+      if [ -d "$h/桌面" ]; then d="$h/桌面"; else d="$h/Desktop"; fi
+    fi
+    "$1" "$d" "$u"
+  done
+  for d in /etc/skel/桌面 /etc/skel/Desktop; do "$1" "$d" root; done
+}
+DIRS
+  chmod 755 "$root/DEBIAN/postinst" "$root/DEBIAN/postrm"
   dpkg-deb --root-owner-group -Zxz --build "$root" "$REL/$name.deb" >/dev/null
   tar -czf "$REL/$name.tar.gz" -C "$dir/.." --transform "s|^$(basename "$dir")|PhoneToDesktop|" "$(basename "$dir")"
   echo "✓ $name.deb / .tar.gz"

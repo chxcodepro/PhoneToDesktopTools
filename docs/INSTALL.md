@@ -39,7 +39,7 @@
    ```
 
    也可以双击 `.deb` 用「麒麟软件安装器」安装。
-2. 从开始菜单打开「PhoneToDesktop」（或运行 `/opt/PhoneToDesktop/p2d-desktop`）。
+2. 双击桌面上的「PhoneToDesktop」图标打开（开始菜单里也有；也可以运行 `/opt/PhoneToDesktop/p2d-desktop`）。安装时会给电脑上每个用户的桌面都放上图标。
 3. 用数据线连接手机，后续和 Windows 相同。安装包里自带了 adb，不需要联网、不需要另外装软件。
 4. 登录时要用默认的 X11 桌面（麒麟默认就是），截图和键鼠才能用。
 
