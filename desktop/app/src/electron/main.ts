@@ -97,7 +97,10 @@ function trayState(s: AppStatus): { icon: string; tip: string } {
   return { icon: 'tray-idle.png', tip: 'PhoneToDesktop：等待手机连接' };
 }
 
+// 状态每秒轮询一次，只在图标、提示文字真的变化时才更新托盘：
+// Linux（麒麟 UKUI）上每次更新都会让任务栏重建托盘项，已弹出的右键菜单会闪一下就消失
 let lastTrayIcon = '';
+let lastTrayTip = '';
 function updateTray(s: AppStatus): void {
   if (!tray) return;
   const { icon, tip } = trayState(s);
@@ -105,7 +108,10 @@ function updateTray(s: AppStatus): void {
     tray.setImage(nativeImage.createFromPath(iconPath(icon)));
     lastTrayIcon = icon;
   }
-  tray.setToolTip(tip);
+  if (tip !== lastTrayTip) {
+    tray.setToolTip(tip);
+    lastTrayTip = tip;
+  }
 }
 
 function createTray(): void {
