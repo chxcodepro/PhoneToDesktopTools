@@ -17,6 +17,7 @@ const api: P2DApi = {
   cancelPairing: () => ipcRenderer.invoke('p2d:cancelPairing') as Promise<void>,
   removePaired: (id) => ipcRenderer.invoke('p2d:removePaired', id) as Promise<void>,
   installDriver: () => ipcRenderer.invoke('p2d:installDriver') as Promise<{ ok: boolean; message?: string }>,
+  allowFirewall: () => ipcRenderer.invoke('p2d:allowFirewall') as Promise<{ ok: boolean; message?: string }>,
 };
 
 contextBridge.exposeInMainWorld('p2d', api);

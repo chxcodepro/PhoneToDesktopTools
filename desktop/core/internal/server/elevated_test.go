@@ -10,19 +10,20 @@ import (
 	"p2d/core/internal/tools"
 )
 
-func TestDriverStatusAndInstall(t *testing.T) {
+func TestElevatedDriver(t *testing.T) {
 	srv := New(tools.NewRegistry(), NewTokenStore(""))
 	missing := []string{"ADB Interface"}
 	calls := 0
 	var installErr error
-	srv.Driver = &DriverConfig{
-		Missing: func() any {
+	srv.Driver = &ElevatedAction{
+		Name: "安装手机 USB 驱动",
+		Pending: func() any {
 			if len(missing) == 0 {
 				return nil
 			}
 			return missing
 		},
-		Install: func() error { calls++; return installErr },
+		Run: func() error { calls++; return installErr },
 	}
 	h := srv.Handler()
 	get := func(method, path string) map[string]any {
@@ -60,5 +61,28 @@ func TestDriverStatusAndInstall(t *testing.T) {
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("GET 应被拒绝：%d", rec.Code)
+	}
+}
+
+func TestElevatedNotNeeded(t *testing.T) {
+	srv := New(tools.NewRegistry(), NewTokenStore(""))
+	for _, path := range []string{"/api/driver/install", "/api/firewall/allow"} {
+		req := httptest.NewRequest(http.MethodPost, path, nil)
+		req.RemoteAddr = "127.0.0.1:1234"
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, req)
+		var m map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &m); err != nil || m["ok"] != false || m["message"] == "" {
+			t.Fatalf("%s：%d %s", path, rec.Code, rec.Body.String())
+		}
+	}
+	req := httptest.NewRequest(http.MethodGet, "/api/status", nil)
+	req.RemoteAddr = "127.0.0.1:1234"
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	var st map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &st)
+	if _, ok := st["lanBlocked"]; ok {
+		t.Fatalf("不支持时不应有 lanBlocked：%v", st)
 	}
 }

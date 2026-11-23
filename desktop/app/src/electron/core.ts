@@ -138,6 +138,11 @@ export async function installDriver(): Promise<{ ok: boolean; message?: string }
   return JSON.parse(await request('POST', '/api/driver/install', 11 * 60_000)) as { ok: boolean; message?: string };
 }
 
+/** 放行防火墙（银河麒麟）：电脑端弹出系统的密码框，等用户输入密码并完成 */
+export async function allowFirewall(): Promise<{ ok: boolean; message?: string }> {
+  return JSON.parse(await request('POST', '/api/firewall/allow', 11 * 60_000)) as { ok: boolean; message?: string };
+}
+
 export async function removePaired(id: string): Promise<void> {
   await request('POST', `/api/paired/remove?id=${encodeURIComponent(id)}`, 2000);
 }

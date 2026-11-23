@@ -21,6 +21,7 @@ import (
 
 	"p2d/core/internal/adb"
 	"p2d/core/internal/lan"
+	"p2d/core/internal/lanfw"
 	"p2d/core/internal/screen"
 	"p2d/core/internal/server"
 	"p2d/core/internal/tools"
@@ -95,14 +96,15 @@ func main() {
 	store := lan.OpenStore(stateDir())
 	srv.LAN = &server.LANConfig{Store: store, Pairing: lan.NewPairingWindow(func() {})}
 	if usbdriver.Supported {
-		srv.Driver = &server.DriverConfig{
-			Missing: func() any {
+		srv.Driver = &server.ElevatedAction{
+			Name: "安装手机 USB 驱动",
+			Pending: func() any {
 				if l := usbdriver.Missing(); len(l) > 0 {
 					return l
 				}
 				return nil
 			},
-			Install: usbdriver.InstallElevated,
+			Run: usbdriver.InstallElevated,
 		}
 	}
 
@@ -152,6 +154,22 @@ func main() {
 			lanSrv := &http.Server{Handler: srv.LANHandler(), ReadHeaderTimeout: 10 * time.Second}
 			go func() { _ = lanSrv.Serve(lanLn) }()
 			log.Printf("局域网直连已开启：端口 %d，本机地址 %s", *lanPort, strings.Join(lan.Addrs(), "、"))
+			if lanfw.Supported {
+				port := *lanPort
+				srv.Firewall = &server.ElevatedAction{
+					Name: "放行防火墙",
+					Pending: func() any {
+						if lanfw.Blocked(port) {
+							return true
+						}
+						return nil
+					},
+					Run: func() error { return lanfw.Allow(port) },
+				}
+				if lanfw.Blocked(port) {
+					log.Printf("系统防火墙会挡住手机通过 WiFi 连接（端口 %d），可以在电脑端界面上点「放行」", port)
+				}
+			}
 		}
 	}
 	if mgr != nil {

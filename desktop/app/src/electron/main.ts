@@ -3,7 +3,7 @@ import { app, BrowserWindow, globalShortcut, ipcMain, Menu, nativeImage, session
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { cancelPairing, CoreProcess, disconnect, fetchStatus, installDriver, removePaired, startPairing } from './core';
+import { allowFirewall, cancelPairing, CoreProcess, disconnect, fetchStatus, installDriver, removePaired, startPairing } from './core';
 import { OverlayManager } from './overlay';
 import { deviceNameFor, type AppStatus } from '../shared/types';
 
@@ -163,11 +163,13 @@ function registerIpc(): void {
   ipcMain.handle('p2d:startPairing', () => startPairing().then(poll));
   ipcMain.handle('p2d:cancelPairing', () => cancelPairing().then(poll));
   ipcMain.handle('p2d:removePaired', (_e, id: unknown) => (typeof id === 'string' ? removePaired(id).then(poll) : undefined));
-  ipcMain.handle('p2d:installDriver', () =>
-    installDriver()
+  // 需要管理员权限的修复操作：失败时把原因交给界面显示，完成后立即刷新状态
+  const fix = (run: () => Promise<{ ok: boolean; message?: string }>) =>
+    run()
       .catch((e: unknown) => ({ ok: false, message: e instanceof Error ? e.message : String(e) }))
-      .finally(() => void poll()),
-  );
+      .finally(() => void poll());
+  ipcMain.handle('p2d:installDriver', () => fix(installDriver));
+  ipcMain.handle('p2d:allowFirewall', () => fix(allowFirewall));
   ipcMain.on('p2d:minimize', () => mainWindow?.minimize());
   ipcMain.on('p2d:hide', () => mainWindow?.hide());
   ipcMain.on('p2d:overlayInteractive', (e, interactive: unknown) => {

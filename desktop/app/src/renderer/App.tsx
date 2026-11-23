@@ -125,18 +125,23 @@ const ok = <CheckCircle2 className="h-3.5 w-3.5 text-success-foreground" />;
 const warn = <AlertTriangle className="h-3.5 w-3.5 text-warning-foreground" />;
 const pending = <Circle className="h-3.5 w-3.5" />;
 
+/** 需要管理员权限的一键修复：执行中、失败原因 */
+function useFix(run: () => Promise<{ ok: boolean; message?: string }>, failed: string) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const start = () => {
+    setBusy(true);
+    setError('');
+    void run()
+      .then((r) => setError(r.ok ? '' : (r.message ?? failed)))
+      .finally(() => setBusy(false));
+  };
+  return { busy, error, start };
+}
+
 /** 插上了手机，但 ADB 接口还没有驱动（Win7 常见）：一键安装 */
 function DriverMissing({ names }: { names: string[] }) {
-  const [installing, setInstalling] = useState(false);
-  const [error, setError] = useState('');
-  const install = () => {
-    setInstalling(true);
-    setError('');
-    void window.p2d
-      .installDriver()
-      .then((r) => setError(r.ok ? '' : (r.message ?? '驱动安装失败')))
-      .finally(() => setInstalling(false));
-  };
+  const { busy: installing, error, start: install } = useFix(() => window.p2d.installDriver(), '驱动安装失败');
   return (
     <div className="pb-2.5">
       <Row icon={warn} label="Android 驱动" right={<Badge variant="warning">缺少驱动</Badge>} />
@@ -152,6 +157,30 @@ function DriverMissing({ names }: { names: string[] }) {
         ) : (
           <Button size="sm" className="self-start" onClick={install}>
             安装驱动
+          </Button>
+        )}
+        {error ? <span className="text-destructive">{error}</span> : null}
+      </div>
+    </div>
+  );
+}
+
+/** 银河麒麟的防火墙默认拒绝所有入站连接，手机无法通过 WiFi 连接：一键放行 */
+function LanBlocked({ addr }: { addr?: string }) {
+  const { busy, error, start } = useFix(() => window.p2d.allowFirewall(), '放行失败');
+  return (
+    <div className="pb-2.5">
+      <Row icon={warn} label="WiFi 直连" right={<Badge variant="warning">被防火墙拦截</Badge>} />
+      <div className="flex flex-col gap-2 px-3 pl-9 text-xs text-muted-foreground">
+        <span>系统防火墙会挡住手机通过 WiFi 连接{addr ? `（${addr}）` : ''}，数据线连接不受影响。</span>
+        {busy ? (
+          <span className="flex items-start gap-1.5 text-foreground">
+            <Spinner className="mt-0.5 h-3 w-3 shrink-0" />
+            <span>请在弹出的窗口中输入当前用户的密码</span>
+          </span>
+        ) : (
+          <Button size="sm" className="self-start" onClick={start}>
+            放行
           </Button>
         )}
         {error ? <span className="text-destructive">{error}</span> : null}
@@ -186,11 +215,15 @@ function Waiting({ s, onPair }: { s: AppStatus; onPair: () => void }) {
         {sep}
         <Row icon={warn} label="iPhone 驱动" right={<Badge variant="muted">暂不支持</Badge>} />
         {sep}
-        <Row
-          icon={lan?.enabled ? ok : warn}
-          label="WiFi 直连"
-          right={lan?.enabled ? (lan.addrs?.[0] ?? '无局域网地址') : <Badge variant="warning">未开启</Badge>}
-        />
+        {lan?.enabled && s.status?.lanBlocked ? (
+          <LanBlocked addr={lan.addrs?.[0]} />
+        ) : (
+          <Row
+            icon={lan?.enabled ? ok : warn}
+            label="WiFi 直连"
+            right={lan?.enabled ? (lan.addrs?.[0] ?? '无局域网地址') : <Badge variant="warning">未开启</Badge>}
+          />
+        )}
         {paired.length ? (
           <>
             {sep}

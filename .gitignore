@@ -25,3 +25,8 @@ mobile/ios/
 # 预存的 adb、APK 等二进制（体积大、有第三方许可），只保留说明
 desktop/vendor/*
 !desktop/vendor/README.md
+
+# 签名证书（正式证书绝不能入库，见 docs/DEV.md「正式签名」）
+*.jks
+*.keystore
+*.b64.txt
