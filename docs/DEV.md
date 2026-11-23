@@ -49,7 +49,29 @@ P2D_PROXY=127.0.0.1:1159 bash scripts/build-apk.sh arm64-v8a   # 不需要代理
 - 输出 `dist/app/p2d.apk`，并复制到 `desktop/vendor/app/p2d.apk`（电脑端插线时自动安装）。
 - C++ 组件的编译路径很长，脚本会先把 `mobile/` 同步到较短的路径 `D:\project_resource\p2dm`（可用 `P2D_BUILD_DIR` 修改）再构建。
 - 需要系统开启长路径（注册表 `HKLM\SYSTEM\CurrentControlSet\Control\FileSystem\LongPathsEnabled = 1`），并安装 CMake 3.31.6：下载 https://dl.google.com/android/repository/cmake-3.31.6-windows.zip ，解压到 `%LOCALAPPDATA%\Android\Sdk\cmake\3.31.6\`（解压后该目录下直接是 `bin\`、`share\`）。SDK 自带的 CMake 3.22.1 里的 ninja 不支持长路径。
-- 目前使用调试签名，正式发布前要换成自己的签名证书。
+- 默认用调试签名；设置了下面「正式签名」的环境变量就用你自己的证书。
+
+### 正式签名
+
+签名配置由 `mobile/plugins/withReleaseSigning.js` 在 prebuild 时写进 `app/build.gradle`，证书和密码只在构建时从环境变量读取，不会写进任何文件：
+
+| 环境变量 / GitHub Secret | 内容 |
+|---|---|
+| `P2D_KEYSTORE_FILE`（本地） / `P2D_KEYSTORE_BASE64`（GitHub） | 证书文件的路径 / 证书文件的 base64 |
+| `P2D_KEYSTORE_PASSWORD` | 证书库密码 |
+| `P2D_KEY_ALIAS` | 密钥别名 |
+| `P2D_KEY_PASSWORD` | 密钥密码 |
+
+生成证书（只做一次，证书文件和密码要妥善保存，丢了以后就没法给已装的 App 发更新）：
+
+```bash
+keytool -genkeypair -v -keystore p2d-release.jks -alias p2d -keyalg RSA -keysize 2048 -validity 10000
+base64 -w0 p2d-release.jks   # 输出填进 GitHub Secret P2D_KEYSTORE_BASE64
+```
+
+GitHub 上在仓库「Settings → Secrets and variables → Actions」里添加上表 4 个 Secret。没有配置时继续用调试签名。
+
+注意：从调试签名换成正式签名后，签名变了，电脑端没法覆盖安装已装的旧版（日志里会说明「签名不同，跳过更新」），需要在手机上卸载一次旧版。所以最好在正式发给用户之前就换好。
 
 ## GitHub 构建
 
@@ -65,8 +87,8 @@ P2D_PROXY=127.0.0.1:1159 bash scripts/build-apk.sh arm64-v8a   # 不需要代理
 - 每次推送和 PR 都会跑；产物保留 14 天。版本号为 `0.1.0-ci.<运行编号>`。
 - 推送 `v` 开头的标签（如 `git tag v0.1.0 && git push origin v0.1.0`）会另外创建 GitHub Release，附上以上所有文件，版本号取标签。
 - adb 和 Windows 运行库由 `scripts/fetch-vendor.sh` 在构建时下载，逐个文件核对 SHA-256（运行库的校验值在 `scripts/ucrt-x86.sha256`）。本地打包前也可以运行它准备 `desktop/vendor/`。
-- `mobile/android/` 不入库，构建时用 `expo prebuild` 重新生成。电脑端靠覆盖安装给手机更新 App，所以 APK 的签名必须和手机上已装的一致：流程会核对调试签名证书，不一致时给出警告。
-- 不需要配置任何密钥。
+- `mobile/android/` 不入库，构建时用 `expo prebuild` 重新生成。电脑端靠覆盖安装给手机更新 App，所以 APK 的签名必须和手机上已装的一致。
+- 签名：配置了「正式签名」的 4 个 Secret 就用正式证书；没配置时用调试签名，并核对调试证书和本地构建的一致，不一致时给出警告。除此之外不需要配置任何密钥。
 
 ## 已知待办
 
