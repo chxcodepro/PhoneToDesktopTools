@@ -5,11 +5,13 @@ package adb
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -112,6 +114,23 @@ func New(cfg Config, tokens TokenIssuer) *Manager {
 	return m
 }
 
+// adbPath 要运行的 adb。配置的路径（内置 adb）不存在时改用 PATH 里的 adb：
+// Linux 的 arm64、龙芯版不带 adb，用户事后用 apt 装上，不用重启电脑端就能用。
+func (m *Manager) adbPath() (string, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, err := os.Stat(m.cfg.ADBPath); err == nil {
+		return m.cfg.ADBPath, true
+	}
+	p, err := exec.LookPath("adb")
+	if err != nil {
+		return "", false
+	}
+	log.Printf("使用系统的 adb：%s", p)
+	m.cfg.ADBPath = p
+	return p, true
+}
+
 // Available adb 是否可用。
 func (m *Manager) Available() bool {
 	m.mu.Lock()
@@ -160,9 +179,17 @@ func (m *Manager) changed() {
 
 // run 执行 adb 命令，返回合并后的输出。
 func (m *Manager) run(ctx context.Context, timeout time.Duration, args ...string) (string, error) {
+	path, ok := m.adbPath()
+	if !ok {
+		return "", errors.New(missingHint())
+	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, m.cfg.ADBPath, args...)
+	cmd := exec.CommandContext(ctx, path, args...)
+	// 麒麟 arm64 版内置的 adb 是麒麟软件源里的动态链接版本，依赖的 Android 库放在 adb 旁边的 lib/ 里
+	if lib := filepath.Join(filepath.Dir(path), "lib"); runtime.GOOS == "linux" && isDir(lib) {
+		cmd.Env = append(os.Environ(), "LD_LIBRARY_PATH="+joinPath(lib, os.Getenv("LD_LIBRARY_PATH")))
+	}
 	procutil.Prepare(cmd)
 	var out bytes.Buffer
 	cmd.Stdout = &out
@@ -535,4 +562,17 @@ func (m *Manager) deviceName(ctx context.Context, serial string) string {
 func fileExists(p string) bool {
 	st, err := os.Stat(p)
 	return err == nil && !st.IsDir()
+}
+
+func isDir(p string) bool {
+	st, err := os.Stat(p)
+	return err == nil && st.IsDir()
+}
+
+// joinPath 拼接 PATH 风格的目录列表，b 为空时只返回 a
+func joinPath(a, b string) string {
+	if b == "" {
+		return a
+	}
+	return a + string(os.PathListSeparator) + b
 }

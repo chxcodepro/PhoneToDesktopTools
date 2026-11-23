@@ -1,4 +1,5 @@
-# 构建全部可执行文件：电脑端核心（5 个平台）、手机端 APK、电脑端便携版（Windows x64/ia32、Linux x64/arm64）。
+# 构建全部可执行文件：电脑端核心（5 个平台）、手机端 APK、电脑端（Windows x64/ia32 便携版；Linux x64/arm64 的 AppImage，
+# 以及 x64/arm64/龙芯的 deb 和 tar.gz）。
 # - 每次推送 / PR：测试并构建，产物在 Actions 页面的 Artifacts 里下载（保留 14 天）。
 # - 推送 v 开头的标签（如 v0.1.0）：另外创建 GitHub Release 并上传产物。
 # 第三方文件（adb、Windows 运行库）由 scripts/fetch-vendor.sh 下载并核对 SHA-256，见 desktop/vendor/README.md。
@@ -52,7 +53,11 @@ jobs:
           GOOS=windows go vet ./...   # 同时编译检查 Windows 专用代码和测试
           go test ./...
       - name: 交叉编译
-        run: GO=go bash scripts/build-core.sh "${{ needs.version.outputs.version }}"
+        # 龙芯版要用龙芯官方的旧世界 Go 编译（麒麟 V10 的龙芯版是旧世界），见 scripts/build-core.sh 开头
+        run: |
+          eval "$(bash scripts/fetch-loong-go.sh)"
+          GO=go bash scripts/build-core.sh "${{ needs.version.outputs.version }}"
+          test -x dist/core/linux-loong64/p2d-core
       - uses: actions/upload-artifact@v4
         with:
           name: core
@@ -176,12 +181,17 @@ jobs:
       - name: 打包
         working-directory: desktop/app
         run: npm run dist:${{ matrix.target }} -- --publish never
+      - name: 打 deb 包（x64、arm64、龙芯）
+        if: matrix.target == 'linux'
+        run: bash scripts/package-linux.sh "${{ needs.version.outputs.version }}"
       - uses: actions/upload-artifact@v4
         with:
           name: desktop-${{ matrix.target }}
           path: |
             desktop/app/release/*.exe
             desktop/app/release/*.AppImage
+            desktop/app/release/*.deb
+            desktop/app/release/*.tar.gz
           if-no-files-found: error
           retention-days: 14
 

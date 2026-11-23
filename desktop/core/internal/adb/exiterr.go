@@ -3,7 +3,19 @@ package adb
 import (
 	"errors"
 	"os/exec"
+	"runtime"
 )
+
+// missingHint 找不到 adb 时告诉用户怎么办
+func missingHint() string {
+	switch {
+	case runtime.GOOS == "linux" && runtime.GOARCH == "loong64":
+		return "没有找到 adb：龙芯版麒麟暂时没有 adb，数据线连接不可用，请用 WiFi 连接"
+	case runtime.GOOS == "linux":
+		return "没有找到 adb：在终端运行 sudo apt install adb 安装后，就能用数据线连接"
+	}
+	return "没有找到 adb：请重新下载完整的电脑端程序"
+}
 
 // Windows 加载程序失败时，进程的退出码是 NTSTATUS。把常见的几种翻译成用户能看懂、能照着处理的说明。
 const (
