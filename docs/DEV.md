@@ -51,9 +51,26 @@ P2D_PROXY=127.0.0.1:1159 bash scripts/build-apk.sh arm64-v8a   # 不需要代理
 - 需要系统开启长路径（注册表 `HKLM\SYSTEM\CurrentControlSet\Control\FileSystem\LongPathsEnabled = 1`），并安装 CMake 3.31.6：下载 https://dl.google.com/android/repository/cmake-3.31.6-windows.zip ，解压到 `%LOCALAPPDATA%\Android\Sdk\cmake\3.31.6\`（解压后该目录下直接是 `bin\`、`share\`）。SDK 自带的 CMake 3.22.1 里的 ninja 不支持长路径。
 - 目前使用调试签名，正式发布前要换成自己的签名证书。
 
+## GitHub 构建
+
+推送到 GitHub 后，`.github/workflows/build.yml` 自动测试并构建全部可执行文件：
+
+| 产物（Actions 页面的 Artifacts） | 内容 |
+|---|---|
+| `core` | 电脑端核心，5 个平台（Windows x64 / x86，Linux x64 / arm64 / loong64） |
+| `apk` | 手机端 APK（arm64-v8a + armeabi-v7a） |
+| `desktop-win` | 电脑端便携版 exe（x64、ia32），已内置 adb、运行库和 APK |
+| `desktop-linux` | 电脑端 AppImage（x64、arm64） |
+
+- 每次推送和 PR 都会跑；产物保留 14 天。版本号为 `0.1.0-ci.<运行编号>`。
+- 推送 `v` 开头的标签（如 `git tag v0.1.0 && git push origin v0.1.0`）会另外创建 GitHub Release，附上以上所有文件，版本号取标签。
+- adb 和 Windows 运行库由 `scripts/fetch-vendor.sh` 在构建时下载，逐个文件核对 SHA-256（运行库的校验值在 `scripts/ucrt-x86.sha256`）。本地打包前也可以运行它准备 `desktop/vendor/`。
+- `mobile/android/` 不入库，构建时用 `expo prebuild` 重新生成。电脑端靠覆盖安装给手机更新 App，所以 APK 的签名必须和手机上已装的一致：流程会核对调试签名证书，不一致时给出警告。
+- 不需要配置任何密钥。
+
 ## 已知待办
 
-- **adb 版本与 Win7**：本机 platform-tools 为 37.x，较新的 adb 可能已不支持 Win7，打包前需要选定能在 Win7 运行的 adb 版本并实测；arm64 / loong64 版 adb 需要自行编译（见 PLAN.md 5.1）。
+- **adb**：Windows 用 33.0.3（Win7 实测结论见 TESTING.md 1.5），`bash scripts/fetch-vendor.sh` 会下载并核对；arm64 / loong64 版 Linux adb 需要自行编译（见 PLAN.md 5.1），目前这两个平台的安装包不带 adb。
 - **真机验证**：已在小米 9（Android 15）、一加 PJZ110（Android 17）+ Windows 10 上跑通自动安装、自动连接、自动重连、远程桌面、WiFi 直连，以及用 DeepSeek 驱动 Agent 操作电脑。
 - **OCR（iOS）**：Android 已用 ML Kit 中文模型离线识别（`modules/p2d-ocr`）；iOS 还没实现（可用 Vision 的 `VNRecognizeTextRequest`），目前 iPhone 上看不到图片的模型拿不到截图文字。
 - **Linux**：麒麟上的截图（X11）和键鼠（XTest）只完成了交叉编译，还没在实机上测试。

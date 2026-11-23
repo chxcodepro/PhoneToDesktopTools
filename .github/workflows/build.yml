@@ -1,0 +1,198 @@
+# 构建全部可执行文件：电脑端核心（5 个平台）、手机端 APK、电脑端便携版（Windows x64/ia32、Linux x64/arm64）。
+# - 每次推送 / PR：测试并构建，产物在 Actions 页面的 Artifacts 里下载（保留 14 天）。
+# - 推送 v 开头的标签（如 v0.1.0）：另外创建 GitHub Release 并上传产物。
+# 第三方文件（adb、Windows 运行库）由 scripts/fetch-vendor.sh 下载并核对 SHA-256，见 desktop/vendor/README.md。
+name: build
+
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GO_VERSION: '1.20.14' # 最后一个支持 Windows 7 的 Go 版本，不要升级
+  NODE_VERSION: '24'
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - id: v
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=0.1.0-ci.${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+          fi
+
+  core:
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: desktop/core/go.sum
+      - name: 测试
+        working-directory: desktop/core
+        run: |
+          go vet ./...
+          GOOS=windows go vet ./...   # 同时编译检查 Windows 专用代码和测试
+          go test ./...
+      - name: 交叉编译
+        run: GO=go bash scripts/build-core.sh "${{ needs.version.outputs.version }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: core
+          path: dist/core/
+          retention-days: 14
+
+  vendor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 下载 adb 和 Windows 运行库
+        run: bash scripts/fetch-vendor.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vendor-adb
+          path: desktop/vendor/adb/
+          retention-days: 14
+
+  apk:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('mobile/package-lock.json') }}
+          restore-keys: gradle-${{ runner.os }}-
+      - run: npm ci
+      - name: 测试
+        run: |
+          npm run typecheck
+          npm test
+      - name: 生成原生工程
+        run: npx expo prebuild --platform android --no-install
+      - name: 检查签名
+        # 电脑端靠覆盖安装给手机更新 App，签名必须和已装的版本一致，否则手机上会跳过更新
+        run: |
+          sum=$(sha256sum android/app/debug.keystore | cut -d' ' -f1)
+          echo "debug.keystore SHA-256：$sum"
+          if [ "$sum" != "221e0a3106aa4c3ccc154e0a418b55020b3f9ea6e84f92e8749cd9e2f39f5e58" ]; then
+            echo "::warning::签名证书和本地构建的不同，手机上已装的版本将无法被这个 APK 覆盖更新"
+          fi
+      - name: 构建 APK
+        working-directory: mobile/android
+        run: ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a,armeabi-v7a --console=plain
+      - run: cp android/app/build/outputs/apk/release/app-release.apk ../p2d.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apk
+          path: p2d.apk
+          retention-days: 14
+
+  desktop:
+    needs: [version, core, vendor, apk]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: win
+          - os: ubuntu-latest
+            target: linux
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: desktop/app/package-lock.json
+      - uses: actions/download-artifact@v4
+        with:
+          name: core
+          path: dist/core
+      - uses: actions/download-artifact@v4
+        with:
+          name: vendor-adb
+          path: desktop/vendor/adb
+      - uses: actions/download-artifact@v4
+        with:
+          name: apk
+          path: desktop/vendor/app
+      - name: 设置版本号
+        working-directory: desktop/app
+        run: npm version "${{ needs.version.outputs.version }}" --no-git-tag-version --allow-same-version
+      - run: npm ci
+        working-directory: desktop/app
+      - name: 类型检查
+        working-directory: desktop/app
+        run: npm run typecheck
+      - name: 打包
+        working-directory: desktop/app
+        run: npm run dist:${{ matrix.target }} -- --publish never
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.target }}
+          path: |
+            desktop/app/release/*.exe
+            desktop/app/release/*.AppImage
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [core, apk, desktop]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+      - name: 整理文件
+        run: |
+          mkdir release
+          cp out/desktop-*/* release/
+          cp out/apk/p2d.apk "release/PhoneToDesktop-${GITHUB_REF_NAME#v}-android.apk"
+          for d in out/core/*/; do
+            n=$(basename "$d")
+            tar -czf "release/p2d-core-${GITHUB_REF_NAME#v}-$n.tar.gz" -C "$d" .
+          done
+          ls -la release
+      - name: 创建 Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" release/* --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes

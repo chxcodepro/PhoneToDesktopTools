@@ -14,7 +14,7 @@ desktop/vendor/
     └── p2d.apk          手机端安装包（mobile 构建产物）
 ```
 
-下载地址见 [docs/TESTING.md](../../docs/TESTING.md)。Windows 版 adb 必须用 **33.0.3**：更新的版本用到了 Win8 / Win10 才有的系统函数，在 Win7 上启动失败或连接手机时崩溃（实测结果见 TESTING.md 1.5）。
+运行 `bash scripts/fetch-vendor.sh` 会自动下载 adb 和 Windows 运行库到这里并核对 SHA-256（GitHub 构建也用它）；手机端安装包由 `scripts/build-apk.sh` 生成。Windows 版 adb 必须用 **33.0.3**：更新的版本用到了 Win8 / Win10 才有的系统函数，在 Win7 上启动失败或连接手机时崩溃（实测结果见 TESTING.md 1.5）。
 
 ### Windows 通用 C 运行库（UCRT）
 
