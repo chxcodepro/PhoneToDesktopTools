@@ -1,5 +1,5 @@
 // 电脑端主窗口：等待连接 → 正在连接 → 已连接
-import { AlertTriangle, CheckCircle2, Circle, Minus, Monitor, OctagonX, Plug, QrCode, Smartphone, Trash2, Wifi, X } from 'lucide-react';
+import { AlertTriangle, ArrowUpCircle, CheckCircle2, Circle, Minus, Monitor, OctagonX, Plug, QrCode, Smartphone, Trash2, Wifi, X } from 'lucide-react';
 import QRCode from 'qrcode';
 import { useEffect, useState } from 'react';
 import { Badge, Button, Card, Kbd, Spinner } from '@/components/ui';
@@ -33,6 +33,7 @@ export function App() {
   const connecting = st?.devices?.find((d) => CONNECTING_STAGES.includes(d.stage));
   const [pairingView, setPairingView] = useState(false);
   const lan = st?.lan;
+  const [manualCheck, setManualCheck] = useState(false);
 
   let body: JSX.Element;
   if (pairingView && lan?.enabled) body = <Pairing lan={lan} onClose={() => setPairingView(false)} />;
@@ -51,7 +52,10 @@ export function App() {
   return (
     <div className="flex h-full flex-col overflow-hidden border border-border bg-background">
       <TitleBar />
-      <div className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto p-5">{body}</div>
+      <div className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto p-5">
+        <UpdateBanner u={s.update} manual={manualCheck} onClose={() => setManualCheck(false)} />
+        {body}
+      </div>
       <footer className="flex h-10 shrink-0 items-center justify-between border-t border-border px-3.5 text-xs text-muted-foreground">
         <span className="flex items-center gap-1.5">
           <Monitor className="h-3 w-3" />
@@ -68,7 +72,16 @@ export function App() {
             开机自启
           </label>
         ) : null}
-        <span>{platformLabel(st?.os, st?.arch)}</span>
+        <button
+          className="hover:text-foreground"
+          title={`${platformLabel(st?.os, st?.arch)}，点击检查更新`}
+          onClick={() => {
+            setManualCheck(true);
+            void window.p2d.checkUpdate();
+          }}
+        >
+          {s.update?.current ? `v${s.update.current}` : platformLabel(st?.os, st?.arch)} · 检查更新
+        </button>
       </footer>
     </div>
   );
@@ -135,6 +148,60 @@ const sep = <div className="h-px bg-border" />;
 const ok = <CheckCircle2 className="h-3.5 w-3.5 text-success-foreground" />;
 const warn = <AlertTriangle className="h-3.5 w-3.5 text-warning-foreground" />;
 const pending = <Circle className="h-3.5 w-3.5" />;
+
+/** 检查更新的结果。有新版本时总是显示；已是最新、检查失败只在手动检查后显示 */
+function UpdateBanner({ u, manual, onClose }: { u?: AppStatus['update']; manual: boolean; onClose: () => void }) {
+  const [hidden, setHidden] = useState('');
+  const [opened, setOpened] = useState(false);
+  if (!u) return null;
+  const show = u.state === 'available' ? hidden !== u.latest || manual : manual && u.state !== 'idle';
+  if (!show) return null;
+  const close = () => {
+    setHidden(u.latest ?? '');
+    onClose();
+  };
+  let content: JSX.Element;
+  if (u.state === 'checking')
+    content = (
+      <span className="flex items-center gap-1.5">
+        <Spinner className="h-3 w-3" />
+        正在检查更新…
+      </span>
+    );
+  else if (u.state === 'latest') content = <span>已是最新版本（v{u.current}）</span>;
+  else if (u.state === 'error') content = <span className="text-destructive">{u.message}</span>;
+  else
+    content = (
+      <div className="flex flex-col gap-2">
+        <span className="font-medium text-foreground">
+          发现新版本 v{u.latest}（当前 v{u.current}）
+        </span>
+        {opened ? <span>已在浏览器中打开下载。{u.hint}</span> : null}
+        {!u.url ? <span>没有找到这台电脑对应的安装包，将打开发布页面自行选择。</span> : null}
+        <Button
+          size="sm"
+          className="self-start"
+          onClick={() => {
+            window.p2d.openUpdate();
+            setOpened(true);
+          }}
+        >
+          {u.url ? '下载新版本' : '打开发布页面'}
+        </Button>
+      </div>
+    );
+  return (
+    <Card className="flex items-start gap-2.5 p-3 text-xs text-muted-foreground">
+      <ArrowUpCircle className="mt-px h-3.5 w-3.5 shrink-0 text-primary" />
+      <div className="min-w-0 flex-1">{content}</div>
+      {u.state !== 'checking' ? (
+        <button aria-label="关闭" className="text-muted-foreground hover:text-foreground" onClick={close}>
+          <X className="h-3.5 w-3.5" />
+        </button>
+      ) : null}
+    </Card>
+  );
+}
 
 /** 需要管理员权限的一键修复：执行中、失败原因 */
 function useFix(run: () => Promise<{ ok: boolean; message?: string }>, failed: string) {

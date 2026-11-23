@@ -102,6 +102,24 @@ export interface AppStatus {
   hotkey?: string[];
   /** 开机自动启动：是否支持（开发模式不支持）、是否开启 */
   autostart?: { supported: boolean; enabled: boolean };
+  update?: UpdateInfo;
+}
+
+/** 检查更新的结果 */
+export interface UpdateInfo {
+  /** idle：还没检查；latest：已是最新；available：有新版本 */
+  state: 'idle' | 'checking' | 'latest' | 'available' | 'error';
+  /** 当前版本 */
+  current: string;
+  latest?: string;
+  /** 本机对应安装包的下载地址（找不到时为空，只能打开发布页） */
+  url?: string;
+  file?: string;
+  /** 发布页 */
+  page?: string;
+  /** 下载后怎么安装 */
+  hint?: string;
+  message?: string;
 }
 
 /** preload 暴露给页面的接口 */
@@ -123,6 +141,10 @@ export interface P2DApi {
   allowFirewall(): Promise<{ ok: boolean; message?: string }>;
   /** 开启 / 关闭开机自动启动 */
   setAutostart(on: boolean): Promise<void>;
+  /** 立即检查更新 */
+  checkUpdate(): Promise<UpdateInfo>;
+  /** 用浏览器下载新版本（没有本机对应的安装包时打开发布页） */
+  openUpdate(): void;
 }
 
 /** 会话所在手机当前在线的通道（同一台手机可能同时有 USB 和 WiFi 两条，USB 优先） */

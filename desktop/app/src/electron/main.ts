@@ -5,6 +5,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { allowFirewall, cancelPairing, CoreProcess, disconnect, fetchStatus, installDriver, removePaired, startPairing } from './core';
 import { getAutostart, initAutostart, setAutostart } from './autostart';
+import { checkUpdate, getUpdate, startAutoCheck } from './update';
 import { OverlayManager } from './overlay';
 import { deviceNameFor, type AppStatus } from '../shared/types';
 
@@ -123,6 +124,7 @@ function trayMenu(): Menu {
     ...(auto.supported
       ? [{ label: '开机自动启动', type: 'checkbox' as const, checked: auto.enabled, click: () => toggleAutostart(!getAutostart().enabled) }]
       : []),
+    { label: '检查更新', click: () => void checkUpdate().then(showMainWindow) },
     { type: 'separator' },
     {
       label: '退出',
@@ -168,9 +170,10 @@ async function poll(): Promise<void> {
       controllerName: sess ? deviceNameFor(status, sess.serial) : undefined,
       hotkey,
       autostart: getAutostart(),
+      update: getUpdate(),
     };
   } catch {
-    next = { coreOnline: false, coreError: core.lastError || undefined, hotkey, autostart: getAutostart() };
+    next = { coreOnline: false, coreError: core.lastError || undefined, hotkey, autostart: getAutostart(), update: getUpdate() };
     core.ensureRunning();
   }
   current = next;
@@ -195,6 +198,13 @@ function registerIpc(): void {
   ipcMain.handle('p2d:installDriver', () => fix(installDriver));
   ipcMain.handle('p2d:allowFirewall', () => fix(allowFirewall));
   ipcMain.handle('p2d:setAutostart', (_e, on: unknown) => toggleAutostart(on === true));
+  ipcMain.handle('p2d:checkUpdate', () => checkUpdate());
+  // 只打开检查结果里的地址，不接受页面传来的地址
+  ipcMain.on('p2d:openUpdate', () => {
+    const u = getUpdate();
+    const url = u.url || u.page;
+    if (url?.startsWith('https://')) void shell.openExternal(url);
+  });
   ipcMain.on('p2d:minimize', () => mainWindow?.minimize());
   ipcMain.on('p2d:hide', () => mainWindow?.hide());
   ipcMain.on('p2d:overlayInteractive', (e, interactive: unknown) => {
@@ -232,6 +242,7 @@ app.whenReady().then(() => {
   }
   void poll();
   setInterval(() => void poll(), 1000);
+  startAutoCheck(() => broadcast({ ...current, update: getUpdate() }));
   startDebugCapture();
 });
 

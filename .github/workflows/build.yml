@@ -77,6 +77,7 @@ jobs:
           retention-days: 14
 
   apk:
+    needs: version
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -104,6 +105,21 @@ jobs:
         run: |
           npm run typecheck
           npm test
+      - name: 写入版本号和更新地址
+        # versionName 用构建版本号（手机「设置 → 关于」显示）；versionCode 用构建序号，保证新包能覆盖安装旧包。
+        # updateRepo 是检查更新查询的仓库（GitHub Actions 自带的 GITHUB_REPOSITORY），不写死在代码里。
+        env:
+          P2D_VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          node -e '
+            const fs = require("fs");
+            const j = JSON.parse(fs.readFileSync("app.json", "utf8"));
+            j.expo.version = process.env.P2D_VERSION;
+            j.expo.android.versionCode = Number(process.env.GITHUB_RUN_NUMBER);
+            j.expo.extra = { ...j.expo.extra, updateRepo: process.env.GITHUB_REPOSITORY };
+            fs.writeFileSync("app.json", JSON.stringify(j, null, 2));
+          '
+          grep -n '"version"\|versionCode\|updateRepo' app.json
       - name: 生成原生工程
         run: npx expo prebuild --platform android --no-install
       - name: 准备签名证书
@@ -172,7 +188,10 @@ jobs:
           path: desktop/vendor/app
       - name: 设置版本号
         working-directory: desktop/app
-        run: npm version "${{ needs.version.outputs.version }}" --no-git-tag-version --allow-same-version
+        # p2d.updateRepo：检查更新查询的仓库，不写死在代码里
+        run: |
+          npm version "${{ needs.version.outputs.version }}" --no-git-tag-version --allow-same-version
+          npm pkg set p2d.updateRepo="$GITHUB_REPOSITORY"
       - run: npm ci
         working-directory: desktop/app
       - name: 类型检查

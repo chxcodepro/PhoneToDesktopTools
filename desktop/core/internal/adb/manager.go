@@ -65,9 +65,10 @@ type Config struct {
 
 // Manager 设备管理器。
 type Manager struct {
-	cfg    Config
-	tokens TokenIssuer
-	apk    apkCache // 内置安装包的哈希（判断手机端是否需要更新）
+	cfg      Config
+	tokens   TokenIssuer
+	apk      apkCache // 内置安装包的哈希（判断手机端是否需要更新）
+	rejected rejectedUpdates
 
 	mu        sync.Mutex
 	devices   map[string]*Device
@@ -413,8 +414,8 @@ func (m *Manager) setup(ctx context.Context, serial string) {
 	reinstalled := false
 	out, err := m.run(ctx, 15*time.Second, "-s", serial, "shell", "pm", "path", m.cfg.Package)
 	if err == nil && strings.Contains(out, "package:") {
-		if m.needsUpdate(ctx, serial, out) {
-			reinstalled = m.updateApp(ctx, serial)
+		if update, key := m.needsUpdate(ctx, serial, out); update {
+			reinstalled = m.updateApp(ctx, serial, key)
 		}
 	} else {
 		if m.cfg.APKPath == "" || !fileExists(m.cfg.APKPath) {

@@ -1,10 +1,11 @@
-// 设置页：已连接电脑、电脑权限（只在手机上设置）、模型预设。
+// 设置页：已连接电脑、电脑权限（只在手机上设置）、模型预设、关于（版本、检查更新）。
 
 import { router } from 'expo-router';
 import type { LucideIcon } from 'lucide-react-native';
 import { FileText, Monitor, MousePointer2, ScanLine, Terminal } from 'lucide-react-native';
 import { View } from 'react-native';
 
+import { AppUpdate } from '@/components/app-update';
 import { STATUS_LABEL, StatusDot } from '@/components/connection-status';
 import { ModelSettings } from '@/components/model-settings';
 import { Screen } from '@/components/screen';
@@ -83,6 +84,8 @@ export default function SettingsScreen() {
       </Card>
 
       <ModelSettings />
+
+      <AppUpdate />
     </Screen>
   );
 }

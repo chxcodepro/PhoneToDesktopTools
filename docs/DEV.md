@@ -85,7 +85,8 @@ GitHub 上在仓库「Settings → Secrets and variables → Actions」里添加
 | `desktop-linux` | 电脑端 deb 和 tar.gz（x64、arm64、龙芯），AppImage（x64、arm64） |
 
 - 每次推送和 PR 都会跑；产物保留 14 天。版本号为 `0.1.0-ci.<运行编号>`。
-- 推送 `v` 开头的标签（如 `git tag v0.1.0 && git push origin v0.1.0`）会另外创建 GitHub Release，附上以上所有文件，版本号取标签。
+- 推送 `v` 开头的标签（如 `git tag v0.1.0 && git push origin v0.1.0`）会另外创建 GitHub Release，附上以上所有文件，版本号取标签。**检查更新只认 Release**：平时推送的 `ci` 构建不会被检查到，要让用户收到更新就打标签。版本号要比上一个标签大（`0.1.0` 比 `0.1.0-ci.N` 新）。
+- APK 的 versionName 是构建版本号，versionCode 是运行编号（递增，保证新包能覆盖安装旧包）。
 - adb 和 Windows 运行库由 `scripts/fetch-vendor.sh` 在构建时下载，逐个文件核对 SHA-256（运行库的校验值在 `scripts/ucrt-x86.sha256`）。本地打包前也可以运行它准备 `desktop/vendor/`。
 - `mobile/android/` 不入库，构建时用 `expo prebuild` 重新生成。电脑端靠覆盖安装给手机更新 App，所以 APK 的签名必须和手机上已装的一致。
 - 签名：配置了「正式签名」的 4 个 Secret 就用正式证书；没配置时用调试签名，并核对调试证书和本地构建的一致，不一致时给出警告。除此之外不需要配置任何密钥。
@@ -113,7 +114,14 @@ GitHub 上在仓库「Settings → Secrets and variables → Actions」里添加
 
 ## 手机端自动更新
 
-电脑端每次通过数据线连上手机时，比较内置安装包（`-apk`）和手机上已装 App 的 SHA-256（手机上用 `sha256sum` 计算 `pm path` 得到的 base.apk），不同就 `adb install -r` 覆盖安装，装完重新拉起 App。不需要手动改版本号；手机上的版本更新（降级被拒）或签名不同（如装过开发版）时跳过更新，继续使用手机上的版本，日志里会说明原因。
+电脑端每次通过数据线连上手机时，比较内置安装包（`-apk`）和手机上已装 App 的 SHA-256（手机上用 `sha256sum` 计算 `pm path` 得到的 base.apk），不同就 `adb install -r` 覆盖安装，装完重新拉起 App。不需要手动改版本号；手机上的版本更新（降级被拒）或签名不同（如装过开发版）时跳过更新，继续使用手机上的版本，日志里会说明原因。被拒绝过的组合（手机上的包 + 内置包的哈希）在 Core 运行期间记住，之后插线不再重复推送安装包。
+
+## 检查更新
+
+- 电脑端：启动 15 秒后和之后每 12 小时自动查一次 `https://api.github.com/repos/<仓库>/releases/latest`，有新版本时主窗口顶部显示提示；窗口底部「检查更新」和托盘菜单可以手动查。按系统和 CPU 找对应的安装包（命名规则见 `desktop/app/src/electron/update.ts` 的 `assetSuffixes`），点「下载新版本」用浏览器下载，用户自己覆盖安装。自动检查失败（不能上网）时不提示。
+- 手机端：「设置 → 关于 → 检查更新」，找发布里 `-android.apk` 结尾的文件，用浏览器下载安装。插数据线连接电脑时电脑端也会自动更新手机（见上一节）。
+- 查询的仓库不写在代码里：CI 打包时把 `GITHUB_REPOSITORY` 写进电脑端 `package.json` 的 `p2d.updateRepo` 和手机端 `app.json` 的 `expo.extra.updateRepo`。本地打包的版本没有这个字段，检查更新会提示「没有配置更新地址」。
+- 版本比较：`0.2.0` > `0.1.0` > `0.1.0-ci.12` > `0.1.0-ci.5`。
 
 ## 文字识别（OCR）
 
