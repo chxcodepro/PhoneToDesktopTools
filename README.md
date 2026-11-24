@@ -11,6 +11,7 @@
 ![Windows](https://img.shields.io/badge/Windows-7%20%7C%2010%20%7C%2011-0078D6?logo=windows)
 ![Kylin](https://img.shields.io/badge/%E9%93%B6%E6%B2%B3%E9%BA%92%E9%BA%9F-V10-C00000?logo=linux&logoColor=white)
 ![Android](https://img.shields.io/badge/Android-7.0%2B-3DDC84?logo=android&logoColor=white)
+[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 [安装说明](docs/INSTALL.md) · [下载](https://github.com/chxcodepro/PhoneToDesktopTools/releases) · [开发说明](docs/DEV.md) · [通信协议](docs/PROTOCOL.md)
 
@@ -143,7 +144,7 @@ APK 签名、麒麟各 CPU 的打包方式、调试方法等见 [开发说明](d
 
 ## 许可证
 
-暂未指定开源许可证。
+本项目以 [MIT 许可证](LICENSE) 开源。
 
 ## 友情链接
 
