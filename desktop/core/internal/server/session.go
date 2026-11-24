@@ -256,11 +256,7 @@ func (s *Session) dispatch(m rpcMessage) {
 				s.fail(m.ID, errInvalidParams, "工具不存在："+p.Name)
 				return
 			}
-			status := "成功"
-			if res.IsError {
-				status = "失败"
-			}
-			log.Printf("[会话 %d] 调用 %s %s（%.0f ms）", s.id, p.Name, status, float64(time.Since(start).Milliseconds()))
+			log.Printf("[会话 %d] %s", s.id, callLine(p.Name, p.Arguments, res, float64(time.Since(start).Milliseconds())))
 			if !notify {
 				s.reply(m.ID, res)
 			}

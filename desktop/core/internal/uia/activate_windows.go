@@ -9,16 +9,16 @@ import (
 	"time"
 )
 
-// activate：把已经在运行的程序切到前台。
-// 窗口最小化就还原；没有窗口（关到托盘里了，如微信、QQ）就点托盘图标把它打开。
-// 这样 Agent 不会因为看不到窗口就重复启动程序（微信 4.x 等重复启动会多开，弹出新的登录窗口）。
+// activate：打开程序并切到前台。
+// 窗口最小化就还原；没有窗口（关到托盘里了，如微信、QQ）就点托盘图标把它打开；都没有才按名称找到程序并启动。
+// 这样 Agent 不会因为看不到窗口就重复启动程序（微信 4.x 等重复启动会多开，弹出新的登录窗口），也不用自己找安装位置。
 
 var procKeybdEvent = user32.NewProc("keybd_event")
 
 const vkF24 = 0x87
 
-// appWindow 标题或进程名包含 want 的顶层窗口：优先没最小化的，再取面积最大的（主窗口一般比登录框、弹窗大）
-func (s *session) appWindow(want string) (com, info) {
+// appWindow 标题包含 want、或进程名是 want / exe 的顶层窗口：优先没最小化的，再取面积最大的（主窗口一般比登录框、弹窗大）
+func (s *session) appWindow(want, exe string) (com, info) {
 	wins := s.topWindows()
 	var pick com
 	var pi info
@@ -38,7 +38,7 @@ func (s *session) appWindow(want string) (com, info) {
 		if !match {
 			// 进程名要完全相同（如 Weixin、QQ），不然「QQ」会匹配到 QQMusic
 			pn := strings.TrimSuffix(strings.ToLower(processName(uint32(w.int32(elemProcessID)))), ".exe")
-			match = pn != "" && pn == strings.TrimSuffix(strings.ToLower(want), ".exe")
+			match = pn != "" && (pn == strings.TrimSuffix(strings.ToLower(want), ".exe") || pn == exe)
 		}
 		if match && (!pick.ok() || score(i) > score(pi)) {
 			pick, pi = w, i
@@ -177,22 +177,7 @@ func (s *session) activate() (string, error) {
 	if !s.p.Restore {
 		return "", errors.New("当前权限不能操作界面：请在手机端改为「标准」以上权限并开启「鼠标键盘」")
 	}
-	show := func(w com, i info, how string) string {
-		hwnd := w.ptr(elemNativeWindowHandle)
-		msg := how + "「" + short(i.name, 60) + "」"
-		if hwnd != 0 && !bringToFront(hwnd) {
-			msg += "，但系统没有允许切到前台（可能被别的窗口挡住），需要时点一下它的任务栏按钮"
-		} else {
-			msg += "，已在前台"
-		}
-		i = readInfo(w)
-		if c := i.center(); c != "" {
-			msg += fmt.Sprintf("，窗口中心 %s", c)
-		}
-		return msg + "。接着用 ui_tree 读取里面的元素。"
-	}
-
-	if w, i := s.appWindow(want); w.ok() {
+	if w, i := s.appWindow(want, ""); w.ok() {
 		defer w.release()
 		how := "已切换到窗口"
 		if hwnd := w.ptr(elemNativeWindowHandle); hwnd != 0 {
@@ -200,7 +185,7 @@ func (s *session) activate() (string, error) {
 				how = "已还原最小化的窗口"
 			}
 		}
-		return show(w, i, how), nil
+		return s.show(w, i, how), nil
 	}
 
 	icon, err := s.clickTray(want)
@@ -208,15 +193,63 @@ func (s *session) activate() (string, error) {
 		return "", fmt.Errorf("找到了托盘图标但点击失败：%v", err)
 	}
 	if icon == "" {
-		return "", fmt.Errorf("没有找到「%s」的窗口或托盘图标，程序可能没有运行：可以用 shell_exec 启动它，启动后再用 window_activate 或 ui_tree 操作", want)
+		return s.launch(want)
 	}
 	// 等窗口出来
 	for t := 0; t < 15; t++ {
 		time.Sleep(200 * time.Millisecond)
-		if w, i := s.appWindow(want); w.ok() {
+		if w, i := s.appWindow(want, ""); w.ok() {
 			defer w.release()
-			return show(w, i, "已点击托盘图标「"+short(icon, 30)+"」，打开了窗口"), nil
+			return s.show(w, i, "已点击托盘图标「"+short(icon, 30)+"」，打开了窗口"), nil
 		}
 	}
 	return "已点击托盘图标「" + short(icon, 30) + "」，但 3 秒内没有看到窗口出来：用 ui_tree list_windows 看看，或者 screen_capture 截图确认（有的程序要双击或右键菜单里选「打开」）。", nil
+}
+
+// show 把窗口切到前台，返回给模型看的说明
+func (s *session) show(w com, i info, how string) string {
+	hwnd := w.ptr(elemNativeWindowHandle)
+	msg := how + "「" + short(i.name, 60) + "」"
+	if hwnd != 0 && !bringToFront(hwnd) {
+		msg += "，但系统没有允许切到前台（可能被别的窗口挡住），需要时点一下它的任务栏按钮"
+	} else {
+		msg += "，已在前台"
+	}
+	i = readInfo(w)
+	if c := i.center(); c != "" {
+		msg += fmt.Sprintf("，窗口中心 %s", c)
+	}
+	return msg + "。接着用 ui_tree 读取里面的元素。"
+}
+
+// launch 没有窗口也没有托盘图标：从开始菜单、桌面快捷方式等找到程序并启动，等窗口出来
+func (s *session) launch(want string) (string, error) {
+	prog, ok := findProgram(want)
+	if !ok {
+		return "", fmt.Errorf("没有找到「%s」的窗口或托盘图标，开始菜单和桌面上也没有叫这个名字的程序：换个名字试试（如快捷方式上显示的名字），或者用 shell_exec 启动它（填完整路径）", want)
+	}
+	exe := ""
+	if prog.exe != "" {
+		exe = "（" + prog.exe + ".exe）"
+		if processRunning(prog.exe) {
+			return "", fmt.Errorf("「%s」%s已经在运行，但没有找到它的窗口或托盘图标，所以没有再启动（重复启动可能会多开）："+
+				"用 screen_capture 截图看看它在哪里；确认它是没有界面的残留进程时，再用 shell_exec 启动", prog.name, exe)
+		}
+	}
+	if !s.p.Launch {
+		return "", fmt.Errorf("「%s」没有在运行。找到了它（%s），但当前权限不能启动程序：需要在手机端改为「完全控制」并开启「执行命令」", prog.name, prog.path)
+	}
+	if err := shellOpen(prog.path); err != nil {
+		return "", fmt.Errorf("启动「%s」（%s）失败：%v", prog.name, prog.path, err)
+	}
+	// 等窗口出来（微信等启动要几秒）
+	for t := 0; t < 75; t++ {
+		time.Sleep(200 * time.Millisecond)
+		if w, i := s.appWindow(want, prog.exe); w.ok() {
+			defer w.release()
+			return s.show(w, i, "「"+prog.name+"」没有在运行，已启动"+exe+"，打开了窗口"), nil
+		}
+	}
+	return "「" + prog.name + "」没有在运行，已启动" + exe + "（" + prog.path + "），但 15 秒内没有看到窗口：程序可能还在加载，或者启动后直接到了托盘。" +
+		"等几秒再调用 window_activate（它会找到窗口或托盘图标），不要再用 shell_exec 启动，免得多开。", nil
 }

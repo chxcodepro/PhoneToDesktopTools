@@ -33,8 +33,9 @@ func registerUI(r *Registry) {
 	})
 	r.Add(&Tool{
 		Name: "window_activate",
-		Description: "把已经在运行的程序切到前台：窗口最小化就还原；没有窗口（关到托盘里了，如微信、QQ、钉钉）就点托盘图标打开它。" +
-			"要操作某个程序时先用它，找不到再启动：微信、QQ 等重复启动会多开，弹出新的登录窗口（提示「该账号已登录」）。" +
+		Description: "打开程序并切到前台：窗口最小化就还原；没有窗口（关到托盘里了，如微信、QQ、钉钉）就点托盘图标打开它；" +
+			"没在运行就从开始菜单、桌面快捷方式找到它并启动（需要「完全控制」权限），已经在运行的不会重复启动。" +
+			"要操作某个程序时先用它，不要自己用 shell_exec 找安装位置、启动：微信、QQ 等重复启动会多开，弹出新的登录窗口（提示「该账号已登录」）。" +
 			"name 填程序名或窗口标题的一部分（如 微信、QQ、记事本、Excel），也可以填进程名（如 Weixin）。",
 		InputSchema: object(map[string]prop{
 			"name": str("程序名或窗口标题（包含即可），如 微信"),
@@ -89,7 +90,10 @@ func windowActivate(ctx context.Context, raw json.RawMessage) (*Result, error) {
 	if err := decode(raw, &a); err != nil {
 		return nil, err
 	}
-	out, err := uiaRun(ctx, uia.Params{Mode: "activate", Window: a.Name, Restore: allowed(ctx, perm.CatInput, perm.Write)})
+	out, err := uiaRun(ctx, uia.Params{Mode: "activate", Window: a.Name,
+		Restore: allowed(ctx, perm.CatInput, perm.Write),
+		// 启动程序和 shell_exec 同样的权限要求
+		Launch: allowed(ctx, perm.CatShell, perm.Dangerous)})
 	if err != nil {
 		return nil, err
 	}

@@ -116,7 +116,7 @@ export function buildSystemPrompt(
     if (hasLinux && hasWin) lines.push(`- 命令：Windows 电脑${winCmd}`, `- 命令：Linux 电脑${linuxCmd}`);
     else lines.push(`- 命令：${hasLinux ? linuxCmd : winCmd}`);
     lines.push(
-      '- 操作某个程序（如微信、QQ）前，先用 window_activate 把它切到前台：窗口最小化会还原，关到托盘里的会点托盘图标打开。它说没有在运行时才用 shell_exec 启动；不要因为看不到窗口就再次启动，微信、QQ 等会多开，弹出新的登录窗口（提示「该账号已登录」）。',
+      '- 打开或操作某个程序（如微信、QQ）时，直接用 window_activate：窗口最小化会还原，关到托盘里的会点托盘图标打开，没在运行会自动从开始菜单找到并启动，已经在运行的不会重复启动。不要先用 shell_exec 查进程、找安装位置或启动；只有 window_activate 说找不到这个程序时，才用 shell_exec 按完整路径启动。不要因为看不到窗口就再次启动，微信、QQ 等会多开，弹出新的登录窗口（提示「该账号已登录」）。',
       '- 操作界面优先用控件树：ui_tree 读出窗口里的按钮、输入框、菜单、列表项等（名称和屏幕坐标，没有文字的图标也有名称），ui_act 按名称直接点击、填写、展开，比按坐标点更准；读不到元素的程序（游戏、远程桌面、自绘界面）再用截图 + input_mouse。',
       '- 每步操作后确认结果（ui_tree 或截图）。同一个位置点了两次还没有反应，不要继续重复点：换一种方式（ui_act、键盘快捷键、先 window_activate），或者截图看看是不是有弹窗挡住。',
     );

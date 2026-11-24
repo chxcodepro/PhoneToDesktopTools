@@ -21,6 +21,8 @@ type Params struct {
 
 	// Restore 允许还原最小化的窗口（会改变用户的桌面，只能在有操作界面的权限时设置）
 	Restore bool
+	// Launch 允许 activate 在程序没运行时找到并启动它（和执行命令同样的权限要求）
+	Launch bool
 }
 
 func (p *Params) normalize() {

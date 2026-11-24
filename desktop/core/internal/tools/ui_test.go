@@ -56,3 +56,35 @@ func TestUIRestoreFollowsPermissions(t *testing.T) {
 		t.Fatalf("缺少权限信息时不应还原：%+v %v", got, err)
 	}
 }
+
+// window_activate 只有「完全控制」且开了「执行命令」时才能启动没在运行的程序
+func TestActivateLaunchFollowsPermissions(t *testing.T) {
+	var got *uia.Params
+	old := uiaRun
+	uiaRun = func(_ context.Context, p uia.Params) (string, error) {
+		got = &p
+		return "ok", nil
+	}
+	t.Cleanup(func() { uiaRun = old })
+
+	r := NewRegistry()
+	for _, tc := range []struct {
+		name   string
+		level  perm.Level
+		shell  bool
+		launch bool
+	}{
+		{"标准", perm.Standard, true, false},
+		{"完全但关了执行命令", perm.Full, false, false},
+		{"完全", perm.Full, true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got = nil
+			p := perm.Permissions{Level: tc.level, Input: true, Shell: tc.shell}
+			r.Call(context.Background(), p, "window_activate", json.RawMessage(`{"name":"微信"}`))
+			if got == nil || !got.Restore || got.Launch != tc.launch {
+				t.Fatalf("参数 = %+v，Launch 应为 %v", got, tc.launch)
+			}
+		})
+	}
+}
