@@ -13,7 +13,7 @@ import (
 
 func registerInput(r *Registry) {
 	r.Add(&Tool{
-		Name:        "input_mouse",
+		Name: "input_mouse",
 		Description: "操作鼠标。x、y 默认是屏幕坐标（像素，多显示器时为虚拟桌面坐标，ui_tree 返回的就是屏幕坐标）；" +
 			"按截图点击时传 coords=\"screenshot\"，x、y（以及 to_x、to_y）直接填最近一次 screen_capture 截图上的像素坐标，电脑端自动换算。",
 		InputSchema: object(map[string]prop{
