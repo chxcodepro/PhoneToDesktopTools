@@ -10,6 +10,7 @@ import * as SecureStore from 'expo-secure-store';
 import { buildWsUrl, parseConnectUrl } from '@/protocol/deepLink';
 import { McpClient } from '@/protocol/mcpClient';
 import { nativeAes } from '@/protocol/nativeAes';
+import { learnOsName } from '@/state/osProbe';
 import { fromBase64, SecureSocket, type RawSocket } from '@/protocol/secure';
 import {
   DEFAULT_PERMISSIONS,
@@ -211,6 +212,8 @@ export function connectWith(params: ConnectParams): void {
       const tools = await mc.listTools();
       connectionStore.set({ serverInfo: mc.serverInfo, tools });
       await syncPcOverUsb(mc, params);
+      // 旧版电脑端不告知系统名：读 sys_info
+      learnOsName(connectionStore.get().pcId, mc);
     },
     onLog: __DEV__ ? (m) => console.log('[mcp]', m) : undefined,
   });
@@ -385,6 +388,7 @@ export async function connectLan(pcId: string, opts: { manual: boolean; addrs?: 
       connectionStore.set({ serverInfo: mc.serverInfo, tools });
       upsertDevice({ pcId, lastAddr: addr, lastConnectedAt: Date.now(), lastRoute: 'wifi' });
       setLastPc(pcId);
+      learnOsName(pcId, mc);
       // 顺便刷新电脑的地址列表（换了网络 / DHCP 重新分配后）
       try {
         const info = (await mc.request('p2d/pc.info', { phone: devicesStore.get().phoneId }, 10_000)) as {

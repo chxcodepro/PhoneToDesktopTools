@@ -12,6 +12,7 @@ import type { ConnectionStatus, ToolInfo } from '@/protocol/types';
 
 import { connectionStore, createLanClient, findReachable, getClient, useConnection } from './connection';
 import { deviceLabel, devicesStore, getDevice, getPairKey, upsertDevice, useDevices } from './devices';
+import { learnOsName } from './osProbe';
 import { createStore, useStore } from './store';
 import { uiStore, useUi } from './ui';
 
@@ -94,6 +95,7 @@ export async function connectExtra(pcId: string, opts: { manual: boolean; rememb
       const tools = await mc.listTools();
       if (clients.get(pcId) === mc) setConn(pcId, { tools });
       upsertDevice({ pcId, lastAddr: addr, lastConnectedAt: Date.now(), lastRoute: 'wifi' });
+      learnOsName(pcId, mc);
       // 顺便刷新电脑的地址列表（电脑后来登录了 Tailscale、换了网络等）
       try {
         const info = (await mc.request('p2d/pc.info', { phone: devicesStore.get().phoneId }, 10_000)) as { addrs?: string[]; port?: number; osName?: string };

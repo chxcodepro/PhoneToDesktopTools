@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import { parsePing, subnetHosts } from '../src/state/discover';
-import { osInfo } from '../src/state/osInfo';
+import { osInfo, osNameFromVersion } from '../src/state/osInfo';
 
 describe('自动发现电脑', () => {
   it('扫描手机所在的 /24 网段，跳过手机自己', () => {
@@ -53,5 +53,21 @@ describe('系统图标', () => {
       ['linux', undefined, 'linux', 'Linux'],
     ];
     for (const [os, name, family, label] of cases) assert.deepEqual(osInfo(os, name), { family, label }, `${os} ${name}`);
+  });
+
+  it('旧版电脑端：从 sys_info 的系统版本推出系统名', () => {
+    const cases: [string, string, string | undefined][] = [
+      ['windows', 'Windows 7 Ultimate Service Pack 1 (6.1.7601)', 'Windows 7'],
+      ['windows', 'Windows 7 旗舰版 Service Pack 1 (6.1.7601)', 'Windows 7'],
+      // Windows 11 的产品名仍写着 Windows 10
+      ['windows', 'Windows 10 Pro (10.0.22631)', 'Windows 11'],
+      ['windows', 'Windows 10 Pro (10.0.19045)', 'Windows 10'],
+      ['windows', 'Windows 8.1 Pro (6.3.9600)', 'Windows 8.1'],
+      ['windows', 'Windows', 'Windows'],
+      ['linux', 'Kylin V10 SP1', 'Kylin V10 SP1'],
+      ['linux', '', undefined],
+    ];
+    for (const [os, v, want] of cases) assert.equal(osNameFromVersion(os, v), want, v);
+    assert.equal(osInfo('windows', osNameFromVersion('windows', 'Windows 7 Ultimate Service Pack 1 (6.1.7601)')).family, 'win7');
   });
 });

@@ -22,3 +22,26 @@ export function osInfo(os: string | undefined, osName?: string): { family: OsFam
   if (os === 'linux' || n) return { family: 'linux', label: osName ? osName.split(' ')[0] : 'Linux' };
   return { family: 'unknown', label: '电脑' };
 }
+
+/**
+ * 旧版电脑端没有 osName：从 sys_info 的 os_version 推出来。
+ * Windows 的 os_version 形如「Windows 7 Ultimate Service Pack 1 (6.1.7601)」；Windows 11 的产品名仍写着 Windows 10，要看内部版本号（22000 起）。
+ * Linux 是 /etc/os-release 的 PRETTY_NAME（如 Kylin V10 SP1），原样返回。
+ */
+export function osNameFromVersion(os: string | undefined, version: string | undefined): string | undefined {
+  const v = (version ?? '').trim();
+  if (!v) return undefined;
+  if (os !== 'windows' && !/windows/i.test(v)) return v;
+  const m = /\((\d+)\.(\d+)\.(\d+)\)/.exec(v);
+  if (m) {
+    const [major, minor, build] = m.slice(1).map(Number);
+    if (major === 10) return build >= 22000 ? 'Windows 11' : 'Windows 10';
+    if (major === 6 && minor === 3) return 'Windows 8.1';
+    if (major === 6 && minor === 2) return 'Windows 8';
+    if (major === 6 && minor === 1) return 'Windows 7';
+    if (major === 6 && minor === 0) return 'Windows Vista';
+    if (major === 5) return 'Windows XP';
+  }
+  const named = /Windows (11|10|8\.1|8|7|Vista|XP)/i.exec(v);
+  return named ? `Windows ${named[1]}` : 'Windows';
+}

@@ -2,13 +2,15 @@
 // 通知栏常驻「已连接电脑」，App 切到后台时系统不会冻结它，和电脑的连接不断；所有电脑都断开时停止。
 // Android 12 起只能在 App 处于前台时启动前台服务：在后台连上的，等回到前台再启动。
 
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { requireOptionalNativeModule } from 'expo';
 import { useEffect, useState } from 'react';
-import { AppState } from 'react-native';
+import { AppState, Platform } from 'react-native';
 
 import { connectionStore } from '@/state/connection';
 import { deviceLabel, getDevice } from '@/state/devices';
 import { multiStore } from '@/state/multi';
+import { createStore, useStore } from '@/state/store';
 
 interface P2dKeepAliveModule {
   start(title: string, text: string): boolean;
@@ -66,6 +68,55 @@ export function watchKeepAlive(): void {
     if (s === 'active') sync();
   });
   sync();
+  watchBackgroundDrops();
+}
+
+// ---------- 切到后台后断开过 ----------
+// 允许了「忽略电池优化」，ColorOS 仍会在 App 切到后台约 5 秒后关掉它的网络，要在「耗电管理」里选「完全允许后台行为」。
+// 系统没有接口能查到这个开关，所以记下「在后台时断开过」，提示卡片继续显示；之后在后台待了一分钟以上都没断开，就不再提示。
+
+const DROP_KEY = 'p2d.bgDropped';
+const dropStore = createStore<{ dropped: boolean }>({ dropped: false });
+
+function setDropped(v: boolean): void {
+  if (dropStore.get().dropped === v) return;
+  dropStore.set({ dropped: v });
+  void AsyncStorage.setItem(DROP_KEY, v ? '1' : '0').catch(() => undefined);
+}
+
+function watchBackgroundDrops(): void {
+  void AsyncStorage.getItem(DROP_KEY)
+    .then((v) => dropStore.set({ dropped: v === '1' }))
+    .catch(() => undefined);
+  let bgSince = 0;
+  let droppedThisTime = false;
+  AppState.addEventListener('change', (st) => {
+    if (st === 'background') {
+      bgSince = connectionStore.get().status === 'connected' ? Date.now() : 0;
+      droppedThisTime = false;
+    } else if (st === 'active') {
+      // 连着电脑在后台待了一分钟以上都没断：后台运行已经被允许了
+      if (bgSince && !droppedThisTime && Date.now() - bgSince >= 60_000 && connectionStore.get().status === 'connected') setDropped(false);
+      bgSince = 0;
+    }
+  });
+  let last = connectionStore.get().status;
+  connectionStore.subscribe(() => {
+    const cur = connectionStore.get().status;
+    if (last === 'connected' && cur !== 'connected' && bgSince && AppState.currentState !== 'active') {
+      droppedThisTime = true;
+      setDropped(true);
+    }
+    last = cur;
+  });
+}
+
+/** OPPO / 一加 / 真我（ColorOS）：要在「耗电管理」里选「完全允许后台行为」 */
+export const isColorOS = Platform.OS === 'android' && /oppo|oneplus|realme/i.test(String((Platform.constants as { Manufacturer?: string }).Manufacturer ?? ''));
+
+/** 在后台时断开过（需要用户去系统设置里放开后台限制） */
+export function useBackgroundDropped(): boolean {
+  return useStore(dropStore).dropped;
 }
 
 // ---------- 允许后台运行 ----------

@@ -2,10 +2,13 @@
 // 旧版电脑端没有 osName 时只知道 windows / linux，显示通用的图标。
 
 import { Monitor } from 'lucide-react-native';
-import Svg, { Circle, Ellipse, Polygon, Rect, Text as SvgText } from 'react-native-svg';
+import { Image } from 'react-native';
+import Svg, { Circle, Polygon, Rect, Text as SvgText } from 'react-native-svg';
 
 import { Icon } from '@/components/ui/icon';
 import type { OsFamily } from '@/state/osInfo';
+
+const TUX = require('@/assets/images/os/linux.png');
 
 /** 系统图标（正方形） */
 export function OsIcon({ family, size = 40 }: { family: OsFamily; size?: number }) {
@@ -70,20 +73,8 @@ export function OsIcon({ family, size = 40 }: { family: OsFamily; size?: number 
         </Svg>
       );
     case 'linux':
-      // 企鹅
-      return (
-        <Svg width={size} height={size} viewBox="0 0 48 48">
-          <Ellipse cx={24} cy={25} rx={13} ry={18} fill="#1F2937" />
-          <Ellipse cx={24} cy={30} rx={8.5} ry={11.5} fill="#FFFFFF" />
-          <Circle cx={20} cy={15} r={3} fill="#FFFFFF" />
-          <Circle cx={28} cy={15} r={3} fill="#FFFFFF" />
-          <Circle cx={20.6} cy={15.4} r={1.3} fill="#111827" />
-          <Circle cx={27.4} cy={15.4} r={1.3} fill="#111827" />
-          <Ellipse cx={24} cy={20.5} rx={4.2} ry={2.3} fill="#F7B500" />
-          <Ellipse cx={15} cy={42} rx={6.5} ry={3} fill="#F7B500" />
-          <Ellipse cx={33} cy={42} rx={6.5} ry={3} fill="#F7B500" />
-        </Svg>
-      );
+      // 彩色企鹅 Tux（devicon，MIT 许可；原作 Larry Ewing，用 The GIMP 绘制）。原 SVG 有七百多个路径，预先渲染成 PNG
+      return <Image source={TUX} style={{ width: size, height: size }} resizeMode="contain" />;
     default:
       return <Icon as={Monitor} size={size * 0.8} className="text-foreground" />;
   }
