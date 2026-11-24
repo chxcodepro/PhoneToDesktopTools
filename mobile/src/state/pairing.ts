@@ -6,7 +6,7 @@ import { pairWithPc, type RawSocket } from '@/protocol/secure';
 import { DEFAULT_LAN_PORT } from '@/protocol/types';
 
 import { connectLan, findReachable } from './connection';
-import { devicesStore, initDevices, randomBytes, setPairKey, upsertDevice } from './devices';
+import { devicesStore, getDevice, getPairKey, initDevices, randomBytes, setPairKey, upsertDevice } from './devices';
 import { createStore } from './store';
 
 const createRaw = (url: string) => new WebSocket(url) as unknown as RawSocket;
@@ -40,6 +40,41 @@ export async function pairByQr(link: PairLink): Promise<string> {
   await setPairKey(r.pcId, r.key);
   void connectLan(r.pcId, { manual: true, addrs: [addr] }).catch(() => undefined);
   return r.pcId;
+}
+
+/**
+ * 输入的 IP 是已经配对过的电脑（比如电脑后来登录了 Tailscale，手机还不知道这个地址）：
+ * 直接用保存的密钥连接，不用再在电脑上点「配对新手机」。返回 pcId；没配对过返回 null；连不上抛错
+ */
+export async function connectKnownByAddress(host: string, port: number): Promise<string | null> {
+  await initDevices();
+  const ctl = new AbortController();
+  // Tailscale 第一次可能经中继服务器，多等一会
+  const timer = setTimeout(() => ctl.abort(), 6000);
+  let info: { app?: string; pc?: string; name?: string };
+  try {
+    const r = await fetch(`http://${wsHost(host)}:${port}/p2d/ping`, { signal: ctl.signal });
+    info = (await r.json()) as typeof info;
+  } catch {
+    throw new Error(
+      `连不上 ${host}：请确认电脑端已打开、地址没输错，手机和电脑在同一个 WiFi（或者都连着同一个 Tailscale），并且电脑防火墙允许了 PhoneToDesktop。`,
+    );
+  } finally {
+    clearTimeout(timer);
+  }
+  if (info?.app !== 'p2d') throw new Error(`${host} 不是 PhoneToDesktop 电脑端`);
+  const pcId = info.pc;
+  if (!pcId || !(await getPairKey(pcId))) return null;
+  const dev = getDevice(pcId);
+  upsertDevice({
+    pcId,
+    name: dev?.name ?? info.name ?? '电脑',
+    addrs: [host, ...(dev?.addrs ?? []).filter((a) => a !== host)],
+    port,
+    lastAddr: host,
+  });
+  await connectLan(pcId, { manual: true, addrs: [host] });
+  return pcId;
 }
 
 /** 输入 IP（可带端口，如 192.168.1.5:39272） */

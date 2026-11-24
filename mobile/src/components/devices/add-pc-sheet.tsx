@@ -7,7 +7,7 @@ import { ActivityIndicator, Pressable, TextInput, View } from 'react-native';
 
 import { parsePairUrl, type PairLink } from '@/protocol/deepLink';
 import { deviceLabel, getDevice } from '@/state/devices';
-import { pairByCode, pairByQr, parseAddress } from '@/state/pairing';
+import { connectKnownByAddress, pairByCode, pairByQr, parseAddress } from '@/state/pairing';
 import { FieldLabel, Sheet } from '@/components/sheet';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/ui/icon';
@@ -41,6 +41,8 @@ export function AddPcSheet({ visible, initialLink, onClose }: { visible: boolean
   const [message, setMessage] = useState('');
   const [codeError, setCodeError] = useState<string | null>(null);
   const [donePc, setDonePc] = useState<string | null>(null);
+  /** 输入的 IP 是配对过的电脑，直接连上了（没有重新配对） */
+  const [reused, setReused] = useState(false);
   const [permission, requestPermission] = useCameraPermissions();
   const resolver = useRef<{ check: (c: string) => boolean; resolve: (c: string | null) => void } | null>(null);
   const scanned = useRef(false);
@@ -109,7 +111,24 @@ export function AddPcSheet({ visible, initialLink, onClose }: { visible: boolean
     }
     setMessage('正在连接电脑…');
     setStep('working');
-    pairByCode(a.host, a.port, (check) => {
+    setReused(false);
+    // 配对过的电脑直接用保存的密钥连接；没配对过才走配对码
+    connectKnownByAddress(a.host, a.port)
+      .then((pc) => {
+        if (!pc) return runPairCode(a.host, a.port);
+        setReused(true);
+        setDonePc(pc);
+        setStep('done');
+      })
+      .catch((e: unknown) => {
+        setMessage(errText(e));
+        setStep('error');
+      });
+  };
+
+  const runPairCode = (host: string, port: number) => {
+    setMessage('正在和电脑配对…');
+    pairByCode(host, port, (check) => {
       setCode('');
       setCodeError(null);
       setStep('code');
@@ -239,7 +258,9 @@ export function AddPcSheet({ visible, initialLink, onClose }: { visible: boolean
       {step === 'done' ? (
         <View className="items-center gap-3 py-8">
           <Icon as={CheckCircle2} size={44} className="text-success-foreground" />
-          <Text className="text-base font-semibold">{`已配对「${deviceLabel(getDevice(donePc))}」`}</Text>
+          <Text className="text-base font-semibold">
+            {reused ? `这台电脑已经配对过，正在连接「${deviceLabel(getDevice(donePc))}」` : `已配对「${deviceLabel(getDevice(donePc))}」`}
+          </Text>
           <Button className="w-full" onPress={close}>
             <Text>完成</Text>
           </Button>
