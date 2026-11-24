@@ -2,7 +2,7 @@
 // 下方是 Agent 消息面板和发给 Agent 的输入框。
 // 竖屏：画面铺满宽度；横屏：画面全屏，按钮竖排在右侧，隐藏状态栏。
 
-import { useFocusEffect } from 'expo-router';
+import { useIsFocused } from 'expo-router';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import { StatusBar } from 'expo-status-bar';
 import * as SystemUI from 'expo-system-ui';
@@ -22,12 +22,11 @@ import {
   Square,
   X,
 } from 'lucide-react-native';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Modal,
   Pressable,
-  ScrollView,
   TextInput,
   View,
   useWindowDimensions,
@@ -35,7 +34,7 @@ import {
   type TextInputInstance,
 } from 'react-native';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { send, stop, useConversation } from '@/agent/conversations';
 import { liveText } from '@/components/agent/live-label';
@@ -90,7 +89,9 @@ export default function RemoteScreen() {
   const [landscapeWanted, setLandscapeWanted] = useState(false);
   const pcInputRef = useRef<TextInputInstance>(null);
   const win = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const landscape = win.width > win.height;
+  const focused = useIsFocused();
 
   const tool = async (name: string, args: Record<string, unknown>) => {
     const c = viewClient();
@@ -111,20 +112,23 @@ export default function RemoteScreen() {
     setTimeout(() => setToast((t) => (t === msg ? null : t)), 2500);
   };
 
-  // 进入页面时按需要的方向锁定，离开时恢复竖屏
-  useFocusEffect(
-    useCallback(() => {
-      void ScreenOrientation.lockAsync(
-        landscapeWanted ? ScreenOrientation.OrientationLock.LANDSCAPE : ScreenOrientation.OrientationLock.PORTRAIT_UP,
-      ).catch(() => undefined);
-      // 横屏全屏时窗口背景设为黑色，避免底部手势条区域露出白边
-      void SystemUI.setBackgroundColorAsync(landscapeWanted ? '#000000' : '#ffffff').catch(() => undefined);
-      return () => {
-        void ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => undefined);
-        void SystemUI.setBackgroundColorAsync('#ffffff').catch(() => undefined);
-      };
-    }, [landscapeWanted]),
-  );
+  // 在本页时按需要的方向锁定。切换横竖屏只锁一次新方向（以前先恢复竖屏再锁横屏，要转两次，很慢）
+  useEffect(() => {
+    if (!focused) return;
+    void ScreenOrientation.lockAsync(
+      landscapeWanted ? ScreenOrientation.OrientationLock.LANDSCAPE : ScreenOrientation.OrientationLock.PORTRAIT_UP,
+    ).catch(() => undefined);
+    // 横屏全屏时窗口背景设为黑色，避免底部手势条区域露出白边
+    void SystemUI.setBackgroundColorAsync(landscapeWanted ? '#000000' : '#ffffff').catch(() => undefined);
+  }, [focused, landscapeWanted]);
+  // 离开页面时恢复竖屏
+  useEffect(() => {
+    if (!focused) return;
+    return () => {
+      void ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => undefined);
+      void SystemUI.setBackgroundColorAsync('#ffffff').catch(() => undefined);
+    };
+  }, [focused]);
 
   // 画面按比例放进可用区域
   const aspect = frame ? frame.width / frame.height : 16 / 9;
@@ -270,31 +274,44 @@ export default function RemoteScreen() {
 
   // ---------- 横屏：全屏画面 + 右侧按钮 ----------
   if (landscape) {
+    const side = [
+      <SideButton key="portrait" icon={Minimize} label="竖屏" onPress={toggleLandscape} />,
+      <SideButton key="pad" icon={MousePointer2} label="触控板" active={trackpad} onPress={() => setTrackpad((v) => !v)} />,
+      <SideButton key="kbd" icon={Keyboard} label="键盘" active={typing} onPress={openTyping} />,
+      <SideButton key="right" icon={MousePointerClick} label="右键" active={rightNext} onPress={() => setRightNext((v) => !v)} />,
+      <SideButton key="up" icon={ArrowUp} label="上滚" onPress={() => scroll(3)} />,
+      <SideButton key="down" icon={ArrowDown} label="下滚" onPress={() => scroll(-3)} />,
+      <SideButton key="combo" icon={Command} label="组合键" onPress={() => setCombosOpen(true)} />,
+      ...(targets.length > 1
+        ? [<SideButton key="pc" icon={MonitorSmartphone} label={view.name} onPress={() => cycleView(targets, view)} />]
+        : []),
+      ...(displays > 1
+        ? [<SideButton key="display" icon={Monitor} label={`屏幕 ${display + 1}`} onPress={() => setDisplay((d) => (d + 1) % displays)} />]
+        : []),
+      <SideButton key="agent" icon={Bot} label="Agent" onPress={goBack} />,
+    ];
+    // 按钮全部放得下：一列放不下就分成几列（以前一列滚动，下面的按钮跑到屏幕外）
+    const usable = win.height - insets.top - insets.bottom - SIDE_PAD * 2;
+    const perCol = Math.max(1, Math.floor((usable + SIDE_GAP) / (SIDE_BTN + SIDE_GAP)));
+    const cols: React.ReactElement[][] = [];
+    for (let i = 0; i < side.length; i += perCol) cols.push(side.slice(i, i + perCol));
     return (
       <View className="flex-1 flex-row bg-black">
         <StatusBar hidden />
-        <SafeAreaView edges={['left']} className="flex-1">
+        <View style={{ flex: 1, paddingLeft: insets.left }}>
           {screen}
           {typing ? <View className="absolute left-3 right-3 top-3">{pcKeyboardBar}</View> : null}
-        </SafeAreaView>
-        <SafeAreaView edges={['right']} className="border-l border-zinc-800 bg-zinc-950">
-          <ScrollView contentContainerClassName="items-center gap-1.5 px-1.5 py-2" showsVerticalScrollIndicator={false}>
-            <SideButton icon={Minimize} label="竖屏" onPress={toggleLandscape} />
-            <SideButton icon={MousePointer2} label="触控板" active={trackpad} onPress={() => setTrackpad((v) => !v)} />
-            <SideButton icon={Keyboard} label="键盘" active={typing} onPress={openTyping} />
-            <SideButton icon={MousePointerClick} label="右键" active={rightNext} onPress={() => setRightNext((v) => !v)} />
-            <SideButton icon={ArrowUp} label="上滚" onPress={() => scroll(3)} />
-            <SideButton icon={ArrowDown} label="下滚" onPress={() => scroll(-3)} />
-            <SideButton icon={Command} label="组合键" onPress={() => setCombosOpen(true)} />
-            {targets.length > 1 ? (
-              <SideButton icon={MonitorSmartphone} label={view.name} onPress={() => cycleView(targets, view)} />
-            ) : null}
-            {displays > 1 ? (
-              <SideButton icon={Monitor} label={`屏幕 ${display + 1}`} onPress={() => setDisplay((d) => (d + 1) % displays)} />
-            ) : null}
-            <SideButton icon={Bot} label="Agent" onPress={goBack} />
-          </ScrollView>
-        </SafeAreaView>
+        </View>
+        <View
+          style={{ paddingTop: insets.top + SIDE_PAD, paddingBottom: insets.bottom + SIDE_PAD, paddingRight: insets.right + 6, gap: SIDE_GAP }}
+          className="flex-row justify-center border-l border-zinc-800 bg-zinc-950 pl-1.5"
+        >
+          {cols.map((col, i) => (
+            <View key={i} style={{ gap: SIDE_GAP }} className="justify-center">
+              {col}
+            </View>
+          ))}
+        </View>
         {common}
       </View>
     );
@@ -459,9 +476,25 @@ function ToolButton({ icon, label, onPress, active }: { icon: typeof Keyboard; l
   );
 }
 
-function SideButton({ icon, label, onPress, active }: { icon: typeof Keyboard; label: string; onPress: () => void; active?: boolean }) {
+/** 横屏右侧按钮的高度、间距、上下留白 */
+const SIDE_BTN = 40;
+const SIDE_GAP = 4;
+const SIDE_PAD = 6;
+
+interface SideItem {
+  icon: typeof Keyboard;
+  label: string;
+  onPress: () => void;
+  active?: boolean;
+}
+
+function SideButton({ icon, label, onPress, active }: SideItem) {
   return (
-    <Pressable onPress={onPress} className={cn('w-14 items-center gap-0.5 rounded-lg py-1.5 active:bg-zinc-800', active && 'bg-blue-600')}>
+    <Pressable
+      onPress={onPress}
+      style={{ height: SIDE_BTN }}
+      className={cn('w-14 items-center justify-center gap-0.5 rounded-lg active:bg-zinc-800', active && 'bg-blue-600')}
+    >
       <Icon as={icon} size={18} className={active ? 'text-white' : 'text-zinc-300'} />
       <Text numberOfLines={1} className={cn('text-[9px]', active ? 'text-white' : 'text-zinc-400')}>
         {label}

@@ -109,9 +109,18 @@ func pair(t *testing.T, srv *Server, url, mode, phoneID string) []byte {
 
 // secureCall 建立加密会话并调用 initialize
 func secureCall(t *testing.T, url, phoneID string, key []byte, manual bool) (map[string]any, error) {
+	return secureCallWith(t, url, phoneID, key, manual, nil, "")
+}
+
+// secureCallWith 同 secureCall，ciphers 是手机端声明支持的算法，wantCipher 是期望电脑端选的（空 = ChaCha20）
+func secureCallWith(t *testing.T, url, phoneID string, key []byte, manual bool, ciphers []string, wantCipher string) (map[string]any, error) {
 	c := lanDial(t, url+"/p2d/secure")
 	nc := lan.Random(rand.Reader, 16)
-	_ = c.WriteJSON(map[string]any{"type": "hello", "phone": phoneID, "nc": b64(nc), "manual": manual})
+	hello := map[string]any{"type": "hello", "phone": phoneID, "nc": b64(nc), "manual": manual}
+	if ciphers != nil {
+		hello["ciphers"] = ciphers
+	}
+	_ = c.WriteJSON(hello)
 	h := recv(t, c)
 	if h["type"] != "hello" {
 		return h, nil
@@ -119,9 +128,13 @@ func secureCall(t *testing.T, url, phoneID string, key []byte, manual bool) (map
 	if mid := h["mid"]; mid != nil && mid == "" {
 		t.Errorf("hello 里的 mid 不应为空字符串：%v", h)
 	}
+	algo, _ := h["cipher"].(string)
+	if algo != wantCipher {
+		t.Fatalf("电脑端选的加密算法 = %q，应为 %q", algo, wantCipher)
+	}
 	c2s, s2c := lan.SessionKeys(key, nc, unb64(h["ns"].(string)))
-	wr, _ := lan.NewCipher(c2s)
-	rd, _ := lan.NewCipher(s2c)
+	wr, _ := lan.NewCipherFor(algo, c2s)
+	rd, _ := lan.NewCipherFor(algo, s2c)
 	req, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]any{"protocolVersion": "2025-06-18"}})
 	_ = c.WriteMessage(websocket.BinaryMessage, wr.Seal(lan.FrameText, req))
 	_ = c.SetReadDeadline(time.Now().Add(5 * time.Second))
@@ -170,6 +183,14 @@ func TestLANPairingAndSecureSession(t *testing.T) {
 	}
 	if m, err := secureCall(t, url, "phone-code", key2, false); err != nil || m["result"] == nil {
 		t.Fatalf("配对码配对的手机连接失败：%v %v", err, m)
+	}
+	// 新版手机端要求 AES-GCM（手机上有硬件加速）：电脑端同意并改用 AES-GCM
+	if m, err := secureCallWith(t, url, "phone-qr", key, false, []string{"aes-gcm", "chacha20-poly1305"}, "aes-gcm"); err != nil || m["result"] == nil {
+		t.Fatalf("AES-GCM 会话失败：%v %v", err, m)
+	}
+	// 不认识的算法：仍用 ChaCha20
+	if m, err := secureCallWith(t, url, "phone-qr", key, false, []string{"xyz"}, ""); err != nil || m["result"] == nil {
+		t.Fatalf("回退 ChaCha20 失败：%v %v", err, m)
 	}
 
 	// 密钥不对：服务端解密失败直接断开

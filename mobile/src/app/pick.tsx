@@ -29,7 +29,7 @@ function leave() {
 }
 
 export default function PickScreen() {
-  const { devices, autoConnect } = useDevices();
+  const { devices } = useDevices();
   const { status, pcId, route, addr } = useConnection();
   const [probes, setProbes] = useState<Record<string, Probe>>(() => checking(devices));
   const [error, setError] = useState<string | null>(null);
@@ -114,12 +114,6 @@ export default function PickScreen() {
           <Icon as={Plus} size={15} className="text-muted-foreground" />
           <Text className="text-sm text-muted-foreground">添加 / 管理电脑</Text>
         </Pressable>
-
-        <Text className="px-1 text-xs leading-5 text-muted-foreground">
-          {autoConnect
-            ? '自动连接已开启：打开 App 时自动连上次用的电脑，插着数据线时用 USB，否则用 WiFi。可以在「设置」里关闭。'
-            : '自动连接已关闭，可以在「设置」里打开。插上数据线时电脑端仍会自动连接。'}
-        </Text>
       </ScrollView>
     </SafeAreaView>
   );

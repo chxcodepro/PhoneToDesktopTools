@@ -97,3 +97,26 @@ func TestStore(t *testing.T) {
 		t.Fatal("取消配对后应删除")
 	}
 }
+
+// AES-GCM（手机端在握手时要求时用）：和手机端 tests/secure.test.ts 的固定结果一致
+func TestAESGCMVectors(t *testing.T) {
+	k := bytes.Repeat([]byte{0x11}, 32)
+	c2s, _ := SessionKeys(k, bytes.Repeat([]byte{0x22}, 16), bytes.Repeat([]byte{0x33}, 16))
+	c, err := NewCipherFor(CipherAESGCM, c2s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f0 := hex.EncodeToString(c.Seal(FrameText, []byte(`{"a":1}`)))
+	f1 := hex.EncodeToString(c.Seal(FrameText, []byte("你好")))
+	if f0 != "da0855921bcf83e8488fef21e436ddcc0ffba85ca8aba1f3" || f1 != "6937f98f4fedd015e34f87d12fbd08751d091a7e0243db" {
+		t.Fatalf("aes frame0=%s frame1=%s", f0, f1)
+	}
+	rd, _ := NewCipherFor(CipherAESGCM, c2s)
+	w, _ := hex.DecodeString(f0)
+	if typ, p, err := rd.Open(w); err != nil || typ != FrameText || string(p) != `{"a":1}` {
+		t.Fatalf("解不开：%v", err)
+	}
+	if f0 == "9eef98253b91207d9c6291e11a19e38c1d216345a82b296e" {
+		t.Fatal("AES 和 ChaCha20 的结果不应相同")
+	}
+}

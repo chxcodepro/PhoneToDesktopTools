@@ -27,6 +27,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"p2d/core/internal/lan"
+	"p2d/core/internal/sysinfo"
 )
 
 // PairingDuration 「配对新手机」窗口打开多久
@@ -46,7 +47,7 @@ func (s *Server) pcName() string {
 
 // pcInfo 告诉手机的电脑信息（地址列表用于之后的 WiFi 直连）。
 func (s *Server) pcInfo() map[string]any {
-	info := map[string]any{"pc": s.LAN.Store.PCID(), "name": s.pcName(), "os": runtime.GOOS, "port": s.LAN.Port, "addrs": lan.Addrs()}
+	info := map[string]any{"pc": s.LAN.Store.PCID(), "name": s.pcName(), "os": runtime.GOOS, "osName": sysinfo.OSName(), "port": s.LAN.Port, "addrs": lan.Addrs()}
 	s.addMachineID(info)
 	return info
 }
@@ -115,7 +116,7 @@ func (s *Server) LANHandler() http.Handler {
 	mux.HandleFunc("/p2d/secure", s.handleSecure)
 	mux.HandleFunc("/p2d/ping", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{"app": "p2d", "pc": s.LAN.Store.PCID(), "name": s.pcName()})
+		_ = json.NewEncoder(w).Encode(map[string]any{"app": "p2d", "pc": s.LAN.Store.PCID(), "name": s.pcName(), "os": runtime.GOOS, "osName": sysinfo.OSName()})
 	})
 	return mux
 }
@@ -214,7 +215,7 @@ func (s *Server) handlePair(w http.ResponseWriter, r *http.Request) {
 	pcID := s.LAN.Store.PCID()
 	pubPC := priv.PublicKey().Bytes()
 	t := lan.Transcript(peer.Bytes(), pubPC, hello.Phone, pcID)
-	if err := writeJSON(conn, map[string]any{"type": "pair", "pc": pcID, "name": s.pcName(), "os": runtime.GOOS, "pub": b64(pubPC)}); err != nil {
+	if err := writeJSON(conn, map[string]any{"type": "pair", "pc": pcID, "name": s.pcName(), "os": runtime.GOOS, "osName": sysinfo.OSName(), "pub": b64(pubPC)}); err != nil {
 		return
 	}
 	log.Printf("「%s」（%s）请求配对（%s）", name, remoteIP(r), map[string]string{"qr": "扫码", "code": "配对码"}[hello.Mode])
@@ -305,6 +306,8 @@ func (s *Server) handleSecure(w http.ResponseWriter, r *http.Request) {
 		Phone  string `json:"phone"`
 		NC     string `json:"nc"`
 		Manual bool   `json:"manual"` // 用户在手机上手动点了「连接」（不是自动重连）
+		// 手机端支持的加密算法（新版手机端发 ["aes-gcm", "chacha20-poly1305"]）；没有时用 ChaCha20-Poly1305
+		Ciphers []string `json:"ciphers"`
 	}
 	if err := readJSON(conn, 15*time.Second, &hello); err != nil || hello.Type != "hello" {
 		lanError(conn, "bad_request", "握手格式错误")
@@ -324,15 +327,23 @@ func (s *Server) handleSecure(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ns := lan.Random(rand.Reader, 16)
-	helloMsg := map[string]any{"type": "hello", "pc": s.LAN.Store.PCID(), "name": s.pcName(), "os": runtime.GOOS, "ns": b64(ns)}
+	helloMsg := map[string]any{"type": "hello", "pc": s.LAN.Store.PCID(), "name": s.pcName(), "os": runtime.GOOS, "osName": sysinfo.OSName(), "ns": b64(ns)}
+	algo := ""
+	for _, c := range hello.Ciphers {
+		if c == lan.CipherAESGCM {
+			algo = c
+			helloMsg["cipher"] = c
+			break
+		}
+	}
 	s.addMachineID(helloMsg)
 	if err := writeJSON(conn, helloMsg); err != nil {
 		_ = conn.Close()
 		return
 	}
 	c2s, s2c := lan.SessionKeys(key, nc, ns)
-	rd, _ := lan.NewCipher(c2s)
-	wr, _ := lan.NewCipher(s2c)
+	rd, _ := lan.NewCipherFor(algo, c2s)
+	wr, _ := lan.NewCipherFor(algo, s2c)
 	sc := &secureConn{Conn: conn, rd: rd, wr: wr}
 	_ = conn.SetReadDeadline(time.Time{})
 

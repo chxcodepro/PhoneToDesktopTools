@@ -9,6 +9,8 @@
 package lan
 
 import (
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/binary"
@@ -94,7 +96,27 @@ type cipherImpl interface {
 	Open(dst, nonce, ciphertext, additionalData []byte) ([]byte, error)
 }
 
-// NewCipher 用 32 字节密钥创建。
+// CipherAESGCM 手机端在握手时可以要求改用 AES-256-GCM：手机上 AES 有硬件加速、由系统原生代码执行，
+// 而 ChaCha20 只能用 JavaScript 计算（虚拟桌面每帧上百 KB，解密就要上百毫秒）。密钥、nonce 规则和 ChaCha20 相同。
+const CipherAESGCM = "aes-gcm"
+
+// NewCipherFor 按握手时商定的算法创建：aes-gcm 或默认的 ChaCha20-Poly1305。
+func NewCipherFor(name string, key []byte) (*Cipher, error) {
+	if name != CipherAESGCM {
+		return NewCipher(key)
+	}
+	b, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
+	g, err := cipher.NewGCM(b)
+	if err != nil {
+		return nil, err
+	}
+	return &Cipher{impl: g}, nil
+}
+
+// NewCipher 用 32 字节密钥创建（ChaCha20-Poly1305）。
 func NewCipher(key []byte) (*Cipher, error) {
 	a, err := chacha20poly1305.New(key)
 	if err != nil {

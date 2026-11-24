@@ -9,6 +9,7 @@ import * as SecureStore from 'expo-secure-store';
 
 import { buildWsUrl, parseConnectUrl } from '@/protocol/deepLink';
 import { McpClient } from '@/protocol/mcpClient';
+import { nativeAes } from '@/protocol/nativeAes';
 import { fromBase64, SecureSocket, type RawSocket } from '@/protocol/secure';
 import {
   DEFAULT_PERMISSIONS,
@@ -242,6 +243,7 @@ async function syncPcOverUsb(mc: McpClient, params: ConnectParams): Promise<void
       mid?: string;
       name: string;
       os: string;
+      osName?: string;
       addrs?: string[];
       port?: number;
       paired?: boolean;
@@ -252,6 +254,7 @@ async function syncPcOverUsb(mc: McpClient, params: ConnectParams): Promise<void
       mid: typeof info.mid === 'string' && info.mid ? info.mid : undefined,
       name: info.name,
       os: info.os,
+      osName: info.osName || undefined,
       addrs: info.addrs ?? [],
       port: info.port || 0,
       lastConnectedAt: Date.now(),
@@ -338,7 +341,8 @@ export function createLanClient(
         manual,
         random: randomBytes,
         createRaw: (u) => new WebSocket(u) as unknown as RawSocket,
-        onHello: (h) => upsertDevice({ pcId, mid: h.mid, name: h.name || dev.name, os: h.os || dev.os }),
+        aes: nativeAes,
+        onHello: (h) => upsertDevice({ pcId, mid: h.mid, name: h.name || dev.name, os: h.os || dev.os, osName: h.osName }),
         onReject: (code) => {
           if (code === 'unpaired') void forgetPairKey(pcId);
         },

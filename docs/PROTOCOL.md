@@ -199,7 +199,7 @@ Core 在同一端口提供 HTTP 接口，只接受本机访问：
 
 ## 9. 局域网直连（WiFi）
 
-电脑端在 `0.0.0.0:39272`（`-lan-port`，0 表示关闭）提供局域网入口，只有三个路径：`/p2d/ping`（探测，返回 `{app:"p2d", pc, name}`）、`/p2d/pair`（配对）、`/p2d/secure`（加密会话）。状态接口等仍只接受本机访问。电脑身份和配对过的手机保存在用户配置目录 `PhoneToDesktop/lan.json`（仅当前用户可读）。
+电脑端在 `0.0.0.0:39272`（`-lan-port`，0 表示关闭）提供局域网入口，只有三个路径：`/p2d/ping`（探测，返回 `{app:"p2d", pc, name, os, osName}`；手机端「附近的电脑」扫描所在 /24 网段的这个地址来发现电脑）、`/p2d/pair`（配对）、`/p2d/secure`（加密会话）。状态接口等仍只接受本机访问。电脑身份和配对过的手机保存在用户配置目录 `PhoneToDesktop/lan.json`（仅当前用户可读）。
 
 电脑标识 `pc`（pcId）第一次启动时生成并存进 `lan.json`，之后不再改变。新建时由本机系统标识（Windows `MachineGuid` / Linux `machine-id`）加主机名派生，`lan.json` 丢失或换了位置（例如从 MSIX 打包的程序里启动，写 `%APPDATA%` 会被重定向）也会得到同一个 pcId；取不到系统标识时随机生成。`p2d/pc.info`、配对成功的 `ok` 和加密会话的 `hello` 里另带机器指纹 `mid`（同样派生，盐不同；取不到时不带）。手机端设备记录以 pcId 为主键，收到 `mid` 时把同一台电脑的旧记录（`mid` 相同；或旧记录没有 `mid` 且电脑名、系统都相同）合并掉，旧 pcId 下的对话归到新 pcId。旧版手机端忽略 `mid`。
 
@@ -221,8 +221,8 @@ Core 在同一端口提供 HTTP 接口，只接受本机访问：
 
 ### 9.2 加密会话 `/p2d/secure`
 
-1. 手机 → `{type:"hello", phone, nc(16 字节随机), manual}`；未配对返回 `{type:"error", code:"unpaired"}`；电脑端点过「断开」时只接受 `manual:true`（用户手动点连接），否则返回 `suppressed`。
-2. 电脑 → `{type:"hello", pc, name, os, ns(16 字节随机)}`。
+1. 手机 → `{type:"hello", phone, nc(16 字节随机), manual, ciphers?}`（新版手机端带 `ciphers: ["aes-gcm", "chacha20-poly1305"]`）；未配对返回 `{type:"error", code:"unpaired"}`；电脑端点过「断开」时只接受 `manual:true`（用户手动点连接），否则返回 `suppressed`。
+2. 电脑 → `{type:"hello", pc, name, os, osName, ns(16 字节随机), cipher?}`。手机端支持 `aes-gcm` 时电脑端回 `cipher:"aes-gcm"`，之后改用 AES-256-GCM（密钥、nonce、帧格式与 ChaCha20 相同）：手机上 AES 有硬件加速、由系统原生实现，纯 JavaScript 的 ChaCha20 在手机上解密一帧虚拟桌面画面要上百毫秒。旧版两端都不带这个字段，仍用 ChaCha20。`osName` 是简短的系统名（如 `Windows 11`、`Kylin V10 SP1`），手机端据此显示系统图标；`p2d/pc.info` 和配对结果里也有。
 3. `c2s ‖ s2c = HKDF(K, salt=nc‖ns, info="p2d secure v1", 64)`。之后每条消息都是二进制帧：`ChaCha20-Poly1305(密钥, nonce = 4 字节 0 + 8 字节大端计数器, 明文 = 帧类型(1 文本 / 2 二进制) ‖ 内容)`，两个方向各自从 0 计数。解密失败（密钥不对、篡改、重放）直接断开。
 4. 解开后的内容就是普通的 MCP JSON-RPC，和 USB 的 `/mcp` 完全一样。会话的 `serial` 为 `lan:<手机ID>`，`route` 为 `wifi`。
 

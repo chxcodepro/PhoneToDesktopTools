@@ -118,6 +118,59 @@ export class FrameCipher {
   }
 }
 
+/** 握手时可以商定改用的 AES-256-GCM（电脑端回 cipher: "aes-gcm" 时才用） */
+export const CIPHER_AES_GCM = 'aes-gcm';
+
+/**
+ * AES-256-GCM 的实现（异步，由调用方注入）：App 里用 expo-crypto 的系统原生实现，有硬件加速；
+ * 纯 JavaScript 的 ChaCha20 在手机上解密一帧虚拟桌面画面（上百 KB）要上百毫秒，帧率上不去。
+ */
+export interface AesGcm {
+  /** 导入 32 字节密钥，返回之后加解密用的密钥对象 */
+  importKey(key: Uint8Array): Promise<unknown>;
+  /** 返回 密文 + 16 字节认证标签 */
+  encrypt(key: unknown, nonce: Uint8Array, plaintext: Uint8Array): Promise<Uint8Array>;
+  /** 认证失败时抛错 */
+  decrypt(key: unknown, nonce: Uint8Array, sealed: Uint8Array): Promise<Uint8Array>;
+}
+
+/** 一个方向的 AES-GCM 加密状态：nonce 在调用时按顺序分配，加解密可以并行，结果由调用方按顺序使用 */
+export class AsyncFrameCipher {
+  private counter = 0;
+  private readonly key: Promise<unknown>;
+  constructor(
+    private readonly aes: AesGcm,
+    key: Uint8Array,
+  ) {
+    this.key = aes.importKey(key);
+    this.key.catch(() => undefined);
+  }
+
+  private nonce(): Uint8Array {
+    const n = new Uint8Array(12);
+    const v = new DataView(n.buffer);
+    v.setUint32(4, Math.floor(this.counter / 2 ** 32));
+    v.setUint32(8, this.counter >>> 0);
+    this.counter++;
+    return n;
+  }
+
+  seal(type: number, payload: Uint8Array): Promise<Uint8Array> {
+    const n = this.nonce();
+    return this.key.then((k) => this.aes.encrypt(k, n, concat(new Uint8Array([type]), payload)));
+  }
+
+  open(frame: Uint8Array): Promise<{ type: number; payload: Uint8Array }> {
+    const n = this.nonce();
+    return this.key
+      .then((k) => this.aes.decrypt(k, n, frame))
+      .then((pt) => {
+        if (!pt.length) throw new Error('空帧');
+        return { type: pt[0], payload: pt.subarray(1) };
+      });
+  }
+}
+
 /** 底层（未加密）WebSocket：需要支持二进制消息 */
 export interface RawSocket {
   readonly readyState: number;
@@ -139,9 +192,11 @@ export interface SecureSocketOptions {
   random: RandomBytes;
   createRaw: (url: string) => RawSocket;
   /** 握手成功时告诉调用方电脑信息 */
-  onHello?: (info: { pc: string; name: string; os: string; mid?: string }) => void;
+  onHello?: (info: { pc: string; name: string; os: string; osName?: string; mid?: string }) => void;
   /** 电脑端拒绝的原因代码（unpaired / suppressed 等） */
   onReject?: (code: string, message: string) => void;
+  /** 提供时在握手里要求改用 AES-GCM（旧版电脑端不认识，仍用 ChaCha20） */
+  aes?: AesGcm;
 }
 
 function toBytes(data: unknown): Uint8Array | null {
@@ -164,6 +219,11 @@ export class SecureSocket implements WebSocketLike {
   private raw: RawSocket;
   private rd: FrameCipher | null = null;
   private wr: FrameCipher | null = null;
+  // 用 AES-GCM 时：异步加解密，按收发顺序串起来交付
+  private ard: AsyncFrameCipher | null = null;
+  private awr: AsyncFrameCipher | null = null;
+  private rx: Promise<void> = Promise.resolve();
+  private tx: Promise<void> = Promise.resolve();
   private reject: { code: string; message: string } | null = null;
   private closed = false;
 
@@ -178,15 +238,35 @@ export class SecureSocket implements WebSocketLike {
         raw.close(1000, 'closed');
         return;
       }
-      raw.send(JSON.stringify({ type: 'hello', v: 1, phone: opts.phoneId, nc: toBase64(nc), manual: opts.manual }));
+      raw.send(
+        JSON.stringify({
+          type: 'hello',
+          v: 1,
+          phone: opts.phoneId,
+          nc: toBase64(nc),
+          manual: opts.manual,
+          ...(opts.aes ? { ciphers: [CIPHER_AES_GCM, 'chacha20-poly1305'] } : {}),
+        }),
+      );
     };
     raw.onerror = (ev) => this.onerror?.(ev);
     raw.onclose = (ev) => this.finish(ev?.code ?? 1006, ev?.reason ?? '');
     raw.onmessage = (ev) => {
       if (this.closed) return;
-      if (!this.rd) {
+      if (!this.rd && !this.ard) {
         // 握手：第一条是明文 JSON
-        let m: { type?: string; ns?: string; pc?: string; mid?: string; name?: string; os?: string; code?: string; message?: string };
+        let m: {
+          type?: string;
+          ns?: string;
+          pc?: string;
+          mid?: string;
+          name?: string;
+          os?: string;
+          code?: string;
+          message?: string;
+          cipher?: string;
+          osName?: string;
+        };
         try {
           m = JSON.parse(typeof ev.data === 'string' ? ev.data : dec.decode(toBytes(ev.data) ?? new Uint8Array()));
         } catch {
@@ -203,10 +283,21 @@ export class SecureSocket implements WebSocketLike {
           return;
         }
         const { c2s, s2c } = sessionKeys(opts.key, nc, fromBase64(m.ns));
-        this.wr = new FrameCipher(c2s);
-        this.rd = new FrameCipher(s2c);
+        if (m.cipher === CIPHER_AES_GCM && opts.aes) {
+          this.awr = new AsyncFrameCipher(opts.aes, c2s);
+          this.ard = new AsyncFrameCipher(opts.aes, s2c);
+        } else {
+          this.wr = new FrameCipher(c2s);
+          this.rd = new FrameCipher(s2c);
+        }
         this.readyState = 1;
-        opts.onHello?.({ pc: m.pc ?? '', name: m.name ?? '', os: m.os ?? '', mid: typeof m.mid === 'string' && m.mid ? m.mid : undefined });
+        opts.onHello?.({
+          pc: m.pc ?? '',
+          name: m.name ?? '',
+          os: m.os ?? '',
+          osName: m.osName || undefined,
+          mid: typeof m.mid === 'string' && m.mid ? m.mid : undefined,
+        });
         this.onopen?.({});
         return;
       }
@@ -215,21 +306,55 @@ export class SecureSocket implements WebSocketLike {
         this.fail('收到未加密的消息');
         return;
       }
+      const deliver = (frame: { type: number; payload: Uint8Array }) =>
+        this.onmessage?.({ data: frame.type === FRAME_TEXT ? dec.decode(frame.payload) : frame.payload });
+      if (this.ard) {
+        // 立即开始解密（几帧可以同时解），按收到的顺序交付
+        const p = this.ard.open(bytes);
+        p.catch(() => undefined);
+        this.rx = this.rx.then(() =>
+          p.then(
+            (frame) => {
+              if (!this.closed) deliver(frame);
+            },
+            () => {
+              if (!this.closed) this.fail('解密失败（配对密钥不一致或数据被篡改）');
+            },
+          ),
+        );
+        return;
+      }
       let frame: { type: number; payload: Uint8Array };
       try {
-        frame = this.rd.open(bytes);
+        frame = this.rd!.open(bytes);
       } catch {
         this.fail('解密失败（配对密钥不一致或数据被篡改）');
         return;
       }
-      this.onmessage?.({ data: frame.type === FRAME_TEXT ? dec.decode(frame.payload) : frame.payload });
+      deliver(frame);
     };
   }
 
   send(data: string): void {
-    if (!this.wr || this.readyState !== 1) throw new Error('连接未就绪');
-    const sealed = this.wr.seal(FRAME_TEXT, utf8(data));
-    this.raw.send(sealed.buffer.slice(sealed.byteOffset, sealed.byteOffset + sealed.byteLength) as ArrayBuffer);
+    if ((!this.wr && !this.awr) || this.readyState !== 1) throw new Error('连接未就绪');
+    const out = (sealed: Uint8Array) =>
+      this.raw.send(sealed.buffer.slice(sealed.byteOffset, sealed.byteOffset + sealed.byteLength) as ArrayBuffer);
+    if (this.awr) {
+      const p = this.awr.seal(FRAME_TEXT, utf8(data));
+      p.catch(() => undefined);
+      this.tx = this.tx.then(() =>
+        p.then(
+          (sealed) => {
+            if (!this.closed) out(sealed);
+          },
+          () => {
+            if (!this.closed) this.fail('加密失败');
+          },
+        ),
+      );
+      return;
+    }
+    out(this.wr!.seal(FRAME_TEXT, utf8(data)));
   }
 
   close(code?: number, reason?: string): void {
@@ -261,6 +386,8 @@ export interface PairResult {
   mid?: string;
   name: string;
   os: string;
+  /** 系统名，如 Windows 11（旧版电脑端没有） */
+  osName?: string;
   key: Uint8Array;
   addrs: string[];
   port: number;
@@ -363,9 +490,9 @@ export function pairWithPc(opts: PairOptions): Promise<PairResult> {
         if (!expectServerMac || toHex(got) !== toHex(expectServerMac))
           return done(new PairError('mismatch', '电脑端校验失败，配对可能被干扰'));
         step = 'done';
-        const r = m as unknown as { pc: string; mid?: string; name: string; os: string; addrs?: string[]; port?: number };
+        const r = m as unknown as { pc: string; mid?: string; name: string; os: string; osName?: string; addrs?: string[]; port?: number };
         const mid = typeof r.mid === 'string' && r.mid ? r.mid : undefined;
-        return done(null, { pcId: r.pc, mid, name: r.name, os: r.os, key: key!, addrs: r.addrs ?? [], port: Number(r.port) || 0 });
+        return done(null, { pcId: r.pc, mid, name: r.name, os: r.os, osName: r.osName || undefined, key: key!, addrs: r.addrs ?? [], port: Number(r.port) || 0 });
       }
     };
   });

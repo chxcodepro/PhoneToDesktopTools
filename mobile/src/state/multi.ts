@@ -96,8 +96,8 @@ export async function connectExtra(pcId: string, opts: { manual: boolean; rememb
       upsertDevice({ pcId, lastAddr: addr, lastConnectedAt: Date.now(), lastRoute: 'wifi' });
       // 顺便刷新电脑的地址列表（电脑后来登录了 Tailscale、换了网络等）
       try {
-        const info = (await mc.request('p2d/pc.info', { phone: devicesStore.get().phoneId }, 10_000)) as { addrs?: string[]; port?: number };
-        if (info?.addrs?.length) upsertDevice({ pcId, addrs: info.addrs, port: info.port || dev.port });
+        const info = (await mc.request('p2d/pc.info', { phone: devicesStore.get().phoneId }, 10_000)) as { addrs?: string[]; port?: number; osName?: string };
+        if (info?.addrs?.length) upsertDevice({ pcId, addrs: info.addrs, port: info.port || dev.port, osName: info.osName || undefined });
       } catch {
         // 忽略
       }

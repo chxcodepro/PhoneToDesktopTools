@@ -1,0 +1,6 @@
+{
+  "name": "p2d-keepalive",
+  "version": "0.1.0",
+  "private": true,
+  "description": "连着电脑时开一个前台服务（通知栏常驻「已连接电脑」），App 切到后台系统也不会冻结它，和电脑的连接不断"
+}

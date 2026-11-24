@@ -22,6 +22,8 @@ export interface PcDevice {
   /** 用户起的名字，优先显示 */
   alias?: string;
   os: string;
+  /** 系统名，如 Windows 11、Kylin V10 SP1（新版电脑端告知，用来显示系统图标） */
+  osName?: string;
   /** 电脑的局域网地址（电脑端告知，真实网卡在前） */
   addrs: string[];
   /** 局域网直连端口 */

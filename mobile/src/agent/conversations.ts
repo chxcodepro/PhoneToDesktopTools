@@ -166,6 +166,9 @@ export function initConversations(): Promise<void> {
     initPromise = (async () => {
       const list = await loadJson<ConversationMeta[]>(INDEX_KEY, []);
       conversationStore.set({ list, ready: true });
+      // 打开 App 时已经在连（或连上了）某台电脑：直接显示这台电脑上次的对话，可以接着聊
+      const pc = connectionStore.get().pcId;
+      if (pc) resumeLatest(pc);
       watchComputer();
       onDeviceMerged((from, to) => void remapPcId(from, to));
     })();
@@ -173,7 +176,19 @@ export function initConversations(): Promise<void> {
   return initPromise;
 }
 
-/** 换了一台电脑：当前对话属于别的电脑时，切到这台电脑最近的对话（没有就新建）。Agent 正在执行时不切换 */
+/** 还没开始聊（空白的新对话）时，显示这台电脑最近的对话；这台电脑没聊过就保持空白 */
+function resumeLatest(pc: string): void {
+  const s = conversationStore.get();
+  if (s.running || s.currentId || s.items.length) return;
+  const latest = s.list.find((c) => c.pcId === pc);
+  if (latest) void openConversation(latest.id);
+  else conversationStore.set({ pcId: pc });
+}
+
+/**
+ * 换了一台电脑：当前对话属于别的电脑时，切到这台电脑最近的对话（没有就新建）；
+ * 还没开始聊时（如刚打开 App）显示这台电脑上次的对话。Agent 正在执行时不切换
+ */
 function watchComputer(): void {
   let last = connectionStore.get().pcId;
   connectionStore.subscribe(() => {
@@ -183,7 +198,7 @@ function watchComputer(): void {
     const s = conversationStore.get();
     if (s.running) return;
     if (!s.currentId) {
-      conversationStore.set({ pcId: pc });
+      resumeLatest(pc);
       return;
     }
     if (!s.pcId || s.pcId === pc) return;

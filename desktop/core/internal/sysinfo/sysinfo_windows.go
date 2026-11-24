@@ -84,3 +84,12 @@ func IsAdmin() bool {
 	r, _, _ := procIsUserAnAdmin.Call()
 	return r != 0
 }
+
+// OSName 简短的系统名，如 "Windows 11"、"Windows 10"、"Windows 7"（手机端按它显示系统图标）。
+// Windows 11 注册表里的 ProductName 仍写着 "Windows 10"，要看内部版本号（22000 起是 Windows 11）。
+func OSName() string {
+	var v osVersionInfo
+	v.Size = uint32(unsafe.Sizeof(v))
+	procRtlGetVersion.Call(uintptr(unsafe.Pointer(&v)))
+	return windowsName(v.Major, v.Minor, v.Build)
+}

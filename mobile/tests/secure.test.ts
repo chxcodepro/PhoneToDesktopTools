@@ -4,7 +4,11 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import { parsePairUrl } from '../src/protocol/deepLink';
+import { gcm } from '@noble/ciphers/aes';
+
 import {
+  AsyncFrameCipher,
+  concat,
   FRAME_TEXT,
   FrameCipher,
   fromBase64,
@@ -14,6 +18,7 @@ import {
   toHex,
   transcript,
   utf8,
+  type AesGcm,
   type RawSocket,
   SecureSocket,
 } from '../src/protocol/secure';
@@ -175,4 +180,111 @@ describe('配对二维码', () => {
     assert.equal(parsePairUrl('p2d://pair?h=1.2.3.4&p=39272&id=xyz&s=AAAAAAAAAAAAAAAAAAAAAA'), null);
     assert.equal(parsePairUrl('https://example.com'), null);
   });
+});
+
+describe('AES-GCM（握手商定后用系统原生实现）', () => {
+  // 测试里用 @noble/ciphers 的 AES-GCM 代替 expo-crypto；随机延迟，模拟原生调用乱序完成
+  const delay = () => new Promise((r) => setTimeout(r, Math.random() * 5));
+  const nobleAes: AesGcm = {
+    importKey: async (k) => k,
+    encrypt: async (k, n, pt) => {
+      await delay();
+      return gcm(k as Uint8Array, n).encrypt(pt);
+    },
+    decrypt: async (k, n, s) => {
+      await delay();
+      return gcm(k as Uint8Array, n).decrypt(s);
+    },
+  };
+
+  it('帧加密结果和电脑端一致', async () => {
+    const { c2s } = sessionKeys(fill(32, 0x11), fill(16, 0x22), fill(16, 0x33));
+    const c = new AsyncFrameCipher(nobleAes, c2s);
+    const [f0, f1] = await Promise.all([c.seal(FRAME_TEXT, utf8('{"a":1}')), c.seal(FRAME_TEXT, utf8('你好'))]);
+    assert.equal(toHex(f0), 'da0855921bcf83e8488fef21e436ddcc0ffba85ca8aba1f3');
+    assert.equal(toHex(f1), '6937f98f4fedd015e34f87d12fbd08751d091a7e0243db');
+    const rd = new AsyncFrameCipher(nobleAes, c2s);
+    assert.equal(new TextDecoder().decode((await rd.open(f0)).payload), '{"a":1}');
+    await assert.rejects(rd.open(f0), '重放的帧不能解开');
+  });
+
+  /** 模拟电脑端：认识 aes-gcm 时用它，否则用 ChaCha20；把收到的消息原样回给手机 */
+  function server(key: Uint8Array, supportsAes: boolean) {
+    const sent: unknown[] = [];
+    let srv: { open(b: Uint8Array): Uint8Array; seal(p: Uint8Array): Uint8Array };
+    let picked = '';
+    const raw: RawSocket = {
+      readyState: 1,
+      send(data) {
+        sent.push(data);
+        if (typeof data === 'string') {
+          const hello = JSON.parse(data);
+          const ns = fill(16, 9);
+          const k = sessionKeys(key, fromBase64(hello.nc), ns);
+          const useAes = supportsAes && hello.ciphers?.includes('aes-gcm');
+          picked = useAes ? 'aes-gcm' : 'chacha';
+          if (useAes) {
+            let rc = 0;
+            let wc = 0;
+            const nonce = (c: number) => {
+              const n = new Uint8Array(12);
+              new DataView(n.buffer).setUint32(8, c);
+              return n;
+            };
+            srv = {
+              open: (b) => gcm(k.c2s, nonce(rc++)).decrypt(b).subarray(1),
+              seal: (p) => gcm(k.s2c, nonce(wc++)).encrypt(concat(new Uint8Array([FRAME_TEXT]), p)),
+            };
+          } else {
+            const rd = new FrameCipher(k.c2s);
+            const wr = new FrameCipher(k.s2c);
+            srv = { open: (b) => rd.open(b).payload, seal: (p) => wr.seal(FRAME_TEXT, p) };
+          }
+          const reply = { type: 'hello', pc: 'pc1', name: 'PC', os: 'windows', ns: toBase64(ns), ...(useAes ? { cipher: 'aes-gcm' } : {}) };
+          setTimeout(() => raw.onmessage?.({ data: JSON.stringify(reply) }), 1);
+          return;
+        }
+        const echo = srv.seal(srv.open(new Uint8Array(data as ArrayBuffer)));
+        raw.onmessage?.({ data: echo.buffer.slice(echo.byteOffset, echo.byteOffset + echo.byteLength) });
+      },
+      close() {},
+      onopen: null,
+      onclose: null,
+      onerror: null,
+      onmessage: null,
+    };
+    return { raw, sent, picked: () => picked };
+  }
+
+  for (const supportsAes of [true, false]) {
+    it(supportsAes ? '电脑端支持：改用 AES-GCM，乱序完成也按顺序收发' : '旧版电脑端：仍用 ChaCha20', async () => {
+      const key = fill(32, 5);
+      const srv = server(key, supportsAes);
+      const s = new SecureSocket({
+        url: 'ws://x/p2d/secure',
+        phoneId: 'ph',
+        key,
+        manual: false,
+        random: (len) => fill(len, 3),
+        createRaw: () => srv.raw,
+        aes: nobleAes,
+      });
+      const opened = new Promise<void>((r) => (s.onopen = () => r()));
+      srv.raw.onopen?.({});
+      await opened;
+      assert.deepEqual(JSON.parse(srv.sent[0] as string).ciphers, ['aes-gcm', 'chacha20-poly1305']);
+      assert.equal(srv.picked(), supportsAes ? 'aes-gcm' : 'chacha');
+      const got: string[] = [];
+      const all = new Promise<void>((r) => {
+        s.onmessage = (ev) => {
+          got.push(ev.data as string);
+          if (got.length === 30) r();
+        };
+      });
+      const want = Array.from({ length: 30 }, (_, i) => `{"id":${i},"x":"${'数据'.repeat(i * 50)}"}`);
+      for (const m of want) s.send(m);
+      await all;
+      assert.deepEqual(got, want);
+    });
+  }
 });

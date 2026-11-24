@@ -1,4 +1,5 @@
 // 添加电脑：扫电脑端「配对新手机」的二维码，或输入电脑 IP 后核对配对码。
+// 从「附近的电脑」点添加时直接带着 IP 打开，跳过选择。
 
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { CheckCircle2, Keyboard, QrCode } from 'lucide-react-native';
@@ -34,7 +35,18 @@ function Choice({ icon, title, onPress }: { icon: typeof QrCode; title: string; 
   );
 }
 
-export function AddPcSheet({ visible, initialLink, onClose }: { visible: boolean; initialLink: PairLink | null; onClose: () => void }) {
+export function AddPcSheet({
+  visible,
+  initialLink,
+  initialHost,
+  onClose,
+}: {
+  visible: boolean;
+  initialLink: PairLink | null;
+  /** 自动发现到的电脑地址：打开时直接连接 / 配对 */
+  initialHost?: string | null;
+  onClose: () => void;
+}) {
   const [step, setStep] = useState<Step>('choose');
   const [ip, setIp] = useState('');
   const [code, setCode] = useState('');
@@ -71,18 +83,14 @@ export function AddPcSheet({ visible, initialLink, onClose }: { visible: boolean
   if (visible !== lastVisible) {
     setLastVisible(visible);
     if (visible) {
-      setStep(initialLink ? 'working' : 'choose');
-      setIp('');
+      setStep(initialLink || initialHost ? 'working' : 'choose');
+      setIp(initialHost ?? '');
       setCode('');
       setCodeError(null);
-      setMessage(initialLink ? `正在和「${initialLink.name}」配对…` : '');
+      setReused(false);
+      setMessage(initialLink ? `正在和「${initialLink.name}」配对…` : initialHost ? `正在连接 ${initialHost}…` : '');
     }
   }
-  useEffect(() => {
-    // 状态已在上面打开时设好，这里只发起配对
-    if (visible && initialLink) void pairQr(initialLink);
-    // 只在打开时执行一次
-  }, [visible, initialLink]);
 
   const close = () => {
     resolver.current?.resolve(null);
@@ -112,10 +120,14 @@ export function AddPcSheet({ visible, initialLink, onClose }: { visible: boolean
     setMessage('正在连接电脑…');
     setStep('working');
     setReused(false);
-    // 配对过的电脑直接用保存的密钥连接；没配对过才走配对码
-    connectKnownByAddress(a.host, a.port)
+    connectAddr(a.host, a.port);
+  };
+
+  /** 配对过的电脑直接用保存的密钥连接；没配对过才走配对码（只在异步回调里改状态） */
+  const connectAddr = (host: string, port: number) => {
+    void connectKnownByAddress(host, port)
       .then((pc) => {
-        if (!pc) return runPairCode(a.host, a.port);
+        if (!pc) return runPairCode(host, port);
         setReused(true);
         setDonePc(pc);
         setStep('done');
@@ -146,6 +158,18 @@ export function AddPcSheet({ visible, initialLink, onClose }: { visible: boolean
       },
     );
   };
+
+  useEffect(() => {
+    // 状态已在上面打开时设好，这里只发起配对 / 连接
+    if (!visible) return;
+    if (initialLink) void pairQr(initialLink);
+    else if (initialHost) {
+      const a = parseAddress(initialHost);
+      if (a) connectAddr(a.host, a.port);
+    }
+    // 只在打开时执行一次
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, initialLink, initialHost]);
 
   const submitCode = () => {
     const r = resolver.current;

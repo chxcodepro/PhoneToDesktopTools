@@ -1,7 +1,8 @@
 // Agent 页左侧抽屉：点击左上角三条杠按钮或在对话区向右滑出。
-// 上面是入口卡片（模型、虚拟桌面、扩展），中间是按日期分组的历史对话，底部是搜索框和设置按钮。
+// 上面是入口卡片（模型、虚拟桌面、扩展），中间是按日期分组的历史对话，底部是搜索框。
+// 从抽屉进入其他页面时抽屉保持打开，返回时还在。
 
-import { router, type Href } from 'expo-router';
+import { router, useIsFocused, type Href } from 'expo-router';
 import {
   AlarmClock,
   ChevronRight,
@@ -11,7 +12,6 @@ import {
   MoreHorizontal,
   Puzzle,
   Search,
-  Settings,
   SquarePen,
   Trash2,
   X,
@@ -148,20 +148,19 @@ export function ConversationDrawer({ open, ctl }: { open: boolean; ctl: DrawerCo
   const [query, setQuery] = useState('');
   const [showAll, setShowAll] = useState(false);
 
-  // 返回键先关抽屉
+  // 返回键先关抽屉（只在 Agent 页显示时；进入其他页面后返回键用来返回）
+  const focused = useIsFocused();
   useEffect(() => {
-    if (!open) return;
+    if (!open || !focused) return;
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
       ctl.close();
       return true;
     });
     return () => sub.remove();
-  }, [open, ctl]);
+  }, [open, focused, ctl]);
 
-  const go = (href: Href) => {
-    ctl.close();
-    router.push(href);
-  };
+  // 不收起抽屉：返回时还在
+  const go = (href: Href) => router.push(href);
 
   const q = query.trim().toLowerCase();
   // 每台电脑各自的对话：默认只显示当前电脑的（旧对话没有归属，都显示）
@@ -303,7 +302,7 @@ export function ConversationDrawer({ open, ctl }: { open: boolean; ctl: DrawerCo
             ))}
           </ScrollView>
 
-          {/* 底部：搜索 + 设置 */}
+          {/* 底部：搜索 */}
           <View className="flex-row items-center gap-2 px-3 pb-3 pt-2">
             <View className="h-12 flex-1 flex-row items-center gap-2 rounded-full bg-background px-4">
               <Icon as={Search} size={18} className="text-muted-foreground" />
@@ -321,13 +320,6 @@ export function ConversationDrawer({ open, ctl }: { open: boolean; ctl: DrawerCo
                 </Pressable>
               ) : null}
             </View>
-            <Pressable
-              onPress={() => go('/settings')}
-              className="h-12 w-12 items-center justify-center rounded-full bg-background active:bg-muted"
-              accessibilityLabel="设置"
-            >
-              <Icon as={Settings} size={20} className="text-foreground" />
-            </Pressable>
           </View>
         </KeyboardAvoidingView>
       </Animated.View>

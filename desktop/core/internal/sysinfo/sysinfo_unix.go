@@ -64,3 +64,6 @@ func DesktopDir() string {
 
 // IsAdmin 当前进程是否以 root 身份运行。
 func IsAdmin() bool { return os.Geteuid() == 0 }
+
+// OSName 简短的系统名，如 "Kylin V10 SP1"、"UOS 20"（手机端按它显示系统图标）。
+func OSName() string { return OSVersion() }

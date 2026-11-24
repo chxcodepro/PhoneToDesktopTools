@@ -1,0 +1,16 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <!-- 前台服务：连着电脑时 App 切到后台也不被系统冻结（类型「连接的设备」：手机通过 USB / WiFi 连着电脑） -->
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+  <!-- Android 14 起「连接的设备」类型的前台服务要求有这类权限之一（普通权限，安装时自动授予） -->
+  <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
+  <!-- WiFi 锁：减少 WiFi 省电模式带来的延迟 -->
+  <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+  <application>
+    <service
+      android:name="expo.modules.p2dkeepalive.KeepAliveService"
+      android:exported="false"
+      android:foregroundServiceType="connectedDevice" />
+  </application>
+</manifest>
