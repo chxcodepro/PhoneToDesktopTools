@@ -35,7 +35,7 @@ import {
   type ConnectionState,
 } from '@/state/connection';
 import { deviceLabel, removeDevice, renameDevice, setPreferUsb, useDevices, type PcDevice } from '@/state/devices';
-import { scanLan, useDiscovery, type FoundPc } from '@/state/discovery';
+import { scanLan, toggleNet, useDiscovery, type FoundPc } from '@/state/discovery';
 import { connectExtra, disconnectExtra, useMulti, type ExtraConn } from '@/state/multi';
 import { osInfo } from '@/state/osInfo';
 import { pendingPairStore } from '@/state/pairing';
@@ -99,7 +99,7 @@ function DeviceTile({
   d: PcDevice;
   state: TileState;
   ip: string;
-  /** 当前电脑正在用的线路 */
+  /** 正在用的线路：当前电脑按实际线路，同时连接的电脑是 WiFi；没连上为 null */
   route: 'usb' | 'wifi' | null;
   isCurrent: boolean;
   onPress: () => void;
@@ -108,6 +108,8 @@ function DeviceTile({
 }) {
   const os = osInfo(d.os, d.osName);
   const usb = isCurrent ? canUseUsb(d.pcId) : hasUsbFor(d.pcId);
+  // 连上的电脑图标是彩色的，没连上的变淡
+  const connected = state.tone === 'ok' || state.tone === 'extra';
   return (
     <Pressable onPress={onPress} onLongPress={onMore} style={{ width: '48.5%' }}>
       <View
@@ -140,7 +142,9 @@ function DeviceTile({
           <Icon as={MoreHorizontal} size={16} className="text-muted-foreground" />
         </Pressable>
 
-        <OsIcon family={os.family} size={40} />
+        <View style={{ opacity: connected ? 1 : 0.35 }}>
+          <OsIcon family={os.family} size={40} />
+        </View>
         <Text className="text-[10px] text-muted-foreground">{os.label}</Text>
         <Text numberOfLines={1} className="max-w-full text-[15px] font-semibold">
           {deviceLabel(d)}
@@ -149,13 +153,8 @@ function DeviceTile({
           {ip || (d.paired ? '—' : '未配对')}
         </Text>
         <View className="mt-0.5 flex-row gap-1.5">
-          <RouteChip
-            label="WiFi"
-            on={isCurrent && route === 'wifi'}
-            available={d.paired}
-            onPress={isCurrent ? () => onRoute('wifi') : undefined}
-          />
-          <RouteChip label="USB" on={isCurrent && route === 'usb'} available={usb} onPress={isCurrent ? () => onRoute('usb') : undefined} />
+          <RouteChip label="WiFi" on={route === 'wifi'} available={d.paired} onPress={isCurrent ? () => onRoute('wifi') : undefined} />
+          <RouteChip label="USB" on={route === 'usb'} available={usb} onPress={isCurrent ? () => onRoute('usb') : undefined} />
         </View>
       </View>
     </Pressable>
@@ -287,7 +286,13 @@ export default function DevicesScreen() {
               d={d}
               state={tileState(d, conn, multi.conns[d.pcId], multi.wanted.includes(d.pcId))}
               ip={ipOf(d)}
-              route={d.pcId === pcId && status === 'connected' ? route : null}
+              route={
+                d.pcId === pcId && status === 'connected'
+                  ? route
+                  : multi.wanted.includes(d.pcId) && multi.conns[d.pcId]?.status === 'connected'
+                    ? 'wifi'
+                    : null
+              }
               isCurrent={d.pcId === pcId && hasCurrent}
               onPress={() => onTile(d)}
               onMore={() => openMenu(d)}
@@ -301,7 +306,7 @@ export default function DevicesScreen() {
 
       {/* 附近的电脑 */}
       <View className="mt-2 flex-row items-center">
-        <GroupTitle className="flex-1">{scan.subnet ? `附近的电脑 · ${scan.subnet}` : '附近的电脑'}</GroupTitle>
+        <GroupTitle className="flex-1">附近的电脑</GroupTitle>
         <Pressable
           onPress={() => void scanLan()}
           disabled={scan.scanning}
@@ -313,6 +318,24 @@ export default function DevicesScreen() {
           <Text className="text-xs text-primary">{scan.scanning ? `扫描中 ${Math.round(scan.progress * 100)}%` : '扫描'}</Text>
         </Pressable>
       </View>
+      {/* 手机连着的网段：默认都扫，点一下取消 / 选中 */}
+      {scan.nets.length ? (
+        <View className="flex-row flex-wrap gap-2">
+          {scan.nets.map((n) => {
+            const on = !scan.skipped.includes(n.id);
+            return (
+              <Pressable
+                key={n.id}
+                onPress={() => toggleNet(n.id)}
+                className={cn('flex-row items-center gap-1 rounded-full border px-3 py-1', on ? 'border-primary bg-primary/10' : 'border-border bg-background')}
+              >
+                {on ? <Icon as={Check} size={12} className="text-primary" /> : null}
+                <Text className={cn('text-xs', on ? 'text-primary' : 'text-muted-foreground')}>{n.label}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      ) : null}
       {scan.found.map((f) => (
         <FoundRow key={f.pcId} f={f} known={devices.find((d) => d.pcId === f.pcId)} onPress={() => onFound(f)} />
       ))}

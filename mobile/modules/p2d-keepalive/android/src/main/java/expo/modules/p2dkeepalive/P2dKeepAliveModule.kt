@@ -6,6 +6,8 @@ import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
+import java.net.Inet4Address
+import java.net.NetworkInterface
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 
@@ -63,6 +65,27 @@ class P2dKeepAliveModule : Module() {
       } catch (e: Exception) {
         false
       }
+    }
+
+    /**
+     * 手机所有网卡的 IPv4 地址（WiFi、热点、USB 共享、Tailscale、移动数据等），「附近的电脑」用来选择扫描哪个网段。
+     * 每项：name 网卡名（wlan0、tun0、rmnet0…），ip，prefix 前缀长度
+     */
+    Function("localNetworks") {
+      val out = ArrayList<Map<String, Any>>()
+      try {
+        val list = NetworkInterface.getNetworkInterfaces() ?: return@Function out
+        for (ni in list) {
+          if (!ni.isUp || ni.isLoopback) continue
+          for (ia in ni.interfaceAddresses) {
+            val a = ia.address as? Inet4Address ?: continue
+            out.add(mapOf("name" to ni.name, "ip" to (a.hostAddress ?: continue), "prefix" to ia.networkPrefixLength.toInt()))
+          }
+        }
+      } catch (e: Exception) {
+        // 读不到时返回已有的部分
+      }
+      out
     }
 
     /** 打开本应用的系统设置页（手机厂商的「耗电管理 / 后台运行」开关在里面） */

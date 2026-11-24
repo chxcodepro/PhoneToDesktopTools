@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { parsePing, subnetHosts } from '../src/state/discover';
+import { isPrivateIp, isTailscaleIp, parsePing, scanNets, subnetHosts } from '../src/state/discover';
 import { osInfo, osNameFromVersion } from '../src/state/osInfo';
 
 describe('自动发现电脑', () => {
@@ -69,5 +69,34 @@ describe('系统图标', () => {
     ];
     for (const [os, v, want] of cases) assert.equal(osNameFromVersion(os, v), want, v);
     assert.equal(osInfo('windows', osNameFromVersion('windows', 'Windows 7 Ultimate Service Pack 1 (6.1.7601)')).family, 'win7');
+  });
+});
+
+describe('选择扫描的网段', () => {
+  it('WiFi、热点按 /24 扫描，Tailscale 单独一项，移动数据不扫', () => {
+    const nets = scanNets([
+      { name: 'rmnet_data0', ip: '10.123.4.5', prefix: 8 },
+      { name: 'tun0', ip: '100.101.213.5', prefix: 32 },
+      { name: 'wlan0', ip: '192.168.31.120', prefix: 24 },
+      { name: 'wlan1', ip: '192.168.43.1', prefix: 24 },
+      { name: 'wlan0', ip: '192.168.31.121', prefix: 24 },
+    ]);
+    assert.deepEqual(
+      nets.map((n) => [n.id, n.kind, n.label]),
+      [
+        ['192.168.31', 'wifi', 'WiFi 192.168.31.x'],
+        ['192.168.43', 'hotspot', '热点 192.168.43.x'],
+        ['tailscale', 'tailscale', 'Tailscale'],
+      ],
+    );
+  });
+
+  it('只扫私有地址', () => {
+    assert.ok(isPrivateIp('172.20.1.2'));
+    assert.ok(!isPrivateIp('172.32.1.2'));
+    assert.ok(!isPrivateIp('8.8.8.8'));
+    assert.ok(isTailscaleIp('100.70.155.96'));
+    assert.ok(!isTailscaleIp('100.128.0.1'));
+    assert.deepEqual(scanNets([{ name: 'wlan0', ip: '58.1.2.3', prefix: 24 }]), []);
   });
 });
