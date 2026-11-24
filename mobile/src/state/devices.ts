@@ -42,6 +42,8 @@ export interface DevicesState {
   phoneName: string;
   /** 插上数据线时自动从 WiFi 切到 USB */
   preferUsb: boolean;
+  /** 打开 App 时自动连接上次用的电脑（设置里可关） */
+  autoConnect: boolean;
   /** 上次用的电脑（在「设备」里选过、或最后连上的）：打开 App 时显示 / 连接它 */
   lastPcId: string | null;
   ready: boolean;
@@ -51,6 +53,7 @@ const LIST_KEY = 'p2d.devices.v1';
 const PHONE_ID_KEY = 'p2d.phoneId';
 const PREFER_USB_KEY = 'p2d.preferUsb';
 const LAST_PC_KEY = 'p2d.lastPc';
+const AUTO_CONNECT_KEY = 'p2d.autoConnect';
 const keyName = (pcId: string) => `p2d.pc.${pcId.replace(/[^A-Za-z0-9._-]/g, '_')}`;
 
 function defaultPhoneName(): string {
@@ -66,6 +69,7 @@ export const devicesStore = createStore<DevicesState>({
   phoneId: '',
   phoneName: defaultPhoneName(),
   preferUsb: true,
+  autoConnect: true,
   lastPcId: null,
   ready: false,
 });
@@ -85,11 +89,12 @@ let initPromise: Promise<void> | null = null;
 export function initDevices(): Promise<void> {
   if (!initPromise) {
     initPromise = (async () => {
-      const [list, id, prefer, lastPc] = await Promise.all([
+      const [list, id, prefer, lastPc, auto] = await Promise.all([
         AsyncStorage.getItem(LIST_KEY).catch(() => null),
         AsyncStorage.getItem(PHONE_ID_KEY).catch(() => null),
         AsyncStorage.getItem(PREFER_USB_KEY).catch(() => null),
         AsyncStorage.getItem(LAST_PC_KEY).catch(() => null),
+        AsyncStorage.getItem(AUTO_CONNECT_KEY).catch(() => null),
       ]);
       let phoneId = id ?? '';
       if (!/^[0-9a-f]{16,64}$/.test(phoneId)) {
@@ -102,7 +107,7 @@ export function initDevices(): Promise<void> {
       } catch {
         devices = [];
       }
-      devicesStore.set({ devices, phoneId, preferUsb: prefer !== '0', lastPcId: lastPc || null, ready: true });
+      devicesStore.set({ devices, phoneId, preferUsb: prefer !== '0', autoConnect: auto !== '0', lastPcId: lastPc || null, ready: true });
     })();
   }
   return initPromise;
@@ -188,4 +193,9 @@ export function deviceLabel(d: Pick<PcDevice, 'name' | 'alias'> | undefined): st
 export function setPreferUsb(v: boolean): void {
   devicesStore.set({ preferUsb: v });
   void AsyncStorage.setItem(PREFER_USB_KEY, v ? '1' : '0').catch(() => undefined);
+}
+
+export function setAutoConnect(v: boolean): void {
+  devicesStore.set({ autoConnect: v });
+  void AsyncStorage.setItem(AUTO_CONNECT_KEY, v ? '1' : '0').catch(() => undefined);
 }

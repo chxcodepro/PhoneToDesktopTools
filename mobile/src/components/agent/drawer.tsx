@@ -13,12 +13,12 @@ import {
   Search,
   Settings,
   SquarePen,
+  Trash2,
   X,
   type LucideIcon,
 } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
 import {
-  Alert,
   Animated,
   BackHandler,
   Dimensions,
@@ -36,6 +36,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { deleteConversation, newConversation, openConversation, useConversation, type ConversationMeta } from '@/agent/conversations';
 import { useModelConfig } from '@/agent/modelConfig';
 import { useSchedules } from '@/agent/scheduler';
+import { askConfirm } from '@/components/action-sheet';
 import { StatusDot } from '@/components/connection-status';
 import { Icon } from '@/components/ui/icon';
 import { Text } from '@/components/ui/text';
@@ -171,10 +172,7 @@ export function ConversationDrawer({ open, ctl }: { open: boolean; ctl: DrawerCo
   const enabledCount = useSchedules().tasks.filter((t) => t.enabled).length;
 
   const confirmDelete = (c: ConversationMeta) =>
-    Alert.alert('删除这个对话？', `「${c.title}」\n删除后无法恢复。`, [
-      { text: '取消', style: 'cancel' },
-      { text: '删除对话', style: 'destructive', onPress: () => void deleteConversation(c.id) },
-    ]);
+    askConfirm({ title: '删除这个对话？', message: `「${c.title}」\n删除后无法恢复。`, confirmText: '删除对话', icon: Trash2 }, () => void deleteConversation(c.id));
 
   const backdrop = ctl.x.interpolate({ inputRange: [-ctl.width, 0], outputRange: [0, 1], extrapolate: 'clamp' });
 

@@ -2,7 +2,7 @@
 
 import { Trash2 } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
-import { Alert, Pressable, TextInput, View } from 'react-native';
+import { Pressable, TextInput, View } from 'react-native';
 
 import {
   addServers,
@@ -16,6 +16,7 @@ import {
 } from '@/agent/extensionStore';
 import { describeDraft } from '@/agent/extensionTools';
 import { parseMcpConfig, type McpServer } from '@/agent/extensions';
+import { askConfirm } from '@/components/action-sheet';
 import { FieldLabel, Sheet } from '@/components/sheet';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/ui/icon';
@@ -205,17 +206,10 @@ export function McpDetailSheet({ serverId, onClose }: { serverId: string | null;
           <Button
             variant="outline"
             onPress={() =>
-              Alert.alert('删除这个 MCP？', `「${s.name}」`, [
-                { text: '取消', style: 'cancel' },
-                {
-                  text: '删除',
-                  style: 'destructive',
-                  onPress: () => {
-                    onClose();
-                    void removeServer(s.id);
-                  },
-                },
-              ])
+              askConfirm({ title: '删除这个 MCP？', message: `「${s.name}」`, icon: Trash2 }, () => {
+                onClose();
+                void removeServer(s.id);
+              })
             }
           >
             <Icon as={Trash2} size={15} className="text-destructive" />

@@ -4,7 +4,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import { File } from 'expo-file-system';
 import { FileCode, FilePlus, FolderInput, Link2, Trash2 } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
-import { Alert, Pressable, TextInput, View } from 'react-native';
+import { Pressable, TextInput, View } from 'react-native';
 
 import {
   extensionApi,
@@ -18,6 +18,7 @@ import {
 } from '@/agent/extensionStore';
 import type { SkillPackage } from '@/agent/extensionTools';
 import { formatSize } from '@/agent/attachments';
+import { askConfirm } from '@/components/action-sheet';
 import { FieldLabel, Sheet } from '@/components/sheet';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/ui/icon';
@@ -281,17 +282,10 @@ export function SkillDetailSheet({
               variant="outline"
               className="flex-1"
               onPress={() =>
-                Alert.alert('删除这个 Skill？', `「${s.name}」`, [
-                  { text: '取消', style: 'cancel' },
-                  {
-                    text: '删除',
-                    style: 'destructive',
-                    onPress: () => {
-                      onClose();
-                      void removeSkill(s.id);
-                    },
-                  },
-                ])
+                askConfirm({ title: '删除这个 Skill？', message: `「${s.name}」`, icon: Trash2 }, () => {
+                  onClose();
+                  void removeSkill(s.id);
+                })
               }
             >
               <Icon as={Trash2} size={15} className="text-destructive" />

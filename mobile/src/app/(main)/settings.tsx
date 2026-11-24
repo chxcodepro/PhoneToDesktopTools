@@ -1,4 +1,4 @@
-// 设置页：已连接电脑、电脑权限（只在手机上设置）、模型预设、关于（版本、检查更新）。
+// 设置页：已连接电脑、打开 App 时自动连接、电脑权限（只在手机上设置）、模型预设、关于（版本、检查更新）。
 
 import { router } from 'expo-router';
 import type { LucideIcon } from 'lucide-react-native';
@@ -17,6 +17,7 @@ import { Switch } from '@/components/ui/switch';
 import { Text } from '@/components/ui/text';
 import type { PermissionLevel, Permissions } from '@/protocol/types';
 import { disconnect, osLabel, updatePermissions, useConnection } from '@/state/connection';
+import { setAutoConnect, useDevices } from '@/state/devices';
 
 const LEVELS = [
   { value: 'readonly', label: '只读' },
@@ -33,6 +34,7 @@ const SWITCHES: { key: keyof Omit<Permissions, 'level'>; label: string; icon: Lu
 
 export default function SettingsScreen() {
   const { status, params, permissions } = useConnection();
+  const { autoConnect } = useDevices();
   return (
     <Screen title="设置">
       {/* 已连接电脑 */}
@@ -58,6 +60,14 @@ export default function SettingsScreen() {
             <Text>连接</Text>
           </Button>
         )}
+      </Card>
+
+      <Card className="flex-row items-center gap-3 p-3">
+        <View className="flex-1">
+          <Text className="text-sm">打开 App 时自动连接</Text>
+          <Text className="text-xs text-muted-foreground">自动连上次用的电脑：插着数据线用 USB，否则用 WiFi</Text>
+        </View>
+        <Switch checked={autoConnect} onCheckedChange={setAutoConnect} />
       </Card>
 
       {/* 电脑权限 */}

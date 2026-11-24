@@ -8,7 +8,7 @@ import { ActivityIndicator, Alert, Pressable, View } from 'react-native';
 
 import { conversationStore, stop } from '@/agent/conversations';
 import { formatDateTime } from '@/agent/schedule';
-import { ActionSheet } from '@/components/action-sheet';
+import { ActionSheet, askConfirm } from '@/components/action-sheet';
 import { AddPcSheet } from '@/components/devices/add-pc-sheet';
 import { Screen } from '@/components/screen';
 import { FieldLabel, Sheet } from '@/components/sheet';
@@ -29,17 +29,10 @@ const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 /** Agent 正在执行时切换电脑要先停止 */
 function confirmSwitch(action: () => void): void {
   if (!conversationStore.get().running) return action();
-  Alert.alert('Agent 正在执行任务', '切换电脑会停止当前任务。', [
-    { text: '取消', style: 'cancel' },
-    {
-      text: '停止并切换',
-      style: 'destructive',
-      onPress: () => {
-        stop();
-        action();
-      },
-    },
-  ]);
+  askConfirm({ title: 'Agent 正在执行任务', message: '切换电脑会停止当前任务。', confirmText: '停止并切换', icon: Monitor }, () => {
+    stop();
+    action();
+  });
 }
 
 function RouteButton({

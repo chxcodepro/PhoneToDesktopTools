@@ -9,6 +9,7 @@ import { useColorScheme } from 'react-native';
 import { useColorScheme as useNativewindColorScheme } from 'nativewind';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 
+import { ConfirmHost } from '@/components/action-sheet';
 import { parseDraftUrl } from '@/protocol/deepLink';
 import { initExtensions } from '@/agent/extensionStore';
 import { initScheduler } from '@/agent/scheduler';
@@ -51,7 +52,9 @@ export default function RootLayout() {
           <Stack.Screen name="(main)" />
           <Stack.Screen name="connect" />
           <Stack.Screen name="pair" />
+          <Stack.Screen name="pick" options={{ animation: 'fade' }} />
         </Stack>
+        <ConfirmHost />
       </ThemeProvider>
     </KeyboardProvider>
   );

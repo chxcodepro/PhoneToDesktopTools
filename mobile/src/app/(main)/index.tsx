@@ -92,6 +92,13 @@ export default function AgentScreen() {
     void initModelConfig();
   }, []);
 
+  // 打开 App 时先显示「选择电脑」页（每次启动一次）
+  useEffect(() => {
+    if (!ui.startupPicker) return;
+    uiStore.set({ startupPicker: false });
+    router.push('/pick');
+  }, [ui.startupPicker]);
+
   const active = modelCfg.presets[modelCfg.active];
   const modelReady =
     modelCfg.ready &&

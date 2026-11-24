@@ -3,11 +3,12 @@
 import { router } from 'expo-router';
 import { AlarmClock, Bot, Pencil, Play, Plus, Trash2 } from 'lucide-react-native';
 import { useState } from 'react';
-import { Alert, Pressable, View } from 'react-native';
+import { Pressable, View } from 'react-native';
 
 import { openConversation, useConversation } from '@/agent/conversations';
 import { describeSchedule, formatDateTime, type ScheduledTask } from '@/agent/schedule';
 import { deleteTask, runTask, updateTask, useSchedules } from '@/agent/scheduler';
+import { askConfirm } from '@/components/action-sheet';
 import { ScheduleForm } from '@/components/schedule-form';
 import { Screen } from '@/components/screen';
 import { Card } from '@/components/ui/card';
@@ -97,10 +98,7 @@ function TaskCard({ t, onEdit }: { t: ScheduledTask; onEdit: () => void }) {
           icon={Trash2}
           label="删除"
           onPress={() =>
-            Alert.alert('删除定时任务？', `「${t.name}」`, [
-              { text: '取消', style: 'cancel' },
-              { text: '删除', style: 'destructive', onPress: () => deleteTask(t.id) },
-            ])
+            askConfirm({ title: '删除定时任务？', message: `「${t.name}」`, icon: Trash2 }, () => deleteTask(t.id))
           }
         />
       </View>

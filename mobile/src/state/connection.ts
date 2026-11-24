@@ -35,6 +35,7 @@ import {
 import { pickStartup } from './startup';
 import { loadJson, saveJson, StorageKeys } from './storage';
 import { createStore, useStore } from './store';
+import { uiStore } from './ui';
 
 export interface ConnectionState {
   status: ConnectionStatus;
@@ -119,10 +120,17 @@ export function initConnection(): Promise<void> {
       const initial = await Linking.getInitialURL().catch(() => null);
       if (parseConnectUrl(initial)) return;
       const last = await loadLastConnect();
+      if (last && !lastUsb) lastUsb = last;
       // 冷启动：上次用的电脑。USB 令牌属于它就先试 USB（失败会自动切 WiFi），否则 WiFi 连它
-      const { devices, lastPcId } = devicesStore.get();
+      const { devices, lastPcId, autoConnect } = devicesStore.get();
       const pick = pickStartup(devices, lastPcId, last);
       if (client) return;
+      // 记过电脑：先显示「选择电脑」页（自动连接时它边连边显示，连上后自动进入）
+      if (devices.length) uiStore.set({ startupPicker: true });
+      if (!autoConnect) {
+        if (pick.pcId) connectionStore.set({ pcId: pick.pcId });
+        return;
+      }
       if (pick.useUsb && last) {
         connectWith(last);
         return;
@@ -399,6 +407,26 @@ export async function switchRoute(route: Route): Promise<void> {
 /** 是否可以切到 USB（这次打开 App 后插过线） */
 export function canUseUsb(pcId: string | null): boolean {
   return !!lastUsb && (!pcId || !lastUsb.pcId || lastUsb.pcId === pcId);
+}
+
+/** 这台电脑有没有可用的 USB 令牌（这次或上次打开 App 时插过线，令牌 24 小时内有效） */
+export function hasUsbFor(pcId: string): boolean {
+  return !!lastUsb && lastUsb.pcId === pcId;
+}
+
+/** 「选择电脑」页点了一台：有 USB 令牌先用 USB（失败会自动切 WiFi），否则 WiFi 直连 */
+export async function connectPicked(pcId: string): Promise<void> {
+  setLastPc(pcId);
+  const cur = connectionStore.get();
+  if (client && cur.pcId === pcId && cur.status === 'connected') return;
+  if (lastUsb && hasUsbFor(pcId)) {
+    const params = lastUsb;
+    lastUsb = null; // 让 connectWith 不因「同一令牌」而跳过
+    userStopped = false;
+    connectWith(params);
+    return;
+  }
+  await connectLan(pcId, { manual: true });
 }
 
 /** 切换到另一台电脑（WiFi 直连） */
