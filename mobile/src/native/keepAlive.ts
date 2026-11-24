@@ -3,6 +3,7 @@
 // Android 12 起只能在 App 处于前台时启动前台服务：在后台连上的，等回到前台再启动。
 
 import { requireOptionalNativeModule } from 'expo';
+import { useEffect, useState } from 'react';
 import { AppState } from 'react-native';
 
 import { connectionStore } from '@/state/connection';
@@ -12,6 +13,9 @@ import { multiStore } from '@/state/multi';
 interface P2dKeepAliveModule {
   start(title: string, text: string): boolean;
   stop(): boolean;
+  isBackgroundAllowed(): boolean;
+  requestBackground(): boolean;
+  openAppSettings(): boolean;
 }
 
 const native = requireOptionalNativeModule<P2dKeepAliveModule>('P2dKeepAlive');
@@ -62,4 +66,38 @@ export function watchKeepAlive(): void {
     if (s === 'active') sync();
   });
   sync();
+}
+
+// ---------- 允许后台运行 ----------
+// ColorOS 等系统在 App 切到后台几秒后会主动关闭它的网络连接（即使有前台服务），用户允许后台运行后才不关。
+
+/** 已允许后台运行（或不需要，如 iOS / 老系统）时为 true */
+export function backgroundAllowed(): boolean {
+  try {
+    return native ? native.isBackgroundAllowed() : true;
+  } catch {
+    return true;
+  }
+}
+
+/** 弹出系统的「允许后台运行」授权框 */
+export function requestBackground(): void {
+  native?.requestBackground();
+}
+
+/** 打开本应用的系统设置页（厂商的「耗电管理」在里面） */
+export function openAppSettings(): void {
+  native?.openAppSettings();
+}
+
+/** 是否已允许后台运行；从系统设置回来时重新检查 */
+export function useBackgroundAllowed(): boolean {
+  const [ok, setOk] = useState(backgroundAllowed);
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (st) => {
+      if (st === 'active') setOk(backgroundAllowed());
+    });
+    return () => sub.remove();
+  }, []);
+  return ok;
 }

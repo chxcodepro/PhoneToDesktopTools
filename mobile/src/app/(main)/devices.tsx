@@ -13,6 +13,7 @@ import { ActivityIndicator, Alert, Pressable, View } from 'react-native';
 import { conversationStore, stop } from '@/agent/conversations';
 import { ActionSheet, askConfirm } from '@/components/action-sheet';
 import { AddPcSheet } from '@/components/devices/add-pc-sheet';
+import { BackgroundCard } from '@/components/devices/background-card';
 import { OsIcon } from '@/components/devices/os-icon';
 import { Screen } from '@/components/screen';
 import { FieldLabel, Sheet } from '@/components/sheet';
@@ -270,6 +271,7 @@ export default function DevicesScreen() {
         </Pressable>
       }
     >
+      <BackgroundCard />
       {error ? (
         <Pressable onPress={() => setError(null)}>
           <Text className="px-1 text-xs text-destructive">{error}</Text>

@@ -6,6 +6,7 @@ import { ChevronRight, FileText, Monitor, MousePointer2, ScanLine, Terminal } fr
 import { Pressable, View } from 'react-native';
 
 import { AppUpdate } from '@/components/app-update';
+import { BackgroundCard } from '@/components/devices/background-card';
 import { STATUS_LABEL, StatusDot } from '@/components/connection-status';
 import { ModelSettings } from '@/components/model-settings';
 import { Screen } from '@/components/screen';
@@ -54,6 +55,8 @@ export default function SettingsScreen() {
           <Icon as={ChevronRight} size={18} className="text-muted-foreground" />
         </Card>
       </Pressable>
+
+      <BackgroundCard />
 
       <Card className="flex-row items-center gap-3 p-3">
         <View className="flex-1">

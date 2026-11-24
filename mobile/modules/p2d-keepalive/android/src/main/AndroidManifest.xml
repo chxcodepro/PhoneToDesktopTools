@@ -6,6 +6,8 @@
   <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
   <!-- WiFi 锁：减少 WiFi 省电模式带来的延迟 -->
   <uses-permission android:name="android.permission.WAKE_LOCK" />
+  <!-- 请用户允许后台运行（系统弹框，用户自己点允许）：ColorOS 等会在 App 切到后台几秒后关闭它的网络连接 -->
+  <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
   <application>
     <service
