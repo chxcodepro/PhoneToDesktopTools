@@ -23,6 +23,8 @@ export interface ScheduledTask extends ScheduleSpec {
   name: string;
   /** 到点后发给 Agent 的指令 */
   prompt: string;
+  /** 在哪几台电脑上执行（pcId）；不填就是到时的当前电脑 */
+  pcs?: string[];
   enabled: boolean;
   createdAt: number;
   createdBy: 'user' | 'agent';
@@ -133,7 +135,11 @@ export function parseLocalDateTime(s: string): number | null {
 export interface ScheduleInput extends ScheduleSpec {
   name: string;
   prompt: string;
+  pcs?: string[];
 }
+
+/** 指定电脑的定时任务：到点后先连上这些电脑，全部连上就执行；等了这么久还有没连上的，就用已连上的执行 */
+export const PCS_WAIT_MS = 2 * 60_000;
 
 /** 整理 Agent 工具（或表单）传来的参数；不合法时返回错误说明 */
 export function parseScheduleArgs(args: Record<string, unknown>, now = Date.now()): ScheduleInput | string {

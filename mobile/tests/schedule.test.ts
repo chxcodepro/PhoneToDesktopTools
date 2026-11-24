@@ -145,4 +145,46 @@ describe('schedule_* 工具', () => {
     assert.equal((await t.call('schedule_delete', { id: 't1' })).isError, true);
     assert.equal((await t.call('schedule_create', { name: 'x', prompt: 'y', kind: 'hourly' })).isError, true);
   });
+
+  it('指定在哪几台电脑上执行', async () => {
+    const { api, tasks } = fakeApi();
+    const pcs = [
+      { id: 'pc-a', name: '办公室' },
+      { id: 'pc-b', name: '家里' },
+    ];
+    api.pcNames = () => pcs.map((p) => p.name);
+    api.resolvePcs = (names) => {
+      const ids = names.map((n) => pcs.find((p) => p.name === n)?.id);
+      return ids.every(Boolean) ? (ids as string[]) : `找不到电脑：${names.join('、')}`;
+    };
+    api.pcLabel = (id) => pcs.find((p) => p.id === id)?.name ?? '?';
+    const t = createPhoneTools({ fetch: noFetch, downloadToPc: null, schedules: api });
+    const text = (r: { content: { type: string; text?: string }[] }) => r.content[0].text ?? '';
+
+    // 记住了电脑时，schedule_create / schedule_update 多一个 pcs 参数，候选就是电脑名
+    const create = t.list().find((x) => x.name === 'schedule_create')!;
+    const props = (create.inputSchema as { properties: Record<string, { items?: { enum?: string[] } }> }).properties;
+    assert.deepEqual(props.pcs.items?.enum, ['办公室', '家里']);
+
+    const c = await t.call('schedule_create', { name: '两台体检', prompt: '体检', kind: 'daily', time: '09:00', pcs: ['办公室', '家里'] });
+    assert.equal(c.isError, false);
+    assert.deepEqual(tasks[0].pcs, ['pc-a', 'pc-b']);
+    assert.match(text(c), /电脑：办公室、家里/);
+
+    // 找不到的电脑报错，不创建
+    const bad = await t.call('schedule_create', { name: 'x', prompt: 'y', kind: 'daily', time: '09:00', pcs: ['公司'] });
+    assert.equal(bad.isError, true);
+    assert.equal(tasks.length, 1);
+
+    // 改成只在一台上执行；传空数组改回当前电脑
+    await t.call('schedule_update', { id: 't1', pcs: ['家里'] });
+    assert.deepEqual(tasks[0].pcs, ['pc-b']);
+    await t.call('schedule_update', { id: 't1', pcs: [] });
+    assert.deepEqual(tasks[0].pcs, []);
+
+    // 没记住电脑时不加 pcs 参数
+    const plain = createPhoneTools({ fetch: noFetch, downloadToPc: null, schedules: fakeApi().api });
+    const p2 = plain.list().find((x) => x.name === 'schedule_create')!;
+    assert.equal('pcs' in (p2.inputSchema as { properties: object }).properties, false);
+  });
 });

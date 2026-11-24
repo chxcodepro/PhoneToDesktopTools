@@ -8,7 +8,7 @@ import type { McpClient } from '@/protocol/mcpClient';
 import type { ToolInfo, ToolResult } from '@/protocol/types';
 import { connectionStore, getClient } from '@/state/connection';
 import { deviceLabel, getDevice, onDeviceMerged } from '@/state/devices';
-import { getExtraClient, multiStore } from '@/state/multi';
+import { activeIds, getExtraClient, multiStore } from '@/state/multi';
 import { uiStore } from '@/state/ui';
 import { loadJson, saveJson } from '@/state/storage';
 import { createStore, useStore } from '@/state/store';
@@ -313,7 +313,8 @@ function pcTargets(): PcTarget[] {
   const conn = connectionStore.get();
   const list: Omit<PcTarget, 'name'>[] = [];
   const labels: string[] = [];
-  if (usable(conn.status, conn.tools)) {
+  const allowed = (id: string | null) => !onlyPcs || (!!id && onlyPcs.includes(id));
+  if (usable(conn.status, conn.tools) && allowed(conn.pcId)) {
     const dev = getDevice(conn.pcId);
     labels.push(dev ? deviceLabel(dev) : (conn.params?.host ?? '电脑'));
     list.push({
@@ -327,10 +328,10 @@ function pcTargets(): PcTarget[] {
       },
     });
   }
-  const { wanted, conns } = multiStore.get();
-  for (const id of wanted) {
-    const x = conns[id];
-    if (!x || id === conn.pcId || !usable(x.status, x.tools)) continue;
+  const ms = multiStore.get();
+  for (const id of activeIds(ms)) {
+    const x = ms.conns[id];
+    if (!x || id === conn.pcId || !allowed(id) || !usable(x.status, x.tools)) continue;
     const dev = getDevice(id);
     labels.push(deviceLabel(dev));
     list.push({
@@ -347,6 +348,9 @@ function pcTargets(): PcTarget[] {
   const names = uniqueNames(labels);
   return list.map((t, i) => ({ ...t, name: names[i] }));
 }
+
+/** 定时任务指定了电脑时，这次运行只让 Agent 操作这几台（pcId） */
+let onlyPcs: string[] | null = null;
 
 /** 电脑工具：只连一台时原样；连多台时每个工具多一个 pc 参数 */
 const pcTools = createPcTools(pcTargets);
@@ -673,6 +677,9 @@ function notice(text: string, tone: 'info' | 'error' = 'info'): void {
   mutateItems((items) => [...items, { kind: 'notice', id: uid('n'), text, tone }]);
 }
 
+/** 在当前对话里显示一条提示（定时任务没能执行时等） */
+export const showNotice = notice;
+
 /** 压缩发给模型的历史；成功返回 true */
 async function compressCurrent(model: ResolvedModel, signal: AbortSignal, reason: string, keepTurns = 2): Promise<boolean> {
   const st = conversationStore.get();
@@ -722,6 +729,8 @@ export interface SendOptions {
   title?: string;
   /** 本次运行附加的系统提示（如定时任务说明） */
   extraPrompt?: string;
+  /** 只让 Agent 操作这几台电脑（pcId；定时任务指定了电脑时） */
+  pcs?: string[];
 }
 
 /** 发给模型的消息末尾附上发送时间（手机本地时间），便于理解「明天」「下周一」；界面上不显示 */
@@ -761,6 +770,7 @@ export async function send(text: string, attachments: Attachment[] = [], opts: S
     live: null,
   });
 
+  onlyPcs = opts.pcs?.length ? opts.pcs : null;
   abort = new AbortController();
   const signal = abort.signal;
   const aborted = () => Object.assign(new Error('已停止'), { name: 'AbortError' });
@@ -796,7 +806,8 @@ export async function send(text: string, attachments: Attachment[] = [], opts: S
         tools: buildTools(connected),
         pcConnected: connected,
         extensionPrompt,
-        computer: conn.params ? { host: conn.params.host, os: conn.params.os } : pcs[0] ? { host: pcs[0].name, os: pcs[0].os } : null,
+        computer:
+          conn.params && !onlyPcs ? { host: conn.params.host, os: conn.params.os } : pcs[0] ? { host: pcs[0].name, os: pcs[0].os } : null,
         computers: pcs.length > 1 ? pcs.map((t) => ({ host: t.name, os: t.os })) : undefined,
         customPrompt: [model.systemPrompt, opts.extraPrompt].filter(Boolean).join('\n\n'),
         signal,
@@ -832,6 +843,7 @@ export async function send(text: string, attachments: Attachment[] = [], opts: S
     error = e as Error;
   }
   abort = null;
+  onlyPcs = null;
   conversationStore.set({ running: false, live: null });
   // 任务已结束，仍在等待的卡片作废
   mutateItems((items) =>

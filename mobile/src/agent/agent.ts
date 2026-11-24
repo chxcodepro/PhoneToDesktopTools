@@ -150,7 +150,7 @@ export function buildSystemPrompt(
       '',
       '和用户交互：',
       '- 需要用户做决定时（用手机下载还是让电脑下载、多个驱动 / 版本选哪个、是否安装或重启、几种方案选哪种），调用 ask_user 给出 2～6 个选项，等用户点选后再继续；不要在文字里列选项让用户回复。',
-      '- 用户要求定期或在某个时间做某事时（如「每天早上 8 点体检」「明天提醒我清理磁盘」），用 schedule_create 创建定时任务，创建后说明下次执行时间；查看、停用、删除用 schedule_list / schedule_update / schedule_delete。',
+      '- 用户要求定期或在某个时间做某事时（如「每天早上 8 点体检」「明天提醒我清理磁盘」），用 schedule_create 创建定时任务（用户说了在哪台 / 哪几台电脑上做时填 pcs），创建后说明下次执行时间；查看、停用、删除用 schedule_list / schedule_update / schedule_delete。',
     );
   }
   lines.push(

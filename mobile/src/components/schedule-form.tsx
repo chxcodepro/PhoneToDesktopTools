@@ -14,6 +14,7 @@ import { Input } from '@/components/ui/input';
 import { Segmented } from '@/components/ui/segmented';
 import { Text } from '@/components/ui/text';
 import { cn } from '@/lib/utils';
+import { deviceLabel, useDevices } from '@/state/devices';
 
 const KINDS = [
   { value: 'daily', label: '每天' },
@@ -47,7 +48,21 @@ function initial(task: ScheduledTask | null) {
     date: at ? `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}` : tomorrow(),
     weekdays: task?.weekdays ?? [1, 2, 3, 4, 5],
     interval: String(task?.intervalMin ?? 60),
+    pcs: task?.pcs ?? [],
   };
+}
+
+function Chip({ label, on, onPress }: { label: string; on: boolean; onPress: () => void }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      className={cn('max-w-full rounded-full border px-3 py-1.5', on ? 'border-primary bg-primary/10' : 'border-border')}
+    >
+      <Text numberOfLines={1} className={cn('text-xs', on && 'text-primary')}>
+        {label}
+      </Text>
+    </Pressable>
+  );
 }
 
 function Label({ children }: { children: string }) {
@@ -67,6 +82,10 @@ export function ScheduleForm({ visible, task, onClose }: { visible: boolean; tas
     setError(null);
   }
   const set = (patch: Partial<typeof f>) => setF((cur) => ({ ...cur, ...patch }));
+  const { devices } = useDevices();
+  // 已删除的电脑不显示，保存时也去掉
+  const pcs = f.pcs.filter((id) => devices.some((d) => d.pcId === id));
+  const togglePc = (id: string) => set({ pcs: pcs.includes(id) ? pcs.filter((x) => x !== id) : [...pcs, id] });
 
   const save = () => {
     if (!f.name.trim()) return setError('请填写名称');
@@ -93,8 +112,8 @@ export function ScheduleForm({ visible, task, onClose }: { visible: boolean; tas
     }
     if (task) {
       // 换周期类型时清掉旧类型的字段
-      updateTask(task.id, { at: undefined, time: undefined, weekdays: undefined, intervalMin: undefined, ...input, enabled: true });
-    } else createTask(input, 'user');
+      updateTask(task.id, { at: undefined, time: undefined, weekdays: undefined, intervalMin: undefined, ...input, pcs, enabled: true });
+    } else createTask(pcs.length ? { ...input, pcs } : input, 'user');
     onClose();
   };
 
@@ -189,6 +208,23 @@ export function ScheduleForm({ visible, task, onClose }: { visible: boolean; tas
                 <Input value={f.time} onChangeText={(v) => set({ time: v })} placeholder="08:00" keyboardType="numbers-and-punctuation" />
               </View>
             )}
+
+            {devices.length > 1 || pcs.length ? (
+              <View className="gap-1.5">
+                <Label>在哪些电脑上执行</Label>
+                <View className="flex-row flex-wrap gap-2">
+                  <Chip label="当前电脑" on={!pcs.length} onPress={() => set({ pcs: [] })} />
+                  {devices.map((d) => (
+                    <Chip key={d.pcId} label={deviceLabel(d)} on={pcs.includes(d.pcId)} onPress={() => togglePc(d.pcId)} />
+                  ))}
+                </View>
+                <Text className="text-xs text-muted-foreground">
+                  {pcs.length
+                    ? '到点后自动连上选中的电脑（走 WiFi 或 Tailscale），执行完断开临时连接；2 分钟内没连上的跳过。'
+                    : '到时手机连着哪台就在哪台上执行。'}
+                </Text>
+              </View>
+            ) : null}
 
             {error ? <Text className="text-xs text-destructive">{error}</Text> : null}
             <Button onPress={save}>

@@ -7,7 +7,7 @@ import { Pressable, View } from 'react-native';
 
 import { openConversation, useConversation } from '@/agent/conversations';
 import { describeSchedule, formatDateTime, type ScheduledTask } from '@/agent/schedule';
-import { deleteTask, runTask, updateTask, useSchedules } from '@/agent/scheduler';
+import { deleteTask, pcLabel, runTask, updateTask, useSchedules } from '@/agent/scheduler';
 import { askConfirm } from '@/components/action-sheet';
 import { ScheduleForm } from '@/components/schedule-form';
 import { Screen } from '@/components/screen';
@@ -17,6 +17,7 @@ import { Switch } from '@/components/ui/switch';
 import { Text } from '@/components/ui/text';
 import { cn } from '@/lib/utils';
 import { useConnection } from '@/state/connection';
+import { useDevices } from '@/state/devices';
 
 const STATUS: Record<string, { text: string; cls: string }> = {
   running: { text: '执行中', cls: 'text-primary' },
@@ -42,6 +43,7 @@ function Action({ icon, label, onPress, disabled }: { icon: typeof Play; label: 
 function TaskCard({ t, onEdit }: { t: ScheduledTask; onEdit: () => void }) {
   const { running } = useConversation();
   const { status } = useConnection();
+  const { devices } = useDevices();
   const st = t.lastStatus ? STATUS[t.lastStatus] : null;
   return (
     <Card className="gap-2 p-3">
@@ -53,7 +55,10 @@ function TaskCard({ t, onEdit }: { t: ScheduledTask; onEdit: () => void }) {
         {t.createdBy === 'agent' ? <Icon as={Bot} size={13} className="text-muted-foreground" /> : null}
         <Switch checked={t.enabled} onCheckedChange={(v) => updateTask(t.id, { enabled: v })} />
       </View>
-      <Text className="text-sm">{describeSchedule(t)}</Text>
+      <Text className="text-sm">
+        {describeSchedule(t)}
+        {t.pcs?.length ? <Text className="text-xs text-muted-foreground">{` · ${t.pcs.map((id) => pcLabel(id, devices)).join('、')}`}</Text> : null}
+      </Text>
       <Text numberOfLines={2} className="text-xs text-muted-foreground">
         {t.prompt}
       </Text>
@@ -87,7 +92,7 @@ function TaskCard({ t, onEdit }: { t: ScheduledTask; onEdit: () => void }) {
         <Action
           icon={Play}
           label="立即运行"
-          disabled={running || status !== 'connected'}
+          disabled={running || (!t.pcs?.length && status !== 'connected')}
           onPress={() => {
             router.back();
             void runTask(t.id);

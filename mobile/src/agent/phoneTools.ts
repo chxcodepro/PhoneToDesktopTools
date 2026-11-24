@@ -32,18 +32,42 @@ export interface PhoneToolDeps {
 export interface ScheduleApi {
   list(): ScheduledTask[];
   create(input: ScheduleInput): ScheduledTask;
-  update(id: string, patch: { enabled?: boolean; name?: string; prompt?: string }): ScheduledTask | null;
+  update(id: string, patch: SchedulePatch): ScheduledTask | null;
   remove(id: string): boolean;
+  /** 记住的所有电脑的名字（可以指定定时任务在哪几台上执行）；不提供时不能指定电脑 */
+  pcNames?(): string[];
+  /** 电脑名 → pcId；有找不到的返回错误说明 */
+  resolvePcs?(names: string[]): string[] | string;
+  /** pcId → 显示的名字 */
+  pcLabel?(id: string): string;
+}
+
+export interface SchedulePatch {
+  enabled?: boolean;
+  name?: string;
+  prompt?: string;
+  /** 空数组表示不再指定电脑（到时的当前电脑） */
+  pcs?: string[];
+}
+
+/** 定时任务的电脑参数说明 */
+function pcsSchema(names: string[]) {
+  return {
+    type: 'array',
+    items: { type: 'string', enum: names },
+    description: '在哪几台电脑上执行（可以多台，到点后会自动连上它们）；不填就是到时手机连着的当前电脑',
+  };
 }
 
 const STATUS_TEXT: Record<string, string> = { running: '执行中', ok: '成功', error: '失败', missed: '错过' };
 
 /** 定时任务的一行说明（给模型看） */
-export function describeTask(t: ScheduledTask, now = Date.now()): string {
+export function describeTask(t: ScheduledTask, now = Date.now(), pcLabel?: (id: string) => string): string {
   const parts = [
     `id=${t.id}`,
     t.name,
     describeSchedule(t),
+    ...(t.pcs?.length ? [`电脑：${t.pcs.map((id) => (pcLabel ? pcLabel(id) : id)).join('、')}`] : []),
     t.enabled ? `下次：${t.nextRunAt ? formatDateTime(t.nextRunAt, now) : '无'}` : '已停用',
   ];
   if (t.lastRunAt) parts.push(`上次：${formatDateTime(t.lastRunAt, now)} ${STATUS_TEXT[t.lastStatus ?? ''] ?? ''}`.trim());
@@ -103,12 +127,22 @@ export function formatAnswer(a: AskAnswer): string {
   return parts.join('\n') || '用户没有选择';
 }
 
+/** 定时任务的 pcs 参数（电脑名）转成 pcId；没传返回空数组 */
+function resolveTaskPcs(api: ScheduleApi, raw: unknown): string[] | string {
+  const names = (Array.isArray(raw) ? raw : typeof raw === 'string' && raw.trim() ? [raw] : [])
+    .filter((x): x is string => typeof x === 'string' && !!x.trim())
+    .map((x) => x.trim());
+  if (!names.length) return [];
+  if (!api.resolvePcs) return '当前不能指定电脑';
+  return api.resolvePcs(names);
+}
+
 export const PHONE_TOOLS: ToolInfo[] = [
   {
     name: 'schedule_create',
     description:
       '创建定时任务：到点后 App 会新建对话，把 prompt 当作用户指令交给你执行（例如每天早上体检电脑、每周五清理下载目录）。时间按手机本地时间，参考用户消息末尾的发送时间换算。' +
-      '执行时需要手机上的 App 开着（或用户点了到点通知）且电脑已连接；无人值守时只会做查询和低风险操作。',
+      '执行时需要手机上的 App 开着（或用户点了到点通知）；指定了电脑（pcs）时到点会自动连上它们，否则用到时连着的当前电脑。无人值守时只会做查询和低风险操作。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -134,7 +168,7 @@ export const PHONE_TOOLS: ToolInfo[] = [
   },
   {
     name: 'schedule_update',
-    description: '修改定时任务：启用 / 停用、改名称或指令。要改执行时间请删除后重新创建。',
+    description: '修改定时任务：启用 / 停用、改名称、指令或执行的电脑（pcs 传空数组表示改回当前电脑）。要改执行时间请删除后重新创建。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -275,7 +309,22 @@ export function describeSignature(sig: string | undefined): string | null {
 
 export function createPhoneTools(deps: PhoneToolDeps): AgentTools {
   return {
-    list: () => PHONE_TOOLS,
+    list: () => {
+      // 记住了电脑时，定时任务可以指定在哪几台上执行
+      const names = deps.schedules?.pcNames?.() ?? [];
+      if (!names.length) return PHONE_TOOLS;
+      return PHONE_TOOLS.map((t) =>
+        t.name === 'schedule_create' || t.name === 'schedule_update'
+          ? {
+              ...t,
+              inputSchema: {
+                ...t.inputSchema,
+                properties: { ...((t.inputSchema as { properties?: Record<string, unknown> }).properties ?? {}), pcs: pcsSchema(names) },
+              },
+            }
+          : t,
+      );
+    },
     async call(name, args, signal) {
       switch (name) {
         case 'web_search': {
@@ -321,22 +370,34 @@ export function createPhoneTools(deps: PhoneToolDeps): AgentTools {
           if (!deps.schedules) return text('当前无法创建定时任务', true);
           const input = parseScheduleArgs(args);
           if (typeof input === 'string') return text(input, true);
-          const t = deps.schedules.create(input);
-          return text(`已创建定时任务：\n${describeTask(t)}`);
+          const pcs = resolveTaskPcs(deps.schedules, args.pcs);
+          if (typeof pcs === 'string') return text(pcs, true);
+          const t = deps.schedules.create(pcs.length ? { ...input, pcs } : input);
+          return text(`已创建定时任务：\n${describeTask(t, Date.now(), deps.schedules.pcLabel)}`);
         }
         case 'schedule_list': {
           if (!deps.schedules) return text('当前无法查看定时任务', true);
           const list = deps.schedules.list();
-          return text(list.length ? `共 ${list.length} 个定时任务：\n${list.map((t) => describeTask(t)).join('\n')}` : '还没有定时任务');
+          const label = deps.schedules.pcLabel;
+          return text(
+            list.length ? `共 ${list.length} 个定时任务：\n${list.map((t) => describeTask(t, Date.now(), label)).join('\n')}` : '还没有定时任务',
+          );
         }
         case 'schedule_update': {
           if (!deps.schedules) return text('当前无法修改定时任务', true);
-          const patch: { enabled?: boolean; name?: string; prompt?: string } = {};
+          const patch: SchedulePatch = {};
           if (typeof args.enabled === 'boolean') patch.enabled = args.enabled;
           if (str(args.name)) patch.name = str(args.name).slice(0, 40);
           if (str(args.prompt)) patch.prompt = str(args.prompt).slice(0, 2000);
+          if (Array.isArray(args.pcs)) {
+            const pcs = resolveTaskPcs(deps.schedules, args.pcs);
+            if (typeof pcs === 'string') return text(pcs, true);
+            patch.pcs = pcs;
+          }
           const t = deps.schedules.update(str(args.id), patch);
-          return t ? text(`已更新：\n${describeTask(t)}`) : text(`没有找到定时任务 ${str(args.id)}`, true);
+          return t
+            ? text(`已更新：\n${describeTask(t, Date.now(), deps.schedules.pcLabel)}`)
+            : text(`没有找到定时任务 ${str(args.id)}`, true);
         }
         case 'schedule_delete': {
           if (!deps.schedules) return text('当前无法删除定时任务', true);
