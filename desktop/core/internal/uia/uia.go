@@ -9,7 +9,7 @@ import (
 
 // Params 一次调用的参数。
 type Params struct {
-	Mode   string // windows：列出窗口；tree：列出元素；act：操作元素；activate：把程序切到前台（Window 是程序名或标题）
+	Mode   string // windows：列出窗口；tree：列出元素；act：操作元素；activate：把程序切到前台（Window 是程序名或标题）；point：屏幕坐标 (X, Y) 上的元素
 	Window string // 窗口标题（包含即可）；空 = 前台窗口；taskbar / 任务栏 = 任务栏
 	Name   string // 按名称筛选（包含即可）
 	Type   string // 按类型筛选（如 按钮、编辑）
@@ -21,6 +21,8 @@ type Params struct {
 
 	// Restore 允许还原最小化的窗口（会改变用户的桌面，只能在有操作界面的权限时设置）
 	Restore bool
+	// X、Y point 模式查的屏幕坐标
+	X, Y int
 	// Launch 允许 activate 在程序没运行时找到并启动它（和执行命令同样的权限要求）
 	Launch bool
 }

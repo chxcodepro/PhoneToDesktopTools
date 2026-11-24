@@ -8,23 +8,18 @@ import (
 	"fmt"
 	"runtime"
 	"strings"
-	"sync"
 	"time"
 	"unsafe"
-)
 
-var dpiOnce sync.Once
+	"p2d/core/internal/screen"
+)
 
 // Run 执行一次读取或操作，返回给模型看的文字。
 // UI Automation 调用可能被没有响应的程序卡住，所以放在单独的线程里，超时就先返回（那个线程会在程序恢复后自行结束）。
 func Run(ctx context.Context, p Params) (string, error) {
 	p.normalize()
-	dpiOnce.Do(func() {
-		// 和截图、键鼠一致使用物理像素坐标
-		if procSetProcessDPIAware.Find() == nil {
-			procSetProcessDPIAware.Call()
-		}
-	})
+	// 和截图、键鼠一致使用物理像素坐标
+	screen.Init()
 	type result struct {
 		text string
 		err  error
@@ -286,6 +281,9 @@ func (s *session) walk(e com, depth, indent int) {
 func (s *session) run() (string, error) {
 	if s.p.Mode == "activate" {
 		return s.activate()
+	}
+	if s.p.Mode == "point" {
+		return s.point()
 	}
 	if s.p.Mode == "windows" {
 		wins := s.topWindows()

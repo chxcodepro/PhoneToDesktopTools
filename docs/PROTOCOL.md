@@ -75,6 +75,8 @@ WiFi 连接不走 adb，而是手机直接连电脑的局域网 IP（详见第 9
 
 ## 4. 电脑端工具（v1）
 
+坐标统一是物理像素：电脑端启动时声明「每个显示器单独感知 DPI」（Win10 1703+；Win8.1 用 `SetProcessDpiAwareness`，Win7 退回 `SetProcessDPIAware`），截图、鼠标和界面元素的坐标在多个显示器缩放不同（如远程软件创建的 125% 虚拟屏 + 150% 主屏）、或改了缩放没有重新登录时也一致。
+
 | 工具 | 参数 | 说明 |
 |---|---|---|
 | `sys_info` | — | 主机名、系统、架构、用户、是否管理员（`admin`）、主目录、显示器列表 |
@@ -86,8 +88,8 @@ WiFi 连接不走 adb，而是手机直接连电脑的局域网 IP（详见第 9
 | `fs_search` | `path`，`name?`（通配符），`content?`（包含的文字），`max_results?`（默认 100） | 搜索文件名和文件内容 |
 | `doc_read` | `path`，`sheet?`，`max_rows?`（默认 200），`pages?`（PDF 页码，如 `1-3,5`） | 读取 docx / xlsx / pptx / pdf，以及 Office 97-2003 的 doc / xls / ppt 和 WPS 的 wps / et / dps 的文字（旧格式按文件内容识别，纯 Go 实现：`internal/olddoc`，含复合文档、Word 分段表、Excel BIFF8 共享字符串与日期格式、PPT 持久化目录；加密文件和 Word 6 / Excel 5 等更老的格式返回说明；扩展名是 .doc 但实际是 RTF / 网页的文件提示改用 `fs_read`）；Excel 按工作表输出，制表符分隔；PDF 按页输出，单次约 200 KB，超出时提示用 `pages` 继续。PDF 解析为纯 Go 实现（`internal/pdftext`）：支持压缩对象流、交叉引用流、损坏文件重建、只设权限密码的加密文件（RC4 / AES-128 / AES-256），中文靠 ToUnicode 或 GBK / UCS2 等预定义编码；扫描件、设了打开密码的文件返回说明 |
 | `fs_delete` | `path` | 移到回收站（Windows 回收站；Linux 放到 `~/.local/share/Trash`） |
-| `screen_capture` | `display?`（默认 0），`max_width?`（默认 1280），`quality?`（默认 70） | 返回 JPEG 图片，外加一段文字说明缩放比例：`屏幕坐标 = 截图坐标 ÷ scale + 显示器偏移`。电脑端记住最近一次截图的换算关系，供 `input_mouse` 的 `coords=screenshot` 使用 |
-| `input_mouse` | `action`：`move` / `click` / `double_click` / `right_click` / `middle_click` / `down` / `up` / `scroll` / `drag`；`x`、`y`；`to_x`、`to_y`（drag 用）；`dy`（scroll 用，正数向上）；`coords?`：`screen`（默认）/ `screenshot` | 默认是屏幕坐标（虚拟桌面像素）；`coords=screenshot` 时 x、y、to_x、to_y 是最近一次 `screen_capture` 截图上的像素坐标，由电脑端换算（模型不用自己算，超出截图范围时报错） |
+| `screen_capture` | `display?`（默认前台窗口所在的显示器），`region?`（`[x, y, 宽, 高]`，最近一次截图上的像素），`max_width?`（默认最宽 1280 且不超过约 100 万像素），`quality?`（默认 70） | 返回 JPEG 图片，外加一段文字说明显示器、系统缩放和换算关系：`屏幕坐标 = 截图坐标 ÷ scale + 偏移`。默认不超过约 100 万像素，因为 Claude、Qwen 等模型超过后会在服务端再缩小，模型给的坐标就对不上了。`region` 放大最近一次截图上的一块（小区域按整数倍放大到最多 3 倍）。电脑端记住最近一次截图（含放大图）的换算关系，供 `input_mouse` 的 `coords=screenshot` / `relative` 使用 |
+| `input_mouse` | `action`：`move` / `click` / `double_click` / `right_click` / `middle_click` / `down` / `up` / `scroll` / `drag`；`x`、`y`；`to_x`、`to_y`（drag 用）；`dy`（scroll 用，正数向上）；`coords?`：`screen`（默认）/ `screenshot` / `relative` | 默认是屏幕坐标（虚拟桌面像素）；`coords=screenshot` 时 x、y、to_x、to_y 是最近一次 `screen_capture` 截图上的像素坐标，由电脑端换算（模型不用自己算，超出截图范围时报错）；`relative` 是最近一次截图上 0–1000 的相对位置（给习惯这样输出坐标的模型用）。点击类动作在点击前读取该位置的界面元素，结果里说明「点的位置是：按钮「发送」，在窗口「微信」里」，读不到时不说明 |
 | `input_keyboard` | `action`：`type`（输入 `text`，支持中文）或 `key`（按组合键 `keys`，如 `ctrl+c`、`alt+f4`、`enter`） | |
 | `ui_tree` | `window?`（标题包含即可；不填为前台窗口；`任务栏`），`name?`，`type?`，`list_windows?`，`max?`（默认 150） | 读取界面元素（控件树）：每行 `[类型] 名称 (x, y)`，坐标为元素中心的屏幕坐标；输入框附带当前值。窗口最小化时，只有同时满足 `ui_act` 的权限（`standard` 以上且开着 `input`）才会先还原，否则不动窗口、只返回提示。Windows 直接调用系统 UI Automation（COM，Win7 起都有）；Linux 暂不支持 |
 | `window_activate` | `name`（程序名或窗口标题，包含即可；也可以是完整的进程名，如 `Weixin`） | 打开程序并切到前台：有窗口就还原并切到前台（同名窗口取没最小化、面积最大的那个，主窗口一般比登录框大）；没有窗口（关到托盘里了）就点任务栏托盘里同名的图标，图标收在「^」里时先展开再找，找完收起。托盘图标要名称完全相同或「名称 + 分隔符」开头（如 `QQ: 昵称`），避免「QQ」点到「QQ音乐」。都没有时按名称找到程序并启动：开始菜单和桌面的快捷方式（按显示的名称，系统程序用本地化名称，如「记事本」；也按快捷方式指向的程序名，如 `Weixin`；跳过卸载程序），再找 App Paths 注册表和 PATH；同名的进程已在运行（只是没有窗口）时不启动，启动后最多等 15 秒窗口出来。启动需要 `full` 权限且开着 `shell`，否则只返回找到的程序位置。找不到程序时返回错误，由模型改用 `shell_exec`。用于避免重复启动（微信 4.x 等重复启动会多开，弹出新的登录窗口）。只在 Windows 上可用 |

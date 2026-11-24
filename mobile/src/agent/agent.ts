@@ -122,7 +122,8 @@ export function buildSystemPrompt(
     );
     if (opts.supportsVision) {
       lines.push(
-        '- 看屏幕：screen_capture 截图。按截图点击时 input_mouse 传 coords="screenshot"，x、y 直接填截图上看到的像素坐标（电脑端自动换算成屏幕坐标，不要自己算）；ui_tree 返回的坐标是屏幕坐标，不传 coords。操作后再截图确认结果。',
+        '- 看屏幕：screen_capture 截图（默认截前台窗口所在的显示器；有多个显示器时结果里会列出，要看别的屏传 display）。按截图点击时 input_mouse 传 coords="screenshot"，x、y 直接填截图上看到的像素坐标（电脑端自动换算成屏幕坐标，不要自己算，也不用管系统缩放）；ui_tree 返回的坐标是屏幕坐标，不传 coords。',
+        '- 点准：要点的按钮、图标很小或上次点偏了，先用 screen_capture 的 region（[x, y, 宽, 高]，最近一次截图上的像素）放大那一块，在放大图上找准位置再按 coords="screenshot" 点。input_mouse 点击后会说明点的位置是什么控件，和想点的不一样就调整，不要原样重复点。操作后再截图确认结果。',
       );
     } else {
       lines.push(
@@ -228,7 +229,8 @@ export function summarizeArgs(name: string, args: Record<string, unknown>): stri
     case 'shell_exec':
       return args.admin ? `[管理员] ${s(args.command)}` : s(args.command);
     case 'input_mouse': {
-      const pos = args.x !== undefined ? ` (${args.x}, ${args.y})${args.coords === 'screenshot' ? ' 截图坐标' : ''}` : '';
+      const kind = args.coords === 'screenshot' ? ' 截图坐标' : args.coords === 'relative' ? ' 相对位置' : '';
+      const pos = args.x !== undefined ? ` (${args.x}, ${args.y})${kind}` : '';
       return `${s(args.action)}${pos}`;
     }
     case 'window_activate':
@@ -236,7 +238,8 @@ export function summarizeArgs(name: string, args: Record<string, unknown>): stri
     case 'input_keyboard':
       return args.action === 'key' ? s(args.keys) : `输入「${s(args.text).slice(0, 40)}」`;
     case 'screen_capture':
-      return `显示器 ${args.display ?? 0}`;
+      if (Array.isArray(args.region)) return `放大 ${args.region.join(', ')}`;
+      return args.display !== undefined ? `显示器 ${args.display}` : '当前屏幕';
     case 'ui_tree':
       if (args.list_windows) return '所有窗口';
       return [s(args.window) || '前台窗口', s(args.name) && `「${s(args.name)}」`, s(args.type)].filter(Boolean).join(' · ');

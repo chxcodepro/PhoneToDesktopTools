@@ -16,6 +16,12 @@ import (
 var (
 	user32 = syscall.NewLazyDLL("user32.dll")
 	gdi32  = syscall.NewLazyDLL("gdi32.dll")
+	shcore = syscall.NewLazyDLL("shcore.dll")
+
+	procSetProcessDpiAwarenessContext = user32.NewProc("SetProcessDpiAwarenessContext") // Win10 1703+
+	procSetProcessDpiAwareness        = shcore.NewProc("SetProcessDpiAwareness")        // Win8.1+
+	procGetDpiForMonitor              = shcore.NewProc("GetDpiForMonitor")              // Win8.1+
+	procGetDeviceCaps                 = gdi32.NewProc("GetDeviceCaps")
 
 	procSetProcessDPIAware   = user32.NewProc("SetProcessDPIAware")
 	procEnumDisplayMonitors  = user32.NewProc("EnumDisplayMonitors")
@@ -64,11 +70,70 @@ const (
 	captureBlt = 0x40000000
 )
 
-// Init 声明进程感知 DPI，使截图和鼠标坐标都是物理像素（Win7 缩放 125%/150% 时很重要）。
+var initOnce sync.Once
+
+// Init 声明进程感知 DPI，使截图、鼠标和界面元素的坐标都是物理像素（缩放 125%/150%/175% 时很重要）。
+// 优先「每个显示器单独感知」：多个显示器缩放不同、或改了缩放没有重新登录时，坐标也不会被系统换算错；
+// 老系统依次退回到 Win8.1 的接口和 Win7 的 SetProcessDPIAware（只按登录时的缩放感知）。
 func Init() {
-	if procSetProcessDPIAware.Find() == nil {
-		procSetProcessDPIAware.Call()
+	initOnce.Do(func() {
+		const perMonitorAwareV2 = ^uintptr(3) // DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = (HANDLE)-4
+		if procSetProcessDpiAwarenessContext.Find() == nil {
+			if r, _, _ := procSetProcessDpiAwarenessContext.Call(perMonitorAwareV2); r != 0 {
+				return
+			}
+		}
+		if procSetProcessDpiAwareness.Find() == nil {
+			if r, _, _ := procSetProcessDpiAwareness.Call(2); int32(r) >= 0 { // PROCESS_PER_MONITOR_DPI_AWARE
+				return
+			}
+		}
+		if procSetProcessDPIAware.Find() == nil {
+			procSetProcessDPIAware.Call()
+		}
+	})
+}
+
+var (
+	procGetForegroundWindow = user32.NewProc("GetForegroundWindow")
+	procGetWindowRect       = user32.NewProc("GetWindowRect")
+	procIsIconic            = user32.NewProc("IsIconic")
+)
+
+func init() {
+	foregroundRect = func() (image.Rectangle, bool) {
+		h, _, _ := procGetForegroundWindow.Call()
+		if h == 0 {
+			return image.Rectangle{}, false
+		}
+		if r, _, _ := procIsIconic.Call(h); r != 0 {
+			return image.Rectangle{}, false
+		}
+		var rc struct{ l, t, r, b int32 }
+		if r, _, _ := procGetWindowRect.Call(h, uintptr(unsafe.Pointer(&rc))); r == 0 {
+			return image.Rectangle{}, false
+		}
+		return image.Rect(int(rc.l), int(rc.t), int(rc.r), int(rc.b)), true
 	}
+}
+
+// monitorScale 显示器的缩放比例：Win8.1 起按显示器取，Win7 取系统缩放
+func monitorScale(hMonitor uintptr) float64 {
+	if procGetDpiForMonitor.Find() == nil {
+		var x, y uint32
+		if r, _, _ := procGetDpiForMonitor.Call(hMonitor, 0, uintptr(unsafe.Pointer(&x)), uintptr(unsafe.Pointer(&y))); int32(r) >= 0 && x > 0 {
+			return float64(x) / 96
+		}
+	}
+	hdc, _, _ := procGetDC.Call(0)
+	if hdc == 0 {
+		return 1
+	}
+	defer procReleaseDC.Call(0, hdc)
+	if dpi, _, _ := procGetDeviceCaps.Call(hdc, 88); dpi > 0 { // LOGPIXELSX
+		return float64(dpi) / 96
+	}
+	return 1
 }
 
 func monitorEnumProc(hMonitor, hdc, lprc, lParam uintptr) uintptr {
@@ -77,7 +142,9 @@ func monitorEnumProc(hMonitor, hdc, lprc, lParam uintptr) uintptr {
 	r, _, _ := procGetMonitorInfoW.Call(hMonitor, uintptr(unsafe.Pointer(&mi)))
 	if r != 0 {
 		rc := image.Rect(int(mi.RcMonitor.Left), int(mi.RcMonitor.Top), int(mi.RcMonitor.Right), int(mi.RcMonitor.Bottom))
-		enumResult = append(enumResult, newDisplay(0, rc, mi.DwFlags&1 != 0))
+		d := newDisplay(0, rc, mi.DwFlags&1 != 0)
+		d.Scale = monitorScale(hMonitor)
+		enumResult = append(enumResult, d)
 	}
 	return 1
 }
@@ -96,7 +163,9 @@ func Displays() ([]Display, error) {
 		if w == 0 || h == 0 {
 			return nil, errors.New("无法获取显示器信息")
 		}
-		out = []Display{newDisplay(0, image.Rect(0, 0, int(w), int(h)), true)}
+		d := newDisplay(0, image.Rect(0, 0, int(w), int(h)), true)
+		d.Scale = monitorScale(0)
+		out = []Display{d}
 	}
 	sort.SliceStable(out, func(i, j int) bool {
 		if out[i].Primary != out[j].Primary {

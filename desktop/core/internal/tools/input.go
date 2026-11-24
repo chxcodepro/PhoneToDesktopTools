@@ -9,16 +9,18 @@ import (
 
 	"p2d/core/internal/input"
 	"p2d/core/internal/perm"
+	"p2d/core/internal/uia"
 )
 
 func registerInput(r *Registry) {
 	r.Add(&Tool{
 		Name: "input_mouse",
 		Description: "操作鼠标。x、y 默认是屏幕坐标（像素，多显示器时为虚拟桌面坐标，ui_tree 返回的就是屏幕坐标）；" +
-			"按截图点击时传 coords=\"screenshot\"，x、y（以及 to_x、to_y）直接填最近一次 screen_capture 截图上的像素坐标，电脑端自动换算。",
+			"按截图点击时传 coords=\"screenshot\"，x、y（以及 to_x、to_y）直接填最近一次 screen_capture 截图上的像素坐标，电脑端自动换算；" +
+			"习惯用 0–1000 相对位置（左上角 0,0，右下角 1000,1000）给坐标的，传 coords=\"relative\"。点击后会告诉你点的位置是什么控件，和想点的不一样时再调整。",
 		InputSchema: object(map[string]prop{
 			"action": enum("动作", "move", "click", "double_click", "right_click", "middle_click", "down", "up", "scroll", "drag"),
-			"coords": enum("坐标类型：screen 屏幕坐标（默认）；screenshot 最近一次截图上的像素坐标", "screen", "screenshot"),
+			"coords": enum("坐标类型：screen 屏幕坐标（默认）；screenshot 最近一次截图上的像素坐标；relative 最近一次截图上 0–1000 的相对位置", "screen", "screenshot", "relative"),
 			"x":      intg("目标 x 坐标；scroll 时可省略（在当前位置滚动）"),
 			"y":      intg("目标 y 坐标"),
 			"to_x":   intg("drag 的终点 x"),
@@ -55,12 +57,17 @@ func inputMouse(ctx context.Context, raw json.RawMessage) (*Result, error) {
 	hasXY := a.X != nil && a.Y != nil
 	// 截图坐标：按最近一次截图换算成屏幕坐标
 	shot := a.Coords == "screenshot" || a.Coords == "image"
-	if shot {
+	rel := a.Coords == "relative"
+	if shot || rel {
 		for _, p := range [][2]*int{{a.X, a.Y}, {a.ToX, a.ToY}} {
 			if p[0] == nil || p[1] == nil {
 				continue
 			}
-			sx, sy, err := fromShot(*p[0], *p[1])
+			conv := fromShot
+			if rel {
+				conv = fromRelative
+			}
+			sx, sy, err := conv(*p[0], *p[1])
 			if err != nil {
 				return nil, err
 			}
@@ -97,6 +104,15 @@ func inputMouse(ctx context.Context, raw json.RawMessage) (*Result, error) {
 			return fmt.Errorf("%s 需要 x 和 y", a.Action)
 		}
 		return nil
+	}
+
+	// 点击前先看看这个位置是什么控件（点击后界面可能就变了）
+	target := ""
+	switch a.Action {
+	case "click", "double_click", "right_click", "middle_click":
+		if hasXY {
+			target = elementAt(ctx, *a.X, *a.Y)
+		}
 	}
 
 	var err error
@@ -148,7 +164,24 @@ func inputMouse(ctx context.Context, raw json.RawMessage) (*Result, error) {
 	if hasXY {
 		msg += fmt.Sprintf("（屏幕坐标 %d, %d）", *a.X, *a.Y)
 	}
+	if target != "" {
+		msg += "，点的位置是：" + target
+	}
 	return TextResult(msg), nil
+}
+
+// elementAt 屏幕坐标上的界面元素说明；读不到（非 Windows、程序没响应等）时返回空，不影响点击
+func elementAt(ctx context.Context, x, y int) string {
+	if !allowed(ctx, perm.CatScreen, perm.Read) {
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(ctx, 1500*time.Millisecond)
+	defer cancel()
+	out, err := uiaRun(ctx, uia.Params{Mode: "point", X: x, Y: y})
+	if err != nil {
+		return ""
+	}
+	return out
 }
 
 // drag 分步移动，让目标程序能识别为拖拽。
