@@ -33,6 +33,7 @@ import { contextWindowOf, initModelConfig, setThinking, supportsThinkingToggle, 
 import { cn } from '@/lib/utils';
 import { configProblem } from '@/agent/llm';
 import { useConnection } from '@/state/connection';
+import { useViewTargets } from '@/state/multi';
 import { uiStore, useUi } from '@/state/ui';
 
 function RoundButton({ icon, onPress, active, label }: { icon: LucideIcon; onPress: () => void; active?: boolean; label: string }) {
@@ -50,10 +51,14 @@ function RoundButton({ icon, onPress, active, label }: { icon: LucideIcon; onPre
 export default function AgentScreen() {
   const conv = useConversation();
   const { status, params, route } = useConnection();
+  const { targets } = useViewTargets();
+  // 同时连接着的其他电脑数
+  const extraCount = targets.filter((t) => t.pcId && t.status === 'connected').length;
   const ui = useUi();
   const focused = useIsFocused();
   // 实时画面小窗：只在用户点右上角按钮时打开 / 关闭；进入虚拟桌面等页面时暂停
-  const showLive = status === 'connected' && ui.liveOpen && focused;
+  const anyPc = status === 'connected' || extraCount > 0;
+  const showLive = anyPc && ui.liveOpen && focused;
   const modelCfg = useModelConfig();
   const drawer = useDrawer();
   const [pickError, setPickError] = useState<string | null>(null);
@@ -142,6 +147,7 @@ export default function AgentScreen() {
             >
               {params || status !== 'idle' ? STATUS_LABEL[status] + (status === 'connected' && route === 'wifi' ? ' · WiFi' : '') : ''}
             </Text>
+            {extraCount ? <Text className="text-xs text-success-foreground">{`+${extraCount} 台`}</Text> : null}
           </Pressable>
         </View>
         {__DEV__ ? (
@@ -149,7 +155,7 @@ export default function AgentScreen() {
             <Icon as={Bug} size={16} className={debug ? 'text-primary' : 'text-muted-foreground'} />
           </Pressable>
         ) : null}
-        {status === 'connected' ? (
+        {anyPc ? (
           <RoundButton icon={MonitorPlay} onPress={() => uiStore.set({ liveOpen: !ui.liveOpen })} active={ui.liveOpen} label="实时画面" />
         ) : (
           <View className="h-10 w-10" />

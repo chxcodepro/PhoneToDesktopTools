@@ -1,6 +1,7 @@
 // Agent 循环：模型 ↔ 电脑工具（MCP）。不依赖 React Native，可在 Node 中测试。
 //
 // 流程：调用模型 → 有工具调用就经 USB 让电脑执行 → 把结果交回模型 → 直到模型给出最终回答。
+// 同时连着多台电脑时，同一轮里不同电脑的工具调用同时执行（AgentTools.group 分组），同一台按顺序。
 // 截图：模型支持图片时作为图片发给模型（只保留最近一张）；不支持时改用文字识别结果（describeImage）。
 
 import type { ToolContent, ToolInfo, ToolResult } from '../protocol/types';
@@ -9,6 +10,8 @@ import { chat, LlmError, type ChatMessage, type ContentPart, type FetchLike, typ
 export interface AgentTools {
   list(): ToolInfo[];
   call(name: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<ToolResult>;
+  /** 并发分组：同一轮的工具调用，同组按顺序执行、不同组同时执行。不提供时全部按顺序 */
+  group?(name: string, args: Record<string, unknown>): string;
 }
 
 export interface ComputerInfo {
@@ -44,6 +47,8 @@ export interface AgentOptions {
   /** 扩展（Skill / MCP）的说明；传函数时每一步重新获取（刚安装的扩展立即生效） */
   extensionPrompt?: string[] | (() => string[]);
   computer?: ComputerInfo | null;
+  /** 同时连着的多台电脑（两台及以上时才传；host 是工具 pc 参数里的电脑名） */
+  computers?: ComputerInfo[];
   /** 用户为当前模型填写的系统提示词，加在内置提示词之后 */
   customPrompt?: string;
   signal?: AbortSignal;
@@ -69,23 +74,47 @@ function osName(os?: string): string {
 }
 
 export function buildSystemPrompt(
-  opts: Pick<AgentOptions, 'computer' | 'supportsVision' | 'tools' | 'supportsTools' | 'customPrompt' | 'pcConnected' | 'extensionPrompt'>,
+  opts: Pick<
+    AgentOptions,
+    'computer' | 'computers' | 'supportsVision' | 'tools' | 'supportsTools' | 'customPrompt' | 'pcConnected' | 'extensionPrompt'
+  >,
 ): string {
   const lines: string[] = [];
   const toolsOn = !!opts.tools && opts.supportsTools;
   const connected = toolsOn && opts.pcConnected !== false;
+  const multi = opts.computers && opts.computers.length > 1 ? opts.computers : null;
+  const oses = multi ? [...new Set(multi.map((c) => c.os))] : [opts.computer?.os ?? ''];
   if (connected) {
     const c = opts.computer;
+    if (multi) {
+      lines.push(
+        `你是运行在用户手机上的 AI 助手，同时连接着用户的 ${multi.length} 台电脑：${multi.map((m) => `「${m.host}」（${osName(m.os)}）`).join('、')}。`,
+        '多台电脑：',
+        '- 每个电脑工具都有 pc 参数，填电脑名，指定在哪台电脑上执行。用户说了在哪台就只操作那台；说「都」「每台」「同时」「两台」时每台各做一次。',
+        '- 同一轮里调用不同电脑的工具会同时执行：几台电脑做同样的事时，在同一轮里把每台的调用一起发出；同一台电脑上的操作按顺序执行。',
+        '- 用户没说在哪台、也不能从上下文判断时，先用 ask_user 问清楚，不要猜。',
+        '- 工具结果开头的【电脑名】表示结果来自哪台电脑；汇报时分别说明每台电脑的情况。',
+        '- 在两台电脑之间传文件用 pc_copy_file（经手机中转，保存到目标电脑的「下载/PhoneToDesktop」目录，需要时再用命令移动）。',
+        '工作方式：',
+      );
+    } else {
+      lines.push(
+        `你是运行在用户手机上的 AI 助手，通过 USB 数据线或局域网 WiFi 连接并操作用户的电脑${c ? `（${c.host}，${osName(c.os)}）` : ''}。`,
+        '工作方式：',
+      );
+    }
     lines.push(
-      `你是运行在用户手机上的 AI 助手，通过 USB 数据线或局域网 WiFi 连接并操作用户的电脑${c ? `（${c.host}，${osName(c.os)}）` : ''}。`,
-      '工作方式：',
       '- 直接使用工具完成任务，不要只给建议。每一步只做必要的操作，根据结果再决定下一步。',
       '- 不了解电脑环境时先调用 sys_info（可获得桌面路径、显示器等信息）。',
       '- 文件：使用绝对路径；修改已有文件优先用 fs_edit；fs_delete 会把文件移到回收站。',
-      opts.computer?.os === 'linux'
-        ? '- 命令：使用 bash 语法。需要 root 的命令设置 shell_exec 的 admin: true（不要写 sudo），电脑上会弹出密码框，提醒用户在电脑上输入密码。'
-        : '- 命令：使用 cmd 语法（Win7 自带 PowerShell 2.0，功能有限）。需要管理员权限的命令设置 shell_exec 的 admin: true，电脑上会弹出 UAC 授权框，提醒用户在电脑上点「是」。',
     );
+    const linuxCmd = '使用 bash 语法。需要 root 的命令设置 shell_exec 的 admin: true（不要写 sudo），电脑上会弹出密码框，提醒用户在电脑上输入密码。';
+    const winCmd =
+      '使用 cmd 语法（Win7 自带 PowerShell 2.0，功能有限）。需要管理员权限的命令设置 shell_exec 的 admin: true，电脑上会弹出 UAC 授权框，提醒用户在电脑上点「是」。';
+    const hasLinux = oses.includes('linux');
+    const hasWin = oses.some((o) => o !== 'linux');
+    if (hasLinux && hasWin) lines.push(`- 命令：Windows 电脑${winCmd}`, `- 命令：Linux 电脑${linuxCmd}`);
+    else lines.push(`- 命令：${hasLinux ? linuxCmd : winCmd}`);
     lines.push(
       '- 操作界面优先用控件树：ui_tree 读出窗口里的按钮、输入框、菜单等（名称和屏幕坐标，没有文字的图标也有名称），ui_act 按名称直接点击、填写、展开，比按坐标点更准；读不到元素的程序（游戏、远程桌面、自绘界面）再用截图 + input_mouse。',
     );
@@ -98,7 +127,7 @@ export function buildSystemPrompt(
         '- 当前模型看不到图片：优先用命令和文件工具完成任务。必须操作界面时，screen_capture 会返回截图的文字识别结果：每行「(x, y) 文字」，坐标已换算成屏幕坐标，可直接用 input_mouse 点击；图标、颜色等没有文字的内容识别不到。操作后再截图确认结果。',
       );
     }
-    lines.push(...repairGuide(opts.computer?.os));
+    lines.push(...repairGuide(oses));
     lines.push(
       '- 删除或覆盖重要文件、结束进程、关机重启等不可逆操作前，先用一句话说明你要做什么。',
       '- 工具返回「没有权限」时，告诉用户需要在手机「设置 → 电脑权限」里开启哪一项，不要反复重试。',
@@ -146,8 +175,8 @@ export function buildSystemPrompt(
   return lines.join('\n');
 }
 
-/** 电脑断网、缺驱动 / 缺运行库时的处理办法（手机有网，电脑可能完全没网） */
-function repairGuide(os?: string): string[] {
+/** 电脑断网、缺驱动 / 缺运行库时的处理办法（手机有网，电脑可能完全没网）。oses：连着的电脑的系统（多台时可能有两种） */
+function repairGuide(oses: string[]): string[] {
   const common = [
     '',
     '电脑可能完全没有网络（网卡驱动坏了、没有可用 WiFi、USB 网络共享也用不了），但手机有网。修复规则：',
@@ -158,20 +187,20 @@ function repairGuide(os?: string): string[] {
     '- 安装驱动、替换系统文件、改系统服务启动方式前，先说明要做什么并等用户同意；替换文件前先备份原文件。',
     '- 先排查能在本地解决的原因（服务没启动、设备被禁用、驱动库里已有驱动、协议栈损坏），确实缺文件时再下载。',
   ];
-  if (os === 'linux') {
-    return [
-      ...common,
-      '- 网络排查：ip link、nmcli device status、systemctl status NetworkManager、rfkill list、lspci -nnk / lsusb（看网卡型号和驱动）、dmesg | grep -iE "firmware|eth|wlan"。',
-      '- 缺软件包：cat /etc/os-release、dpkg --print-architecture 确认系统和架构；apt-get --print-uris -y install 包名 可离线列出该包及缺失依赖的官方下载地址，逐个 download_to_pc 后用 dpkg -i 安装（admin: true）。',
-    ];
-  }
-  return [
-    ...common,
+  const linux = [
+    '- 网络排查：ip link、nmcli device status、systemctl status NetworkManager、rfkill list、lspci -nnk / lsusb（看网卡型号和驱动）、dmesg | grep -iE "firmware|eth|wlan"。',
+    '- 缺软件包：cat /etc/os-release、dpkg --print-architecture 确认系统和架构；apt-get --print-uris -y install 包名 可离线列出该包及缺失依赖的官方下载地址，逐个 download_to_pc 后用 dpkg -i 安装（admin: true）。',
+  ];
+  const windows = [
     '- 网络排查：ipconfig /all；netsh interface show interface；sc query 查看 Dhcp、Dnscache、NlaSvc、netprofm、Netman、nsi、WlanSvc 等服务；有问题的设备用 wmic path Win32_PnPEntity where "ConfigManagerErrorCode<>0" get Name,DeviceID,ConfigManagerErrorCode（Win7 也可用）。',
     '- 驱动：从 DeviceID 取硬件 ID（如 PCI\\VEN_10EC&DEV_8168）→ driver_search → download_to_pc（catalog_id）→ 解压 .cab：expand -F:* 文件.cab 目标目录 → 安装：Win10 用 pnputil /add-driver 目录\\*.inf /subdirs /install，Win7 用 pnputil -i -a 目录\\*.inf（都要 admin: true）。先用 pnputil -e（Win7）/ pnputil /enum-drivers 看驱动库里是否已有可用驱动。',
     '- 协议栈损坏：netsh winsock reset、netsh int ip reset（admin: true，需重启生效，重启前征得用户同意）。',
     '- 缺 DLL 先判断属于哪个运行库：vcruntime140*.dll、msvcp140*.dll、mfc140*.dll → VC++ 2015-2022 运行库（微软官方地址 https://aka.ms/vc14/vc_redist.x64.exe 或 https://aka.ms/vc14/vc_redist.x86.exe，按程序位数选；Win7 装不上时用 web_search 查仍支持 Win7 的版本）；msvcr120/msvcp120 → VC++ 2013；msvcr110 → VC++ 2012；api-ms-win-crt-*.dll（Win7）→ 补丁 KB2999226（用 driver_search 搜 KB 编号）；d3dx9_*、xinput1_3、d3dcompiler_43 → DirectX 9.0c 运行库（June 2010）；mscoree / .NET 报错 → .NET Framework 离线安装包。安装程序用静默参数（如 vc_redist /install /quiet /norestart）。',
   ];
+  const hasLinux = oses.includes('linux');
+  const hasWin = oses.some((o) => o !== 'linux');
+  if (hasLinux && hasWin) return [...common, '- Linux 电脑：', ...linux, '- Windows 电脑：', ...windows];
+  return [...common, ...(hasLinux ? linux : windows)];
 }
 
 export function toToolSpecs(tools: ToolInfo[]): ToolSpec[] {
@@ -187,6 +216,11 @@ export function toToolSpecs(tools: ToolInfo[]): ToolSpec[] {
 
 /** 给界面显示的参数摘要 */
 export function summarizeArgs(name: string, args: Record<string, unknown>): string {
+  // 多台电脑时参数里有 pc（电脑名）：摘要前面标上
+  if (typeof args.pc === 'string' && args.pc) {
+    const { pc, ...rest } = args;
+    return `[${pc}] ${summarizeArgs(name, rest)}`;
+  }
   const s = (v: unknown) => (typeof v === 'string' ? v : v === undefined ? '' : JSON.stringify(v));
   switch (name) {
     case 'shell_exec':
@@ -382,35 +416,41 @@ export async function runAgent(history: ChatMessage[], opts: AgentOptions): Prom
       const calls = message.tool_calls ?? [];
       if (!calls.length) break;
 
-      // 依次执行工具（电脑上的操作有先后顺序，不并发）
-      const images: { data: string; mimeType: string; tool: string }[] = [];
-      for (const call of calls) {
+      // 执行工具：同一台电脑上的操作有先后顺序，按顺序执行；同时连着多台电脑时，不同电脑的操作同时执行
+      const canSeeNow = () => opts.supportsVision && visionOk;
+      const parsed = calls.map((call) => {
         const name = call.function.name;
         let args: Record<string, unknown> = {};
         let parseError: string | null = null;
         try {
-          const parsed = call.function.arguments ? JSON.parse(call.function.arguments) : {};
-          args = parsed && typeof parsed === 'object' ? parsed : {};
+          const p = call.function.arguments ? JSON.parse(call.function.arguments) : {};
+          args = p && typeof p === 'object' ? p : {};
         } catch {
           parseError = '参数不是合法的 JSON，请重新生成参数';
         }
-        emit({ type: 'tool_start', id: call.id, name, args, summary: summarizeArgs(name, args) });
+        return { call, name, args, parseError };
+      });
+      type Done = { text: string; imgs: { data: string; mimeType: string }[]; isError: boolean };
+      const done: Done[] = new Array(calls.length);
 
+      const runOne = async (i: number): Promise<void> => {
+        const { call, name, args, parseError } = parsed[i];
+        emit({ type: 'tool_start', id: call.id, name, args, summary: summarizeArgs(name, args) });
         if (opts.signal?.aborted) {
-          added.push({ role: 'tool', tool_call_id: call.id, content: '用户已停止' });
+          done[i] = { text: '用户已停止', imgs: [], isError: true };
           emit({ type: 'tool_end', id: call.id, name, isError: true, summary: '已停止' });
-          continue;
+          return;
         }
         if (parseError || !opts.tools) {
           const text = parseError ?? '电脑未连接';
-          added.push({ role: 'tool', tool_call_id: call.id, content: text });
+          done[i] = { text, imgs: [], isError: true };
           emit({ type: 'tool_end', id: call.id, name, isError: true, summary: text });
-          continue;
+          return;
         }
 
         // 看不到图片的模型靠文字识别：截图只传到手机、不发给模型，用更高的分辨率和画质识别更准
         const callArgs =
-          name === 'screen_capture' && !(opts.supportsVision && visionOk) && opts.describeImage
+          name === 'screen_capture' && !canSeeNow() && opts.describeImage
             ? { ...args, max_width: Math.max(Number(args.max_width) || 0, 2560), quality: Math.max(Number(args.quality) || 0, 85) }
             : args;
         let result: ToolResult;
@@ -422,12 +462,12 @@ export async function runAgent(history: ChatMessage[], opts: AgentOptions): Prom
         const texts = result.content.filter((c): c is Extract<ToolContent, { type: 'text' }> => c.type === 'text').map((c) => c.text);
         const imgs = result.content.filter((c): c is Extract<ToolContent, { type: 'image' }> => c.type === 'image');
         let text = texts.join('\n');
+        const toModel: { data: string; mimeType: string }[] = [];
 
         for (const img of imgs) {
           // 本步刚发现模型不接受图片时，这一步的截图也改用文字识别
-          if (opts.supportsVision && visionOk) {
-            images.push({ data: img.data, mimeType: img.mimeType, tool: name });
-            text += '\n（截图见下一条消息）';
+          if (canSeeNow()) {
+            toModel.push({ data: img.data, mimeType: img.mimeType });
           } else {
             let described: string | null = null;
             try {
@@ -440,7 +480,7 @@ export async function runAgent(history: ChatMessage[], opts: AgentOptions): Prom
               : '\n（当前模型看不到图片，且未能识别截图文字。请改用命令、文件等文字类工具获取信息。）';
           }
         }
-        added.push({ role: 'tool', tool_call_id: call.id, content: text || (result.isError ? '失败' : '完成') });
+        done[i] = { text, imgs: toModel, isError: !!result.isError };
         emit({
           type: 'tool_end',
           id: call.id,
@@ -449,7 +489,36 @@ export async function runAgent(history: ChatMessage[], opts: AgentOptions): Prom
           summary: summarizeResult(name, texts.join('\n')) || (imgs.length ? '已截图' : '完成'),
           image: imgs[0] ? { data: imgs[0].data, mimeType: imgs[0].mimeType } : undefined,
         });
-      }
+      };
+
+      const groups = new Map<string, number[]>();
+      parsed.forEach((p, i) => {
+        const key = p.parseError || !opts.tools?.group ? 'main' : opts.tools.group(p.name, p.args);
+        groups.set(key, [...(groups.get(key) ?? []), i]);
+      });
+      await Promise.all(
+        [...groups.values()].map(async (idxs) => {
+          for (const i of idxs) {
+            try {
+              await runOne(i);
+            } catch (e) {
+              done[i] = { text: `调用失败：${(e as Error).message}`, imgs: [], isError: true };
+            }
+          }
+        }),
+      );
+
+      // 按调用顺序写回结果；截图统一放在下一条消息里，按顺序编号
+      const images: { data: string; mimeType: string }[] = [];
+      parsed.forEach(({ call }, i) => {
+        const d = done[i] ?? { text: '用户已停止', imgs: [], isError: true };
+        let text = d.text;
+        for (const img of d.imgs) {
+          images.push(img);
+          text += `\n（截图见下一条消息${images.length > 1 || parsed.length > 1 ? `的第 ${images.length} 张图` : ''}）`;
+        }
+        added.push({ role: 'tool', tool_call_id: call.id, content: text || (d.isError ? '失败' : '完成') });
+      });
       if (images.length) {
         added.push({
           role: 'user',

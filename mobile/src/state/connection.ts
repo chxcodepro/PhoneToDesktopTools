@@ -30,6 +30,7 @@ import {
   setLastPc,
   setPairKey,
   upsertDevice,
+  type PcDevice,
   type Route,
 } from './devices';
 import { pickStartup } from './startup';
@@ -314,6 +315,41 @@ export async function findReachable(addrs: string[], port: number, pcId: string,
   });
 }
 
+/** 建一条到电脑局域网地址的加密连接（还没连，调用方 connect()）。当前电脑和「同时连接」的电脑都用它 */
+export function createLanClient(
+  dev: PcDevice,
+  key: Uint8Array,
+  addr: string,
+  manualFirst: boolean,
+  opts: Pick<ConstructorParameters<typeof McpClient>[0], 'onConnected' | 'onLog'>,
+): McpClient {
+  const { pcId } = dev;
+  const host = addr.includes(':') ? `[${addr}]` : addr;
+  let manual = manualFirst;
+  return new McpClient({
+    url: `ws://${host}:${dev.port}/p2d/secure`,
+    clientInfo: clientInfo(),
+    // 第一次连接带上「手动」标记，之后的自动重连不带
+    createSocket: (url) => {
+      const s = new SecureSocket({
+        url,
+        phoneId: devicesStore.get().phoneId,
+        key,
+        manual,
+        random: randomBytes,
+        createRaw: (u) => new WebSocket(u) as unknown as RawSocket,
+        onHello: (h) => upsertDevice({ pcId, mid: h.mid, name: h.name || dev.name, os: h.os || dev.os }),
+        onReject: (code) => {
+          if (code === 'unpaired') void forgetPairKey(pcId);
+        },
+      });
+      manual = false;
+      return s;
+    },
+    ...opts,
+  });
+}
+
 /** WiFi 直连一台配对过的电脑。manual：用户手动点的（电脑端点过「断开」后只接受手动连接） */
 export async function connectLan(pcId: string, opts: { manual: boolean; addrs?: string[] }): Promise<void> {
   await initDevices();
@@ -337,29 +373,8 @@ export async function connectLan(pcId: string, opts: { manual: boolean; addrs?: 
   }
   // 探测期间用户点了断开，或者插线 / 切换了别的连接：放弃这次
   if (seq !== connectSeq || (userStopped && !opts.manual)) return;
-  const host = addr.includes(':') ? `[${addr}]` : addr;
   const params: ConnectParams = { token: '', host: deviceLabel(dev), os: dev.os, port: dev.port, pcId };
-  let manual = opts.manual;
-  const c = new McpClient({
-    url: `ws://${host}:${dev.port}/p2d/secure`,
-    clientInfo: clientInfo(),
-    // 第一次连接带上「手动」标记，之后的自动重连不带
-    createSocket: (url) => {
-      const s = new SecureSocket({
-        url,
-        phoneId: devicesStore.get().phoneId,
-        key,
-        manual,
-        random: randomBytes,
-        createRaw: (u) => new WebSocket(u) as unknown as RawSocket,
-        onHello: (h) => upsertDevice({ pcId, mid: h.mid, name: h.name || dev.name, os: h.os || dev.os }),
-        onReject: (code) => {
-          if (code === 'unpaired') void forgetPairKey(pcId);
-        },
-      });
-      manual = false;
-      return s;
-    },
+  const c = createLanClient(dev, key, addr, opts.manual, {
     onConnected: async (mc) => {
       await mc.setPermissions(connectionStore.get().permissions);
       const tools = await mc.listTools();

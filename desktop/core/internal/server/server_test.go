@@ -299,3 +299,52 @@ func TestUpload(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 	}
 }
+
+func TestFileRead(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "数据.bin")
+	content := []byte{0, 1, 2, 0xff, 'a', 'b', 'c', 0x80, 9, 10}
+	if err := os.WriteFile(path, content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ts := newTestServer(t)
+	c, _, err := dial(t, ts, "devtok")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.conn.Close()
+	c.call("initialize", map[string]any{"protocolVersion": "2025-06-18", "clientInfo": map[string]any{"name": "test", "version": "1"}})
+	c.call("p2d/setPermissions", map[string]any{"level": "readonly", "shell": false, "fs": false, "screen": true, "input": false})
+	if r := c.call("p2d/file.read", map[string]any{"path": path}); r["error"] == nil {
+		t.Fatalf("关闭了文件权限时应拒绝读取：%v", r)
+	}
+	c.call("p2d/setPermissions", map[string]any{"level": "readonly", "shell": false, "fs": true, "screen": true, "input": false})
+
+	var got []byte
+	offset := 0
+	for i := 0; i < 10; i++ {
+		r := c.call("p2d/file.read", map[string]any{"path": path, "offset": offset, "size": 4})
+		res, ok := r["result"].(map[string]any)
+		if !ok {
+			t.Fatalf("file.read 失败：%v", r)
+		}
+		if res["size"].(float64) != float64(len(content)) {
+			t.Fatalf("文件大小不对：%v", res["size"])
+		}
+		b, err := base64.StdEncoding.DecodeString(res["data"].(string))
+		if err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, b...)
+		offset += len(b)
+		if res["eof"].(bool) {
+			break
+		}
+	}
+	if string(got) != string(content) {
+		t.Fatalf("读到的内容不对：%v", got)
+	}
+	if r := c.call("p2d/file.read", map[string]any{"path": dir}); r["error"] == nil {
+		t.Fatalf("读文件夹应报错：%v", r)
+	}
+}

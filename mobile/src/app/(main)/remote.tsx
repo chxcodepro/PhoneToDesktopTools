@@ -15,6 +15,7 @@ import {
   Maximize,
   Minimize,
   Monitor,
+  MonitorSmartphone,
   MousePointer2,
   MousePointerClick,
   Send,
@@ -49,7 +50,7 @@ import { cn } from '@/lib/utils';
 import { RemoteController, type Overlay } from '@/remote/controller';
 import { toView } from '@/remote/geometry';
 import { useScreenStream } from '@/remote/useScreenStream';
-import { getClient, useConnection } from '@/state/connection';
+import { cycleView, useViewTargets, viewClient } from '@/state/multi';
 
 const COMBOS: { label: string; keys: string }[] = [
   { label: 'Enter', keys: 'enter' },
@@ -71,7 +72,8 @@ const COMBOS: { label: string; keys: string }[] = [
 ];
 
 export default function RemoteScreen() {
-  const { status } = useConnection();
+  const { view, targets } = useViewTargets();
+  const status = view.status;
   const conv = useConversation();
   const [display, setDisplay] = useState(0);
   const { frame, displays, error, fps } = useScreenStream(display);
@@ -91,7 +93,7 @@ export default function RemoteScreen() {
   const landscape = win.width > win.height;
 
   const tool = async (name: string, args: Record<string, unknown>) => {
-    const c = getClient();
+    const c = viewClient();
     if (!c) return;
     try {
       const r = await c.callTool(name, args);
@@ -136,7 +138,7 @@ export default function RemoteScreen() {
     () =>
       new RemoteController(
         (args) =>
-          void getClient()
+          void viewClient()
             ?.callTool('input_mouse', args)
             .catch(() => undefined),
         () => setRightNext(false),
@@ -284,6 +286,9 @@ export default function RemoteScreen() {
             <SideButton icon={ArrowUp} label="上滚" onPress={() => scroll(3)} />
             <SideButton icon={ArrowDown} label="下滚" onPress={() => scroll(-3)} />
             <SideButton icon={Command} label="组合键" onPress={() => setCombosOpen(true)} />
+            {targets.length > 1 ? (
+              <SideButton icon={MonitorSmartphone} label={view.name} onPress={() => cycleView(targets, view)} />
+            ) : null}
             {displays > 1 ? (
               <SideButton icon={Monitor} label={`屏幕 ${display + 1}`} onPress={() => setDisplay((d) => (d + 1) % displays)} />
             ) : null}
@@ -300,9 +305,21 @@ export default function RemoteScreen() {
     <SafeAreaView edges={['top', 'bottom']} className="flex-1 bg-background">
       <Header
         title="虚拟桌面"
-        sub={frame ? `${fps} fps` : '正在获取画面…'}
+        sub={`${targets.length > 1 ? `${view.name} · ` : ''}${frame ? `${fps} fps` : '正在获取画面…'}`}
         right={
           <>
+            {targets.length > 1 ? (
+              <Pressable
+                onPress={() => cycleView(targets, view)}
+                accessibilityLabel="切换电脑"
+                className="max-w-28 flex-row items-center gap-1 rounded-md border border-primary/40 bg-primary/10 px-2 py-1.5"
+              >
+                <Icon as={MonitorSmartphone} size={12} className="text-primary" />
+                <Text numberOfLines={1} className="flex-shrink text-xs text-primary">
+                  {view.name}
+                </Text>
+              </Pressable>
+            ) : null}
             {displays > 1 ? (
               <Pressable
                 onPress={() => setDisplay((d) => (d + 1) % displays)}

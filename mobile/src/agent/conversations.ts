@@ -4,8 +4,12 @@ import { fetch as expoFetch } from 'expo/fetch';
 
 import { formatOcr } from '@/agent/ocr';
 import { describeScreenshot, ocrAvailable, recognizeText } from '@/native/ocr';
+import type { McpClient } from '@/protocol/mcpClient';
+import type { ToolInfo, ToolResult } from '@/protocol/types';
 import { connectionStore, getClient } from '@/state/connection';
-import { onDeviceMerged } from '@/state/devices';
+import { deviceLabel, getDevice, onDeviceMerged } from '@/state/devices';
+import { getExtraClient, multiStore } from '@/state/multi';
+import { uiStore } from '@/state/ui';
 import { loadJson, saveJson } from '@/state/storage';
 import { createStore, useStore } from '@/state/store';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -16,6 +20,8 @@ import { canCompress, compressHistory, isContextOverflow } from './compress';
 import { downloadToPc } from './downloads';
 import { extensionApi, extensionPrompt } from './extensionStore';
 import { createExtensionTools, isExtensionTool } from './extensionTools';
+import { createPcTools, uniqueNames, type PcTarget } from './multiPc';
+import { copyBetweenPcs } from './pcCopy';
 import type { ChatMessage, ContentPart, FetchLike, UsageStats } from './llm';
 import { resolveActiveModel, type ResolvedModel } from './modelConfig';
 import {
@@ -283,15 +289,72 @@ async function waitForClient(ms: number, signal?: AbortSignal) {
   }
 }
 
-/** 电脑工具适配：调用前若连接中断，先等最多 15 秒自动重连，仍未恢复再报错 */
-const pcTools: AgentTools = {
-  list: () => connectionStore.get().tools,
-  async call(name, args, signal) {
-    const c = await waitForClient(15_000, signal);
-    if (!c) throw new Error('电脑连接已断开（等待 15 秒仍未重连），请检查数据线 / WiFi 和电脑端程序');
-    return c.callTool(name, args);
-  },
-};
+/** 同时连接的电脑：连接暂时中断时等它自动重连，最多等 ms 毫秒 */
+async function waitForExtra(pcId: string, ms: number, signal?: AbortSignal): Promise<McpClient | null> {
+  const deadline = Date.now() + ms;
+  for (;;) {
+    const c = getExtraClient(pcId);
+    if (c) return c;
+    if (signal?.aborted) throw Object.assign(new Error('已停止'), { name: 'AbortError' });
+    if (Date.now() >= deadline) return null;
+    await new Promise((r) => setTimeout(r, 500));
+  }
+}
+
+/** 连接是否算「在用」：已连上，或者暂时断开正在自动重连（工具清单还在） */
+const usable = (status: string, tools: unknown[]) =>
+  tools.length > 0 && (status === 'connected' || status === 'connecting' || status === 'disconnected');
+
+/**
+ * Agent 能操作的电脑：当前电脑 + 同时连接的电脑。调用前若连接中断，先等最多 15 秒自动重连，仍未恢复再报错。
+ * 电脑名去重后就是工具 pc 参数里的名字。
+ */
+function pcTargets(): PcTarget[] {
+  const conn = connectionStore.get();
+  const list: Omit<PcTarget, 'name'>[] = [];
+  const labels: string[] = [];
+  if (usable(conn.status, conn.tools)) {
+    const dev = getDevice(conn.pcId);
+    labels.push(dev ? deviceLabel(dev) : (conn.params?.host ?? '电脑'));
+    list.push({
+      id: conn.pcId ?? 'current',
+      os: conn.params?.os ?? dev?.os ?? '',
+      tools: conn.tools,
+      async call(name, args, signal) {
+        const c = await waitForClient(15_000, signal);
+        if (!c) throw new Error('电脑连接已断开（等待 15 秒仍未重连），请检查数据线 / WiFi 和电脑端程序');
+        return c.callTool(name, args);
+      },
+    });
+  }
+  const { wanted, conns } = multiStore.get();
+  for (const id of wanted) {
+    const x = conns[id];
+    if (!x || id === conn.pcId || !usable(x.status, x.tools)) continue;
+    const dev = getDevice(id);
+    labels.push(deviceLabel(dev));
+    list.push({
+      id,
+      os: dev?.os ?? '',
+      tools: x.tools,
+      async call(name, args, signal) {
+        const c = await waitForExtra(id, 15_000, signal);
+        if (!c) throw new Error(`「${deviceLabel(dev)}」的连接已断开（等待 15 秒仍未重连），请检查 WiFi 和电脑端程序`);
+        return c.callTool(name, args);
+      },
+    });
+  }
+  const names = uniqueNames(labels);
+  return list.map((t, i) => ({ ...t, name: names[i] }));
+}
+
+/** 电脑工具：只连一台时原样；连多台时每个工具多一个 pc 参数 */
+const pcTools = createPcTools(pcTargets);
+
+/** 某台电脑现在的客户端（当前电脑或同时连接的） */
+function clientOf(t: PcTarget): McpClient | null {
+  return t.id === connectionStore.get().pcId || t.id === 'current' ? getClient() : getExtraClient(t.id);
+}
 
 /** 手机端工具：用手机的网络搜索、读网页、查微软驱动目录，下载文件后经 USB 传到电脑 */
 /** 等待用户选择的卡片：卡片 id → 选完后继续 Agent 的回调 */
@@ -338,11 +401,14 @@ export function isChoiceWaiting(id: string): boolean {
   return pendingChoices.has(id);
 }
 
+/** 多台电脑时 download_to_pc 要传到的那台（调用期间设置；download_to_pc 不会同时执行两个） */
+let downloadClient: McpClient | null = null;
+
 const phoneDeps: PhoneToolDeps = {
   askUser,
   fetch: expoFetch as unknown as FetchLike,
   downloadToPc: (url, name, opts) => {
-    const c = getClient();
+    const c = downloadClient ?? getClient();
     if (!c) throw new Error('电脑连接已断开，请检查数据线 / WiFi');
     return downloadToPc(c, url, name, opts);
   },
@@ -359,16 +425,109 @@ export function registerScheduleApi(api: ScheduleApi): void {
 /** 扩展：已安装 MCP 的工具、skill_read / skill_run、ext_* */
 const extTools = createExtensionTools({ api: extensionApi, askUser });
 
-/** 交给 Agent 的工具：电脑工具（已连接时）+ 手机工具 + 扩展，按名称分派 */
-function buildTools(withPc: boolean): AgentTools {
+const errorResult = (text: string): ToolResult => ({ content: [{ type: 'text', text }], isError: true });
+
+/** 两台电脑之间传文件（同时连着两台及以上时才有） */
+function pcCopyTool(names: string[]): ToolInfo {
   return {
-    list: () => [...(withPc ? pcTools.list() : []), ...phoneTools.list(), ...extTools.list()],
-    call: (name, args, signal) =>
-      isPhoneTool(name)
+    name: 'pc_copy_file',
+    description:
+      '把一台电脑上的文件传到另一台电脑（经手机中转，不需要两台电脑互通网络），保存到目标电脑的「下载/PhoneToDesktop」目录，返回保存路径。只能传单个文件，文件夹请先压缩；最大 1 GB。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        from: { type: 'string', enum: names, description: '源电脑' },
+        path: { type: 'string', description: '源电脑上文件的绝对路径' },
+        to: { type: 'string', enum: names, description: '目标电脑' },
+      },
+      required: ['from', 'path', 'to'],
+    },
+  };
+}
+
+async function runPcCopy(args: Record<string, unknown>, signal?: AbortSignal): Promise<ToolResult> {
+  const ts = pcTargets();
+  const from = pcTools.resolve({ pc: args.from });
+  const to = pcTools.resolve({ pc: args.to });
+  const path = typeof args.path === 'string' ? args.path.trim() : '';
+  if (!from || !to) return errorResult(`请用 from / to 指定电脑：${ts.map((t) => t.name).join('、')}`);
+  if (from.id === to.id) return errorResult('源电脑和目标电脑是同一台，用命令复制即可');
+  if (!path) return errorResult('需要源文件路径 path');
+  const a = clientOf(from);
+  const b = clientOf(to);
+  if (!a || !b) return errorResult(`「${(a ? to : from).name}」的连接已断开`);
+  let last = 0;
+  const r = await copyBetweenPcs(a, b, path, {
+    signal,
+    onProgress: (sent, total) => {
+      const now = Date.now();
+      if (now - last < 500 && sent < total) return;
+      last = now;
+      const text = `传文件 ${total ? Math.round((sent / total) * 100) : 100}%（${formatSize(sent)} / ${formatSize(total)}）`;
+      conversationStore.set((st) => (st.live ? { live: { ...st.live, summary: text } } : {}));
+    },
+  });
+  return {
+    content: [
+      {
+        type: 'text',
+        text: `已把【${from.name}】${r.from} 传到【${to.name}】${r.path}（${formatSize(r.size)}${r.sha256 ? `，SHA-256 ${r.sha256}` : ''}）`,
+      },
+    ],
+  };
+}
+
+/** 多台电脑时 download_to_pc 也要指定传到哪台：加上必填的 pc 参数 */
+function withPcParam(t: ToolInfo, names: string[], description: string): ToolInfo {
+  const schema = (t.inputSchema ?? {}) as { properties?: Record<string, unknown>; required?: string[] };
+  return {
+    ...t,
+    inputSchema: {
+      ...schema,
+      type: 'object',
+      properties: { pc: { type: 'string', enum: names, description }, ...(schema.properties ?? {}) },
+      required: ['pc', ...(schema.required ?? [])],
+    },
+  };
+}
+
+/** 交给 Agent 的工具：电脑工具（已连接时，多台时带 pc 参数）+ 手机工具 + 扩展，按名称分派 */
+function buildTools(withPc: boolean): AgentTools {
+  const multi = () => withPc && pcTargets().length > 1;
+  return {
+    list: () => {
+      const pcs = withPc ? pcTargets() : [];
+      const names = pcs.map((t) => t.name);
+      const phone = phoneTools
+        .list()
+        .map((t) => (pcs.length > 1 && t.name === 'download_to_pc' ? withPcParam(t, names, '传到哪台电脑') : t));
+      return [...(withPc ? pcTools.list() : []), ...(pcs.length > 1 ? [pcCopyTool(names)] : []), ...phone, ...extTools.list()];
+    },
+    async call(name, args, signal) {
+      if (name === 'pc_copy_file') return runPcCopy(args, signal);
+      if (name === 'download_to_pc' && multi()) {
+        const { pc, ...rest } = args;
+        const t = pcTools.resolve({ pc });
+        if (!t) return errorResult(`请用 pc 参数指定传到哪台电脑：${pcTargets().map((x) => x.name).join('、')}`);
+        const c = clientOf(t);
+        if (!c) return errorResult(`「${t.name}」的连接已断开`);
+        downloadClient = c;
+        try {
+          const r = await phoneTools.call(name, rest, signal);
+          return { ...r, content: r.content.map((x, i) => (i === 0 && x.type === 'text' ? { ...x, text: `【${t.name}】${x.text}` } : x)) };
+        } finally {
+          downloadClient = null;
+        }
+      }
+      return isPhoneTool(name)
         ? phoneTools.call(name, args, signal)
         : isExtensionTool(name)
           ? extTools.call(name, args, signal)
-          : pcTools.call(name, args, signal),
+          : pcTools.call(name, args, signal);
+    },
+    // 电脑工具按电脑分组（不同电脑同时执行）；传文件占两台电脑，和手机工具、扩展一起放在 main 组按顺序执行
+    group: (name, args) =>
+      isPhoneTool(name) || isExtensionTool(name) || name === 'pc_copy_file' ? 'main' : pcTools.group(name, args),
   };
 }
 
@@ -624,7 +783,8 @@ export async function send(text: string, attachments: Attachment[] = [], opts: S
     conversationStore.set((st) => ({ history: [...st.history, userMsg] }));
 
     const conn = connectionStore.get();
-    const connected = conn.status === 'connected' && !!getClient();
+    const pcs = pcTargets();
+    const connected = pcs.length > 0;
     // 上下文超长时压缩后重试一次
     for (let attempt = 0; ; attempt++) {
       if (signal.aborted) throw aborted();
@@ -636,7 +796,8 @@ export async function send(text: string, attachments: Attachment[] = [], opts: S
         tools: buildTools(connected),
         pcConnected: connected,
         extensionPrompt,
-        computer: conn.params ? { host: conn.params.host, os: conn.params.os } : null,
+        computer: conn.params ? { host: conn.params.host, os: conn.params.os } : pcs[0] ? { host: pcs[0].name, os: pcs[0].os } : null,
+        computers: pcs.length > 1 ? pcs.map((t) => ({ host: t.name, os: t.os })) : undefined,
         customPrompt: [model.systemPrompt, opts.extraPrompt].filter(Boolean).join('\n\n'),
         signal,
         onEvent: (e) => {
@@ -648,7 +809,14 @@ export async function send(text: string, attachments: Attachment[] = [], opts: S
             return;
           }
           applyEvent(e);
-          if (e.type === 'tool_start') conversationStore.set({ live: toLive(e.name, e.summary, e.args) });
+          if (e.type === 'tool_start') {
+            conversationStore.set({ live: toLive(e.name, e.summary, e.args) });
+            // 多台电脑：虚拟桌面和实时画面切到 Agent 正在操作的那台
+            if (typeof e.args.pc === 'string') {
+              const t = pcTools.resolve(e.args);
+              if (t) uiStore.set({ viewPc: t.id === connectionStore.get().pcId || t.id === 'current' ? null : t.id });
+            }
+          }
         },
         // 模型看不到图片时，截图在手机上离线识别成文字和屏幕坐标
         describeImage: ocrAvailable ? describeScreenshot : undefined,

@@ -14,6 +14,7 @@ import { parseDraftUrl } from '@/protocol/deepLink';
 import { initExtensions } from '@/agent/extensionStore';
 import { initScheduler } from '@/agent/scheduler';
 import { handleIncomingUrl, initConnection } from '@/state/connection';
+import { initMulti } from '@/state/multi';
 import { setDraft } from '@/state/ui';
 
 export default function RootLayout() {
@@ -24,7 +25,8 @@ export default function RootLayout() {
   const url = Linking.useLinkingURL();
 
   useEffect(() => {
-    void initConnection();
+    // 当前电脑先连，再连「同时连接」的其他电脑
+    void initConnection().then(initMulti);
     void initScheduler();
     void initExtensions();
     // 默认竖屏；只有虚拟桌面页可以切到横屏（见 remote.tsx）

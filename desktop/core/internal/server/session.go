@@ -298,6 +298,18 @@ func (s *Session) dispatch(m rpcMessage) {
 			return
 		}
 		s.reply(m.ID, map[string]any{"displays": displays})
+	case "p2d/file.read":
+		// 读磁盘放到协程里，不阻塞心跳等其他消息
+		go func() {
+			res, err := s.fileRead(m.Params)
+			if err != nil {
+				s.fail(m.ID, errInvalidRequest, err.Error())
+				return
+			}
+			if !notify {
+				s.reply(m.ID, res)
+			}
+		}()
 	case "p2d/upload.begin", "p2d/upload.chunk", "p2d/upload.end", "p2d/upload.cancel":
 		handlers := map[string]func(json.RawMessage) (any, error){
 			"p2d/upload.begin":  s.uploadBegin,

@@ -90,6 +90,9 @@ func registerFS(r *Registry) {
 }
 
 // resolvePath 展开 ~，相对路径以主目录为基准。
+// ResolvePath 把工具参数里的路径转成绝对路径（~ 表示主目录，相对路径以主目录为基准）。
+func ResolvePath(p string) string { return resolvePath(p) }
+
 func resolvePath(p string) string {
 	p = strings.TrimSpace(p)
 	home, _ := os.UserHomeDir()

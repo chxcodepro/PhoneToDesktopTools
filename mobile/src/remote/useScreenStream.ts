@@ -1,9 +1,10 @@
 // 虚拟桌面推流：页面可见且已连接时订阅 p2d/screen.frame，离开页面时停止。
+// 同时连着多台电脑时，推的是「正在看」的那台（uiStore.viewPc，Agent 操作哪台就切到哪台）。
 
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { getClient, useConnection } from '@/state/connection';
+import { useViewTargets, viewClient } from '@/state/multi';
 
 export interface ScreenFrame {
   uri: string;
@@ -48,7 +49,8 @@ export interface StreamOptions {
 
 export function useScreenStream(display: number, opts: StreamOptions = {}): StreamState {
   const { enabled = true, maxWidth = 1280, quality = 60, fps: targetFps = 24 } = opts;
-  const { status } = useConnection();
+  const { view } = useViewTargets();
+  const status = view.status;
   const [focused, setFocused] = useState(false);
   const [state, setState] = useState<StreamState>({ frame: null, displays: 1, error: null, fps: 0 });
   const counter = useRef({ n: 0, since: 0 });
@@ -61,7 +63,7 @@ export function useScreenStream(display: number, opts: StreamOptions = {}): Stre
   );
 
   useEffect(() => {
-    const client = getClient();
+    const client = viewClient();
     if (!enabled || !focused || status !== 'connected' || !client) return;
     let alive = true;
     counter.current = { n: 0, since: Date.now() };
@@ -123,7 +125,8 @@ export function useScreenStream(display: number, opts: StreamOptions = {}): Stre
       offStopped();
       client.request('p2d/screen.stop', {}).catch(() => undefined);
     };
-  }, [enabled, focused, status, display, maxWidth, quality, targetFps]);
+    // 换了要看的电脑（view.pcId）时重新订阅
+  }, [enabled, focused, status, view.pcId, display, maxWidth, quality, targetFps]);
 
   return state;
 }

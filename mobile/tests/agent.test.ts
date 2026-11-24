@@ -6,7 +6,8 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import type { AddressInfo } from 'node:net';
 import { after, describe, it } from 'node:test';
 
-import { pruneImages, runAgent, SCREENSHOT_MARKER, type AgentEvent, type AgentTools } from '../src/agent/agent';
+import { buildSystemPrompt, pruneImages, runAgent, SCREENSHOT_MARKER, type AgentEvent, type AgentTools } from '../src/agent/agent';
+import { createPcTools, type PcTarget } from '../src/agent/multiPc';
 import { chat, configProblem, listModels, LlmError, type ChatMessage, type FetchLike } from '../src/agent/llm';
 import type { ToolResult } from '../src/protocol/types';
 
@@ -466,5 +467,80 @@ describe('agent', () => {
     const out = pruneImages([img(1), { role: 'assistant', content: 'x' }, img(2)]);
     assert.ok(JSON.stringify(out[0]).includes('较早的截图已省略'));
     assert.ok(JSON.stringify(out[2]).includes('base64,2'));
+  });
+});
+
+describe('agent 多台电脑', () => {
+  it('不同电脑的调用同时执行，同一台按顺序；结果按调用顺序写回；提示词说明多台电脑', async () => {
+    const s = await startFakeLlm([
+      {
+        kind: 'tool',
+        calls: [
+          { id: 'c1', name: 'shell_exec', args: { pc: 'A', command: 'a1' } },
+          { id: 'c2', name: 'shell_exec', args: { pc: 'B', command: 'b1' } },
+          { id: 'c3', name: 'shell_exec', args: { pc: 'A', command: 'a2' } },
+          { id: 'c4', name: 'screen_capture', args: { pc: 'B' } },
+        ],
+      },
+      { kind: 'text', text: '两台都好了。' },
+    ]);
+    servers.push(s);
+    const timeline: string[] = [];
+    const target = (id: string): PcTarget => ({
+      id,
+      name: id.toUpperCase(),
+      os: id === 'a' ? 'windows' : 'linux',
+      tools: fakeTools().list(),
+      async call(name, args) {
+        timeline.push(`start ${id}:${String(args.command ?? name)}`);
+        await new Promise((r) => setTimeout(r, 60));
+        timeline.push(`end ${id}:${String(args.command ?? name)}`);
+        if (name === 'screen_capture') return { content: [{ type: 'image', data: PNG, mimeType: 'image/jpeg' }] };
+        return { content: [{ type: 'text', text: `ran ${String(args.command)}` }] };
+      },
+    });
+    const set = createPcTools(() => [target('a'), target('b')]);
+    const { added, error } = await runAgent([{ role: 'user', content: '两台都看看' }], {
+      llm: { baseUrl: s.baseUrl, apiKey: 'sk-test', model: 'm' },
+      fetch: nodeFetch,
+      supportsVision: true,
+      supportsTools: true,
+      tools: set,
+      computers: [
+        { host: 'A', os: 'windows' },
+        { host: 'B', os: 'linux' },
+      ],
+    });
+    assert.equal(error, undefined);
+    // B 的第一个调用不用等 A 的调用结束；A 的两个调用按顺序
+    assert.ok(timeline.indexOf('start b:b1') < timeline.indexOf('end a:a1'), timeline.join(' | '));
+    assert.ok(timeline.indexOf('end a:a1') < timeline.indexOf('start a:a2'), timeline.join(' | '));
+    assert.ok(timeline.indexOf('end b:b1') < timeline.indexOf('start b:screen_capture'), timeline.join(' | '));
+
+    const tools = added.filter((m) => m.role === 'tool');
+    assert.deepEqual(
+      tools.map((m) => m.tool_call_id),
+      ['c1', 'c2', 'c3', 'c4'],
+    );
+    assert.equal(tools[0].content, '【A】ran a1');
+    assert.equal(tools[1].content, '【B】ran b1');
+    assert.match(String(tools[3].content), /【B】[\s\S]*截图见下一条消息的第 1 张图/);
+
+    const second = s.requests[1];
+    const sys = second.messages[0].content as string;
+    assert.match(sys, /同时连接着用户的 2 台电脑：「A」（Windows）、「B」（Linux/);
+    assert.match(sys, /pc 参数/);
+    assert.match(sys, /Windows 电脑使用 cmd 语法/);
+    assert.match(sys, /Linux 电脑使用 bash 语法/);
+    const shell = second.tools.find((t: any) => t.function.name === 'shell_exec');
+    assert.deepEqual(shell.function.parameters.required, ['pc']);
+    assert.deepEqual(shell.function.parameters.properties.pc.enum, ['A', 'B']);
+  });
+
+  it('只连一台时提示词和工具都不变', () => {
+    const p = buildSystemPrompt({ tools: fakeTools(), supportsTools: true, supportsVision: true, computer: { host: 'PC1', os: 'linux' } });
+    assert.doesNotMatch(p, /pc 参数/);
+    assert.match(p, /命令：使用 bash 语法/);
+    assert.doesNotMatch(p, /cmd 语法/);
   });
 });

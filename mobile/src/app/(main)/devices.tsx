@@ -2,7 +2,7 @@
 // 每台电脑有各自的对话：切换电脑后，Agent 页显示那台电脑的对话。
 
 import { router } from 'expo-router';
-import { Monitor, MoreHorizontal, Pencil, Plug, Plus, Trash2, Wifi } from 'lucide-react-native';
+import { Layers, Monitor, MoreHorizontal, Pencil, Plug, Plus, Trash2, Unlink, Wifi } from 'lucide-react-native';
 import { useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, View } from 'react-native';
 
@@ -21,6 +21,7 @@ import { Text } from '@/components/ui/text';
 import { cn } from '@/lib/utils';
 import { canUseUsb, connectDevice, disconnect, osLabel, switchRoute, useConnection } from '@/state/connection';
 import { deviceLabel, removeDevice, renameDevice, setPreferUsb, useDevices, type PcDevice } from '@/state/devices';
+import { connectExtra, disconnectExtra, useMulti, type ExtraConn } from '@/state/multi';
 import { pendingPairStore } from '@/state/pairing';
 import { useStore } from '@/state/store';
 
@@ -128,8 +129,30 @@ function CurrentCard({ onError }: { onError: (m: string) => void }) {
   );
 }
 
-function DeviceRow({ d, current, onMore, onError }: { d: PcDevice; current: boolean; onMore: () => void; onError: (m: string) => void }) {
+/** 「同时连接」的状态文字 */
+function extraText(x: ExtraConn | undefined): { text: string; ok: boolean } {
+  if (!x) return { text: '同时连接 · 没连上', ok: false };
+  if (x.status === 'connected') return { text: '同时连接 · 已连接', ok: true };
+  if (x.status === 'connecting' || x.status === 'disconnected') return { text: '同时连接 · 正在连接…', ok: false };
+  return { text: `同时连接 · 没连上${x.detail ? `：${x.detail}` : ''}`, ok: false };
+}
+
+function DeviceRow({
+  d,
+  current,
+  extra,
+  onMore,
+  onError,
+}: {
+  d: PcDevice;
+  current: boolean;
+  /** 选了「同时连接」时为它的状态（还没开始连时为 null） */
+  extra?: ExtraConn | null;
+  onMore: () => void;
+  onError: (m: string) => void;
+}) {
   const { status } = useConnection();
+  const x = extra !== undefined ? extraText(extra ?? undefined) : null;
   const connect = () => {
     if (!d.paired) {
       Alert.alert('还没有配对', '插一次数据线会自动配对；或者在电脑端窗口点「配对新手机」，再点右上角「添加」扫码 / 输入 IP。');
@@ -155,6 +178,14 @@ function DeviceRow({ d, current, onMore, onError }: { d: PcDevice; current: bool
               .filter(Boolean)
               .join(' · ')}
           </Text>
+          {x ? (
+            <View className="flex-row items-center gap-1">
+              <Icon as={Layers} size={11} className={x.ok ? 'text-success-foreground' : 'text-muted-foreground'} />
+              <Text numberOfLines={1} className={cn('flex-shrink text-xs', x.ok ? 'text-success-foreground' : 'text-muted-foreground')}>
+                {x.text}
+              </Text>
+            </View>
+          ) : null}
         </View>
         <Pressable onPress={onMore} hitSlop={10} className="h-8 w-8 items-center justify-center" accessibilityLabel="更多">
           <Icon as={MoreHorizontal} size={18} className="text-muted-foreground" />
@@ -167,6 +198,7 @@ function DeviceRow({ d, current, onMore, onError }: { d: PcDevice; current: bool
 export default function DevicesScreen() {
   const { devices, preferUsb, phoneName } = useDevices();
   const { pcId } = useConnection();
+  const multi = useMulti();
   const pending = useStore(pendingPairStore).link;
   const [adding, setAdding] = useState(false);
   const [renaming, setRenaming] = useState<PcDevice | null>(null);
@@ -201,6 +233,7 @@ export default function DevicesScreen() {
             key={d.pcId}
             d={d}
             current={d.pcId === pcId}
+            extra={d.pcId !== pcId && multi.wanted.includes(d.pcId) ? (multi.conns[d.pcId] ?? null) : undefined}
             onMore={() => {
               setMenuFor(d);
               setMenuOpen(true);
@@ -220,6 +253,9 @@ export default function DevicesScreen() {
         <Switch checked={preferUsb} onCheckedChange={setPreferUsb} />
       </Card>
 
+      <Text className="px-1 text-xs leading-5 text-muted-foreground">
+        在电脑右边的「⋯」里点「同时连接」，可以再连几台配对过的电脑（走 WiFi 或 Tailscale），Agent 在同一个对话里能一起操作，告诉它在哪台、或者几台一起做就行。
+      </Text>
       <Text className="px-1 text-xs leading-5 text-muted-foreground">
         {`WiFi 连接是手机直接连电脑的局域网 IP（端口 39272），全程加密，只有配对过的手机能连。拔掉数据线时会自动切到 WiFi。本机名称：${phoneName}。`}
       </Text>
@@ -244,6 +280,17 @@ export default function DevicesScreen() {
         actions={
           menuFor
             ? [
+                ...(menuFor.pcId !== pcId && menuFor.paired
+                  ? [
+                      multi.wanted.includes(menuFor.pcId)
+                        ? { label: '断开同时连接', icon: Unlink, onPress: () => disconnectExtra(menuFor.pcId) }
+                        : {
+                            label: '同时连接（Agent 可一起操作）',
+                            icon: Layers,
+                            onPress: () => void connectExtra(menuFor.pcId).catch((e) => setError(errText(e))),
+                          },
+                    ]
+                  : []),
                 {
                   label: '重命名',
                   icon: Pencil,
