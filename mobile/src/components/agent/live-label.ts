@@ -17,6 +17,7 @@ const TOOL_LABEL: Record<string, string> = {
   input_keyboard: '操作键盘',
   ui_tree: '读取界面元素',
   ui_act: '操作界面元素',
+  window_activate: '切换到程序',
   web_search: '手机联网搜索',
   web_fetch: '手机读取网页',
   driver_search: '查找驱动',

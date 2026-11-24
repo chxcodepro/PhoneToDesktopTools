@@ -2,9 +2,14 @@
 // Windows 用系统自带的 UI Automation（Win7 起都有）；Linux（AT-SPI）暂未实现。
 package uia
 
+import (
+	"strings"
+	"unicode/utf8"
+)
+
 // Params 一次调用的参数。
 type Params struct {
-	Mode   string // windows：列出窗口；tree：列出元素；act：操作元素
+	Mode   string // windows：列出窗口；tree：列出元素；act：操作元素；activate：把程序切到前台（Window 是程序名或标题）
 	Window string // 窗口标题（包含即可）；空 = 前台窗口；taskbar / 任务栏 = 任务栏
 	Name   string // 按名称筛选（包含即可）
 	Type   string // 按类型筛选（如 按钮、编辑）
@@ -34,4 +39,25 @@ func (p *Params) normalize() {
 	if p.Action == "" {
 		p.Action = "click"
 	}
+}
+
+// trayRank 托盘图标名和要找的程序名有多接近：3 完全相同；2 开头相同且后面是分隔符（如「QQ: 昵称」「微信 - 3 条新消息」）；
+// 1 只是开头相同（如找「QQ」时的「QQ音乐」），不能算同一个程序；0 不相干
+func trayRank(name, want string) int {
+	n := strings.ToLower(strings.TrimSpace(name))
+	w := strings.ToLower(strings.TrimSpace(want))
+	if n == "" || w == "" {
+		return 0
+	}
+	if n == w {
+		return 3
+	}
+	if !strings.HasPrefix(n, w) {
+		return 0
+	}
+	next, _ := utf8.DecodeRuneInString(n[len(w):])
+	if strings.ContainsRune(" :：-—(（[\n\t", next) {
+		return 2
+	}
+	return 1
 }

@@ -32,6 +32,16 @@ func registerUI(r *Registry) {
 		Category: perm.CatScreen, Kind: perm.Read, Handler: uiTree,
 	})
 	r.Add(&Tool{
+		Name: "window_activate",
+		Description: "把已经在运行的程序切到前台：窗口最小化就还原；没有窗口（关到托盘里了，如微信、QQ、钉钉）就点托盘图标打开它。" +
+			"要操作某个程序时先用它，找不到再启动：微信、QQ 等重复启动会多开，弹出新的登录窗口（提示「该账号已登录」）。" +
+			"name 填程序名或窗口标题的一部分（如 微信、QQ、记事本、Excel），也可以填进程名（如 Weixin）。",
+		InputSchema: object(map[string]prop{
+			"name": str("程序名或窗口标题（包含即可），如 微信"),
+		}, "name"),
+		Category: perm.CatInput, Kind: perm.Write, Handler: windowActivate,
+	})
+	r.Add(&Tool{
 		Name: "ui_act",
 		Description: "按名称直接操作窗口里的界面元素，不依赖坐标，窗口被遮挡也可以。action：click 点击（按钮、菜单项、链接、列表项；已展开的菜单再 click 会收起）、" +
 			"set_value 填写输入框（value 为内容）、focus 让元素获得焦点、toggle 切换复选框 / 开关、expand / collapse 展开或收起。" +
@@ -66,6 +76,20 @@ func uiTree(ctx context.Context, raw json.RawMessage) (*Result, error) {
 		p.Mode = "windows"
 	}
 	out, err := uiaRun(ctx, p)
+	if err != nil {
+		return nil, err
+	}
+	return &Result{Content: []Content{{Type: "text", Text: out}}}, nil
+}
+
+func windowActivate(ctx context.Context, raw json.RawMessage) (*Result, error) {
+	var a struct {
+		Name string `json:"name"`
+	}
+	if err := decode(raw, &a); err != nil {
+		return nil, err
+	}
+	out, err := uiaRun(ctx, uia.Params{Mode: "activate", Window: a.Name, Restore: allowed(ctx, perm.CatInput, perm.Write)})
 	if err != nil {
 		return nil, err
 	}

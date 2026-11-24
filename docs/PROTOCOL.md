@@ -66,10 +66,10 @@ WiFi 连接不走 adb，而是手机直接连电脑的局域网 IP（详见第 9
 | level | 允许的工具 |
 |---|---|
 | `readonly` | 只读类：`sys_info`、`fs_list`、`fs_read`、`fs_search`、`doc_read`、`screen_capture`、`ui_tree` |
-| `standard` | 只读类 + `fs_write`、`fs_edit`、`input_mouse`、`input_keyboard`、`ui_act` |
+| `standard` | 只读类 + `fs_write`、`fs_edit`、`input_mouse`、`input_keyboard`、`ui_act`、`window_activate` |
 | `full` | 全部，包括 `shell_exec`、`fs_delete` |
 
-四个开关再按类别收紧：`shell` → `shell_exec`；`fs` → `fs_*` 和 `doc_read`；`screen` → `screen_capture`、`ui_tree`；`input` → `input_*`、`ui_act`。
+四个开关再按类别收紧：`shell` → `shell_exec`；`fs` → `fs_*` 和 `doc_read`；`screen` → `screen_capture`、`ui_tree`；`input` → `input_*`、`ui_act`、`window_activate`。
 
 连接建立后、收到 `p2d/setPermissions` 之前，默认 `readonly`。手机端应在 `initialize` 之后立即发送一次，用户修改设置时再次发送。
 
@@ -86,10 +86,11 @@ WiFi 连接不走 adb，而是手机直接连电脑的局域网 IP（详见第 9
 | `fs_search` | `path`，`name?`（通配符），`content?`（包含的文字），`max_results?`（默认 100） | 搜索文件名和文件内容 |
 | `doc_read` | `path`，`sheet?`，`max_rows?`（默认 200），`pages?`（PDF 页码，如 `1-3,5`） | 读取 docx / xlsx / pptx / pdf，以及 Office 97-2003 的 doc / xls / ppt 和 WPS 的 wps / et / dps 的文字（旧格式按文件内容识别，纯 Go 实现：`internal/olddoc`，含复合文档、Word 分段表、Excel BIFF8 共享字符串与日期格式、PPT 持久化目录；加密文件和 Word 6 / Excel 5 等更老的格式返回说明；扩展名是 .doc 但实际是 RTF / 网页的文件提示改用 `fs_read`）；Excel 按工作表输出，制表符分隔；PDF 按页输出，单次约 200 KB，超出时提示用 `pages` 继续。PDF 解析为纯 Go 实现（`internal/pdftext`）：支持压缩对象流、交叉引用流、损坏文件重建、只设权限密码的加密文件（RC4 / AES-128 / AES-256），中文靠 ToUnicode 或 GBK / UCS2 等预定义编码；扫描件、设了打开密码的文件返回说明 |
 | `fs_delete` | `path` | 移到回收站（Windows 回收站；Linux 放到 `~/.local/share/Trash`） |
-| `screen_capture` | `display?`（默认 0），`max_width?`（默认 1280），`quality?`（默认 70） | 返回 JPEG 图片，外加一段文字说明缩放比例：`屏幕坐标 = 截图坐标 ÷ scale + 显示器偏移` |
-| `input_mouse` | `action`：`move` / `click` / `double_click` / `right_click` / `middle_click` / `down` / `up` / `scroll` / `drag`；`x`、`y`；`to_x`、`to_y`（drag 用）；`dy`（scroll 用，正数向上） | 坐标为屏幕坐标（虚拟桌面像素） |
+| `screen_capture` | `display?`（默认 0），`max_width?`（默认 1280），`quality?`（默认 70） | 返回 JPEG 图片，外加一段文字说明缩放比例：`屏幕坐标 = 截图坐标 ÷ scale + 显示器偏移`。电脑端记住最近一次截图的换算关系，供 `input_mouse` 的 `coords=screenshot` 使用 |
+| `input_mouse` | `action`：`move` / `click` / `double_click` / `right_click` / `middle_click` / `down` / `up` / `scroll` / `drag`；`x`、`y`；`to_x`、`to_y`（drag 用）；`dy`（scroll 用，正数向上）；`coords?`：`screen`（默认）/ `screenshot` | 默认是屏幕坐标（虚拟桌面像素）；`coords=screenshot` 时 x、y、to_x、to_y 是最近一次 `screen_capture` 截图上的像素坐标，由电脑端换算（模型不用自己算，超出截图范围时报错） |
 | `input_keyboard` | `action`：`type`（输入 `text`，支持中文）或 `key`（按组合键 `keys`，如 `ctrl+c`、`alt+f4`、`enter`） | |
 | `ui_tree` | `window?`（标题包含即可；不填为前台窗口；`任务栏`），`name?`，`type?`，`list_windows?`，`max?`（默认 150） | 读取界面元素（控件树）：每行 `[类型] 名称 (x, y)`，坐标为元素中心的屏幕坐标；输入框附带当前值。窗口最小化时，只有同时满足 `ui_act` 的权限（`standard` 以上且开着 `input`）才会先还原，否则不动窗口、只返回提示。Windows 直接调用系统 UI Automation（COM，Win7 起都有）；Linux 暂不支持 |
+| `window_activate` | `name`（程序名或窗口标题，包含即可；也可以是完整的进程名，如 `Weixin`） | 把已经在运行的程序切到前台：有窗口就还原并切到前台（同名窗口取没最小化、面积最大的那个，主窗口一般比登录框大）；没有窗口（关到托盘里了）就点任务栏托盘里同名的图标，图标收在「^」里时先展开再找，找完收起。托盘图标要名称完全相同或「名称 + 分隔符」开头（如 `QQ: 昵称`），避免「QQ」点到「QQ音乐」。都没有时返回「没有在运行」，由模型再启动。用于避免重复启动（微信 4.x 等重复启动会多开，弹出新的登录窗口）。只在 Windows 上可用 |
 | `ui_act` | `name`，`action`：`click` / `set_value` / `focus` / `toggle` / `expand` / `collapse`；`window?`，`type?`，`index?`，`value?` | 按名称操作元素，不依赖坐标；同名时优先选支持该动作的元素。不支持的元素返回坐标，改用 `input_mouse` |
 
 ## 5. 远程桌面推流（自定义扩展）

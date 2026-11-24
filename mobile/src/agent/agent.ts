@@ -116,11 +116,13 @@ export function buildSystemPrompt(
     if (hasLinux && hasWin) lines.push(`- 命令：Windows 电脑${winCmd}`, `- 命令：Linux 电脑${linuxCmd}`);
     else lines.push(`- 命令：${hasLinux ? linuxCmd : winCmd}`);
     lines.push(
-      '- 操作界面优先用控件树：ui_tree 读出窗口里的按钮、输入框、菜单等（名称和屏幕坐标，没有文字的图标也有名称），ui_act 按名称直接点击、填写、展开，比按坐标点更准；读不到元素的程序（游戏、远程桌面、自绘界面）再用截图 + input_mouse。',
+      '- 操作某个程序（如微信、QQ）前，先用 window_activate 把它切到前台：窗口最小化会还原，关到托盘里的会点托盘图标打开。它说没有在运行时才用 shell_exec 启动；不要因为看不到窗口就再次启动，微信、QQ 等会多开，弹出新的登录窗口（提示「该账号已登录」）。',
+      '- 操作界面优先用控件树：ui_tree 读出窗口里的按钮、输入框、菜单、列表项等（名称和屏幕坐标，没有文字的图标也有名称），ui_act 按名称直接点击、填写、展开，比按坐标点更准；读不到元素的程序（游戏、远程桌面、自绘界面）再用截图 + input_mouse。',
+      '- 每步操作后确认结果（ui_tree 或截图）。同一个位置点了两次还没有反应，不要继续重复点：换一种方式（ui_act、键盘快捷键、先 window_activate），或者截图看看是不是有弹窗挡住。',
     );
     if (opts.supportsVision) {
       lines.push(
-        '- 看屏幕：screen_capture 截图，按返回的 scale 和偏移把截图坐标换算成屏幕坐标，再用 input_mouse / input_keyboard 操作；操作后再截图确认结果。',
+        '- 看屏幕：screen_capture 截图。按截图点击时 input_mouse 传 coords="screenshot"，x、y 直接填截图上看到的像素坐标（电脑端自动换算成屏幕坐标，不要自己算）；ui_tree 返回的坐标是屏幕坐标，不传 coords。操作后再截图确认结果。',
       );
     } else {
       lines.push(
@@ -226,9 +228,11 @@ export function summarizeArgs(name: string, args: Record<string, unknown>): stri
     case 'shell_exec':
       return args.admin ? `[管理员] ${s(args.command)}` : s(args.command);
     case 'input_mouse': {
-      const pos = args.x !== undefined ? ` (${args.x}, ${args.y})` : '';
+      const pos = args.x !== undefined ? ` (${args.x}, ${args.y})${args.coords === 'screenshot' ? ' 截图坐标' : ''}` : '';
       return `${s(args.action)}${pos}`;
     }
+    case 'window_activate':
+      return s(args.name);
     case 'input_keyboard':
       return args.action === 'key' ? s(args.keys) : `输入「${s(args.text).slice(0, 40)}」`;
     case 'screen_capture':
@@ -480,6 +484,8 @@ export async function runAgent(history: ChatMessage[], opts: AgentOptions): Prom
               : '\n（当前模型看不到图片，且未能识别截图文字。请改用命令、文件等文字类工具获取信息。）';
           }
         }
+        // 换成文字识别时，识别结果里给的已经是屏幕坐标：去掉「按截图坐标点击」的说明，免得模型混用两种坐标
+        if (imgs.length && !toModel.length) text = text.replace(/\n?点击截图上的位置：[^\n]*/, '');
         done[i] = { text, imgs: toModel, isError: !!result.isError };
         emit({
           type: 'tool_end',

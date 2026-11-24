@@ -284,6 +284,9 @@ func (s *session) walk(e com, depth, indent int) {
 }
 
 func (s *session) run() (string, error) {
+	if s.p.Mode == "activate" {
+		return s.activate()
+	}
 	if s.p.Mode == "windows" {
 		wins := s.topWindows()
 		defer releaseAll(wins)
