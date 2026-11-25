@@ -2,7 +2,7 @@ package adb
 
 // 手机端自动更新：电脑端内置的安装包和手机上已装的不一样时，插线连接时覆盖安装。
 // 不比较版本号，直接比较安装包的 SHA-256：开发中重新打包（版本号没变）也能更新。
-// 手机上装的是更新的版本时，adb 会以「版本降级」拒绝安装，此时继续使用手机上的版本。
+// 手机上装的是更新的版本时，手机会以「版本降级」拒绝安装，此时继续使用手机上的版本。
 // 被拒绝过的组合（手机上的包 + 内置的包）记下来，之后插线不再重复推送安装包（推一次要十几秒）。
 
 import (
@@ -101,7 +101,7 @@ func (m *Manager) needsUpdate(ctx context.Context, serial, pmOut string) (bool, 
 	if path == "" {
 		return false, ""
 	}
-	out, err := m.run(ctx, 30*time.Second, "-s", serial, "shell", "sha256sum", "'"+path+"'")
+	out, err := m.shell(ctx, 30*time.Second, serial, "sha256sum '"+path+"'")
 	if err != nil {
 		return false, ""
 	}
@@ -125,7 +125,7 @@ func (m *Manager) needsUpdate(ctx context.Context, serial, pmOut string) (bool, 
 func (m *Manager) updateApp(ctx context.Context, serial, key string) bool {
 	m.setStage(serial, StageInstalling, "正在更新手机端，部分手机需要在手机上点「允许安装」")
 	log.Printf("设备 %s：手机端版本和电脑端内置的不同，正在更新", serial)
-	out, err := m.run(ctx, 3*time.Minute, "-s", serial, "install", "-r", m.cfg.APKPath)
+	out, err := m.install(ctx, serial)
 	switch {
 	case err == nil && strings.Contains(out, "Success"):
 		log.Printf("设备 %s：手机端已更新", serial)

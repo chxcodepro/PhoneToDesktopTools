@@ -27,7 +27,7 @@ TARGETS=(
   linux/arm64     # 麒麟 arm64（飞腾、鲲鹏、海思麒麟）
   linux/loong64   # 麒麟 loongarch64（龙芯 3A5000/3A6000，旧世界）
 )
-# 不支持：龙芯 3A4000（mips64el，没有可用的 Electron 22 和 adb）、申威（sw64，Go 官方不支持）
+# 不支持：龙芯 3A4000（mips64el，没有可用的 Electron 22）、申威（sw64，Go 官方不支持）
 
 cd "$ROOT/desktop/core"
 export CGO_ENABLED=0 GOTOOLCHAIN=local

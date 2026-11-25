@@ -13,7 +13,7 @@ export type DeviceStage =
   | '';
 
 export interface CoreDevice {
-  /** adb 序列号；WiFi 通道是 ip:port；免调试连接是 aoa:<USB 插口> */
+  /** USB 序列号（和 adb devices 相同）；经 adb 服务的 WiFi 通道是 ip:port；免调试连接是 aoa:<USB 插口> */
   serial: string;
   /** 手机硬件序列号，USB 和 WiFi 通道相同；会话的 serial 就是它 */
   id?: string;
@@ -82,7 +82,7 @@ export interface CoreStatus {
   uptime: number;
   sessions: CoreSession[];
   adbAvailable?: boolean;
-  /** adb 不可用的原因（如缺少运行库） */
+  /** 不能经数据线连接开了 USB 调试的手机的原因（如读不到 USB 设备） */
   adbError?: string;
   /** 免调试连接（Linux）：开启时有；problem 是读不到 USB 设备的原因 */
   aoa?: { enabled: boolean; problem?: string };

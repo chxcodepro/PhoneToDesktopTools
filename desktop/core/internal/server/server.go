@@ -23,11 +23,11 @@ import (
 // Version 由构建脚本通过 -ldflags 注入。
 var Version = "dev"
 
-// DeviceSource 提供设备状态（由 adb 管理器实现）。
+// DeviceSource 提供设备状态（由 internal/adb 的设备管理器实现）。
 type DeviceSource interface {
 	Snapshot() any
 	Available() bool
-	Problem() string // adb 不可用的原因
+	Problem() string // 不能连接开了 USB 调试的手机的原因
 	SuppressAll()    // 用户点「断开」后，拔线前不再自动连接
 }
 

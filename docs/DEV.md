@@ -4,7 +4,7 @@
 
 | 目录 | 内容 |
 |---|---|
-| `desktop/core/` | 电脑端核心服务（Go 1.20，MCP 服务端 + adb 自动连接） |
+| `desktop/core/` | 电脑端核心服务（Go 1.20，MCP 服务端 + 数据线自动连接，自己实现 ADB 协议，不需要 adb） |
 | `mobile/` | 手机端 App（Expo + expo-router + NativeWind） |
 | `docs/` | 方案 [PLAN.md](PLAN.md)、协议 [PROTOCOL.md](PROTOCOL.md) |
 | `preview/` | 界面预览（静态 HTML） |
@@ -20,12 +20,15 @@ bash scripts/build-core.sh 0.1.0-dev
 # 单元测试
 cd desktop/core && ../../.tools/go/bin/go test ./...
 
-# 本机调试：固定令牌，不启用 adb 设备发现
+# 本机调试：固定令牌，不连接开了 USB 调试的手机
 dist/core/windows-amd64/p2d-core.exe -dev-token e2etoken -no-adb
 ```
 
 - 必须用 **Go 1.20.x** 编译，否则 Windows 7 无法运行。
-- 正式运行时，adb 和手机端安装包从程序目录读取：`vendor/adb/adb(.exe)`、`vendor/app/p2d.apk`。找不到内置 adb 时会使用 PATH 中的 adb（开发环境）。
+- 正式运行时，手机端安装包从程序目录读取：`vendor/app/p2d.apk`。
+- 开了 USB 调试的手机由 Core 直接经 USB 连接（`internal/usbio`：Windows 用 WinUSB，Linux 用 usbfs；`internal/adbwire`：ADB 协议、授权、装 APK、reverse 转发），不调用 adb。电脑上有 adb 后台服务（5037 端口）在运行、占着手机时，经它连接。
+- ADB 密钥和 adb 共用：`~/.android/adbkey`（Windows 是 `%USERPROFILE%\.android\adbkey`），没有就生成；那里写不进去时放在 Core 的数据目录。
+- 调试 ADB 通信：设置环境变量 `P2D_ADB_DEBUG=1`，日志里会记下每条收发的消息。真机测试：插着开了 USB 调试的手机（电脑上不能有 adb 服务占着它），运行 `P2D_USB_TEST=1 go test -v -run Real ./internal/usbio/ ./internal/adbwire/`（`P2D_N=字节数` 测大量输出，`P2D_APK=安装包路径` 测安装）。
 - 状态接口：`GET http://127.0.0.1:39271/api/status`
 
 ## 手机端
@@ -81,32 +84,33 @@ GitHub 上在仓库「Settings → Secrets and variables → Actions」里添加
 |---|---|
 | `core` | 电脑端核心，5 个平台（Windows x64 / x86，Linux x64 / arm64 / loong64） |
 | `apk` | 手机端 APK（arm64-v8a + armeabi-v7a） |
-| `desktop-win` | 电脑端安装程序 `-setup.exe`（x64、ia32 各一个），已内置 adb、运行库和 APK |
+| `desktop-win` | 电脑端安装程序 `-setup.exe`（x64、ia32 各一个），已内置 APK |
 | `desktop-linux` | 电脑端 deb 和 tar.gz（x64、arm64、龙芯），AppImage（x64、arm64） |
 
 - 每次推送和 PR 都会跑；产物保留 14 天。版本号为 `0.1.0-ci.<运行编号>`。
 - 推送 `v` 开头的标签（如 `git tag v0.1.0 && git push origin v0.1.0`）会另外创建 GitHub Release，附上以上所有文件，版本号取标签。**检查更新只认 Release**：平时推送的 `ci` 构建不会被检查到，要让用户收到更新就打标签。版本号要比上一个标签大（`0.1.0` 比 `0.1.0-ci.N` 新）。
 - APK 的 versionName 是构建版本号，versionCode 是运行编号（递增，保证新包能覆盖安装旧包）。
-- adb 和 Windows 运行库由 `scripts/fetch-vendor.sh` 在构建时下载，逐个文件核对 SHA-256（运行库的校验值在 `scripts/ucrt-x86.sha256`）。本地打包前也可以运行它准备 `desktop/vendor/`。
 - `mobile/android/` 不入库，构建时用 `expo prebuild` 重新生成。电脑端靠覆盖安装给手机更新 App，所以 APK 的签名必须和手机上已装的一致。
 - 签名：配置了「正式签名」的 4 个 Secret 就用正式证书；没配置时用调试签名，并核对调试证书和本地构建的一致，不一致时给出警告。除此之外不需要配置任何密钥。
 
 ## 已知待办
 
-- **adb**：Windows 和 Linux x86_64 用 33.0.3（Win7 实测结论见 TESTING.md 1.5）；麒麟 arm64 用麒麟软件源里的 adb 8.1 和它的 6 个库（见 desktop/vendor/README.md）；龙芯没有可用的 adb，数据线用免调试连接（AOA，见 PROTOCOL.md 1.2），或用 WiFi。`bash scripts/fetch-vendor.sh` 会下载并核对。
+- **ADB 直连**：Windows 10 + 一加 13 实测通过（TESTING.md 4.1）；Linux（usbfs）、Win7、32 位还没在真机上测。
 - **真机验证**：已在小米 9（Android 15）、一加 PJZ110（Android 17）+ Windows 10 上跑通自动安装、自动连接、自动重连、远程桌面、WiFi 直连，以及用 DeepSeek 驱动 Agent 操作电脑。
 - **OCR（iOS）**：Android 已用 ML Kit 中文模型离线识别（`modules/p2d-ocr`）；iOS 还没实现（可用 Vision 的 `VNRecognizeTextRequest`），目前 iPhone 上看不到图片的模型拿不到截图文字。
 - **麒麟**：x86_64 虚拟机上全部功能实测通过（TESTING.md 2.4）；arm64、龙芯没有真机，未实测。
 
 ## 麒麟各 CPU
 
-| CPU | 架构 | 核心 | 界面 | adb | 安装包 |
-|---|---|---|---|---|---|
-| 兆芯、海光、Intel | x86_64 | 上游 Go 1.20 | Electron 22（官方） | 33.0.3（官方） | deb、AppImage |
-| 飞腾、鲲鹏、海思麒麟 | arm64 | 上游 Go 1.20 | Electron 22（官方） | 8.1（麒麟软件源） | deb、AppImage |
-| 龙芯 3A5000 / 3A6000 | loongarch64（旧世界） | 龙芯旧世界 Go 1.20.12 | 龙芯 Electron 22.3.27 | 没有，用免调试连接或 WiFi | deb |
-| 龙芯 3A4000 | mips64el | — | 没有 Electron 22 | 没有 | 不支持 |
-| 申威 | sw64 | 上游 Go 不支持 | 没有 | 没有 | 不支持 |
+| CPU | 架构 | 核心 | 界面 | 安装包 |
+|---|---|---|---|---|
+| 兆芯、海光、Intel | x86_64 | 上游 Go 1.20 | Electron 22（官方） | deb、AppImage |
+| 飞腾、鲲鹏、海思麒麟 | arm64 | 上游 Go 1.20 | Electron 22（官方） | deb、AppImage |
+| 龙芯 3A5000 / 3A6000 | loongarch64（旧世界） | 龙芯旧世界 Go 1.20.12 | 龙芯 Electron 22.3.27 | deb |
+| 龙芯 3A4000 | mips64el | — | 没有 Electron 22 | 不支持 |
+| 申威 | sw64 | 上游 Go 不支持 | 没有 | 不支持 |
+
+数据线连接（USB 调试和免调试连接）都由 Core 自己通过 usbfs 完成，各 CPU 相同，不需要 adb。
 
 - 麒麟 V10 的龙芯版是「旧世界」：信号处理的 `ucontext` 结构、信号集大小都和上游 Go 假设的「新世界」不同，上游 Go 编出的程序收到信号就会出错，所以必须用龙芯的旧世界 Go（`scripts/fetch-loong-go.sh`，只有 linux-amd64 版，所以龙芯版只在 GitHub 构建里编译）。
 - `scripts/package-linux.sh` 把 electron-builder 的 `linux-*-unpacked` 打成 deb 和 tar.gz；龙芯版在 x64 目录基础上换成龙芯 Electron 和龙芯核心。
@@ -114,7 +118,7 @@ GitHub 上在仓库「Settings → Secrets and variables → Actions」里添加
 
 ## 手机端自动更新
 
-电脑端每次通过数据线连上手机时，比较内置安装包（`-apk`）和手机上已装 App 的 SHA-256（手机上用 `sha256sum` 计算 `pm path` 得到的 base.apk），不同就 `adb install -r` 覆盖安装，装完重新拉起 App。不需要手动改版本号；手机上的版本更新（降级被拒）或签名不同（如装过开发版）时跳过更新，继续使用手机上的版本，日志里会说明原因。被拒绝过的组合（手机上的包 + 内置包的哈希）在 Core 运行期间记住，之后插线不再重复推送安装包。
+电脑端每次通过数据线连上手机时，比较内置安装包（`-apk`）和手机上已装 App 的 SHA-256（手机上用 `sha256sum` 计算 `pm path` 得到的 base.apk），不同就覆盖安装（经 USB 把安装包传给手机的 `cmd package install -r -S`），装完重新拉起 App。不需要手动改版本号；手机上的版本更新（降级被拒）或签名不同（如装过开发版）时跳过更新，继续使用手机上的版本，日志里会说明原因。被拒绝过的组合（手机上的包 + 内置包的哈希）在 Core 运行期间记住，之后插线不再重复推送安装包。
 
 ## 检查更新
 

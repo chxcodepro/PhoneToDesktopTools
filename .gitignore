@@ -22,7 +22,7 @@ mobile/ios/
 .idea/
 .DS_Store
 
-# 预存的 adb、APK 等二进制（体积大、有第三方许可），只保留说明
+# 预存的手机端 APK（构建产物，体积大），只保留说明
 desktop/vendor/*
 !desktop/vendor/README.md
 

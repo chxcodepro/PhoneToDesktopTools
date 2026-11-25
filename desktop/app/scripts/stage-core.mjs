@@ -1,6 +1,6 @@
 // 打包前把 Go 编译出的 Core 复制到 core-bin/<electron-builder 的 os>-<arch>/，供 extraResources 使用。
 // 需要先在仓库根目录运行 bash scripts/build-core.sh。
-import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, rmSync, chmodSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, rmSync, chmodSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -13,19 +13,9 @@ const map = [
   ['linux-arm64', 'linux-arm64', 'p2d-core'],
   ['linux-loong64', 'linux-loong64', 'p2d-core'],
 ];
-// 预存的 adb（按平台）和手机端安装包，放在 desktop/vendor/ 下（见 desktop/vendor/README.md）
+// 手机端安装包，放在 desktop/vendor/ 下（见 desktop/vendor/README.md）。电脑端自己经 USB 连接手机，不再带 adb。
 const vendor = join(repo, 'desktop', 'vendor');
-function stageVendor(goDir, coreDir) {
-  const adbSrc = join(vendor, 'adb', goDir);
-  if (existsSync(adbSrc) && readdirSync(adbSrc).length > 0) {
-    cpSync(adbSrc, join(coreDir, 'vendor', 'adb'), { recursive: true });
-    if (!goDir.startsWith('windows')) {
-      const adb = join(coreDir, 'vendor', 'adb', 'adb');
-      if (existsSync(adb)) chmodSync(adb, 0o755);
-    }
-  } else {
-    console.warn(`提示：${goDir} 没有预存 adb（${adbSrc}），打包后将使用系统 PATH 中的 adb`);
-  }
+function stageVendor(coreDir) {
   const apk = join(vendor, 'app', 'p2d.apk');
   if (existsSync(apk)) {
     mkdirSync(join(coreDir, 'vendor', 'app'), { recursive: true });
@@ -47,7 +37,7 @@ for (const [goDir, ebDir, exe] of map) {
   mkdirSync(dirname(dst), { recursive: true });
   copyFileSync(src, dst);
   if (!exe.endsWith('.exe')) chmodSync(dst, 0o755);
-  stageVendor(goDir, dirname(dst));
+  stageVendor(dirname(dst));
   n++;
 }
 if (n === 0) {

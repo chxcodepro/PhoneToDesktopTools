@@ -1,24 +1,23 @@
-// Package adb 自动发现 USB 连接的安卓手机：自动安装 App、建立 adb reverse 隧道、通过 Deep Link 下发令牌并启动 App。
+// Package adb 自动发现开了 USB 调试的安卓手机：自动安装 App、建立 adb reverse 隧道、通过 Deep Link 下发令牌并启动 App。
+// 电脑端自己经 USB 和手机的 adbd 通信（usb.go、internal/adbwire），不再带 adb 程序；
+// 电脑上已有 adb 后台服务（Android Studio 等）占着手机时，经它的 5037 端口办事。
 // 令牌和会话按手机（ro.serialno）而不是按通道区分，见 phones.go。WiFi 连接改由局域网直连（internal/lan）完成。
 package adb
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"log"
 	"net/url"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
 	"time"
 
-	"p2d/core/internal/portres"
-	"p2d/core/internal/procutil"
+	"p2d/core/internal/adbwire"
+	"p2d/core/internal/usbio"
 )
 
 // Stage 设备所处阶段。
@@ -36,16 +35,18 @@ const (
 
 // Device 设备状态。
 type Device struct {
-	Serial    string `json:"serial"`       // adb 序列号；WiFi 通道是 ip:port
+	Serial    string `json:"serial"`       // USB 序列号（和 adb devices 相同）；经 adb 服务的 WiFi 通道是 ip:port
 	ID        string `json:"id,omitempty"` // 手机硬件序列号（ro.serialno），USB 和 WiFi 通道相同；会话的 serial 是它
 	Transport string `json:"transport"`    // usb / wifi
 	Model     string `json:"model"`
-	State     string `json:"state"` // adb 原始状态：device / unauthorized / offline
+	State     string `json:"state"` // device / unauthorized / offline（和 adb devices 相同），error
 	Stage     Stage  `json:"stage"`
 	Message   string `json:"message,omitempty"`
 
 	setupRunning bool
 	lastReverse  time.Time
+	link         adbwire.Opener // 执行命令用：USB 直连，或经 adb 服务
+	listError    bool           // 错误来自连接本身（接口被占用、没有权限），连上后重新开始
 }
 
 // TokenIssuer 由服务端令牌库实现。
@@ -56,18 +57,19 @@ type TokenIssuer interface {
 
 // Config 管理器配置。
 type Config struct {
-	ADBPath  string // adb 可执行文件
 	APKPath  string // 内置手机端安装包，可为空
 	Package  string // 手机端包名
 	Port     int    // 隧道端口
 	HostName string // 显示在手机上的电脑名
 	PCID     string // 电脑标识，随 Deep Link 告诉手机（手机用它关联设备记录）
+	StateDir string // 电脑端数据目录：用户目录下的 .android 写不进去时，ADB 密钥放这里
 }
 
 // Manager 设备管理器。
 type Manager struct {
 	cfg      Config
 	tokens   TokenIssuer
+	keys     *adbwire.Keys
 	apk      apkCache // 内置安装包的哈希（判断手机端是否需要更新）
 	rejected rejectedUpdates
 
@@ -79,68 +81,33 @@ type Manager struct {
 	OnGone   func(id string) // 手机断开（所有通道都断了）
 	OnChange func()
 
-	phones map[string]*phone // 已下发令牌的手机（ro.serialno → 令牌等）
+	phones map[string]*phone    // 已下发令牌的手机（ro.serialno → 令牌等）
+	usb    map[string]*usbPhone // USB 直连的手机（按 usbio.ADBDevice.Key）
 
-	// 只在轮询协程中访问
-	failCount   int       // 连续获取设备列表失败的次数
-	lastRestart time.Time // 上次重启 adb 服务的时间
-}
-
-// restartServer 重启卡死的 adb 后台服务。kill-server 本身也可能无响应，此时直接结束 adb 进程。
-func (m *Manager) restartServer(ctx context.Context) {
-	m.lastRestart = time.Now()
-	log.Printf("adb 服务无响应，正在重启")
-	if _, err := m.run(ctx, 5*time.Second, "kill-server"); err != nil {
-		var kill *exec.Cmd
-		if runtime.GOOS == "windows" {
-			kill = exec.CommandContext(ctx, "taskkill", "/F", "/IM", "adb.exe")
-		} else {
-			kill = exec.CommandContext(ctx, "pkill", "-x", "adb")
-		}
-		procutil.Prepare(kill)
-		_ = kill.Run()
-	}
-	time.Sleep(time.Second)
-	if _, err := m.run(ctx, 15*time.Second, "start-server"); err != nil {
-		log.Printf("adb 重启失败：%v", err)
-		return
-	}
-	log.Printf("adb 服务已重启")
+	serverSeen bool // 上次轮询时有 adb 后台服务在运行（只在轮询协程里用，用于日志）
 }
 
 func New(cfg Config, tokens TokenIssuer) *Manager {
-	m := &Manager{
+	name := cfg.HostName
+	if name == "" {
+		name, _ = os.Hostname()
+	}
+	return &Manager{
 		cfg: cfg, tokens: tokens, devices: map[string]*Device{},
-		phones: map[string]*phone{},
+		phones: map[string]*phone{}, usb: map[string]*usbPhone{},
+		keys:      adbwire.NewKeys(cfg.StateDir, name),
+		available: usbio.Supported,
 	}
-	return m
 }
 
-// adbPath 要运行的 adb。配置的路径（内置 adb）不存在时改用 PATH 里的 adb：
-// Linux 的 arm64、龙芯版不带 adb，用户事后用 apt 装上，不用重启电脑端就能用。
-func (m *Manager) adbPath() (string, bool) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if _, err := os.Stat(m.cfg.ADBPath); err == nil {
-		return m.cfg.ADBPath, true
-	}
-	p, err := exec.LookPath("adb")
-	if err != nil {
-		return "", false
-	}
-	log.Printf("使用系统的 adb：%s", p)
-	m.cfg.ADBPath = p
-	return p, true
-}
-
-// Available adb 是否可用。
+// Available 能不能连接开了 USB 调试的手机。
 func (m *Manager) Available() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.available
 }
 
-// Problem adb 不可用的原因（可用时为空）
+// Problem 不能连接的原因（能连接时为空）
 func (m *Manager) Problem() string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -179,45 +146,49 @@ func (m *Manager) changed() {
 	}
 }
 
-// run 执行 adb 命令，返回合并后的输出。
-func (m *Manager) run(ctx context.Context, timeout time.Duration, args ...string) (string, error) {
-	path, ok := m.adbPath()
-	if !ok {
-		return "", errors.New(missingHint())
+// linkOf 设备的命令通道
+func (m *Manager) linkOf(serial string) (adbwire.Opener, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if d, ok := m.devices[serial]; ok && d.link != nil {
+		return d.link, nil
+	}
+	return nil, errors.New("设备已断开")
+}
+
+// shell 在手机上执行命令，返回输出
+func (m *Manager) shell(ctx context.Context, timeout time.Duration, serial, cmd string) (string, error) {
+	l, err := m.linkOf(serial)
+	if err != nil {
+		return "", err
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, path, args...)
-	// 麒麟 arm64 版内置的 adb 是麒麟软件源里的动态链接版本，依赖的 Android 库放在 adb 旁边的 lib/ 里
-	if lib := filepath.Join(filepath.Dir(path), "lib"); runtime.GOOS == "linux" && isDir(lib) {
-		cmd.Env = append(os.Environ(), "LD_LIBRARY_PATH="+joinPath(lib, os.Getenv("LD_LIBRARY_PATH")))
+	out, err := adbwire.Shell(ctx, l, cmd)
+	if err != nil && ctx.Err() == context.DeadlineExceeded {
+		return out, fmt.Errorf("执行 %s 超时", cmd)
 	}
-	procutil.Prepare(cmd)
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &out
-	err := cmd.Run()
-	s := strings.TrimSpace(out.String())
-	if ctx.Err() == context.DeadlineExceeded {
-		return s, fmt.Errorf("adb %s 超时", strings.Join(args, " "))
-	}
+	return out, err
+}
+
+// install 安装内置的手机端安装包，返回手机的输出（成功时含 Success）
+func (m *Manager) install(ctx context.Context, serial string) (string, error) {
+	l, err := m.linkOf(serial)
 	if err != nil {
-		// adb 后台服务要监听 5037，这个端口被 Windows 保留时一直启动失败（netstat 看不到占用）
-		if portres.ReservedOutput(s) {
-			return s, fmt.Errorf("adb 无法启动：%s（adb %s）", portres.Hint(5037, 1), strings.Join(args, " "))
-		}
-		if hint := explainExit(err); hint != "" {
-			return s, fmt.Errorf("%s（adb %s：%v）", hint, strings.Join(args, " "), err)
-		}
-		return s, fmt.Errorf("adb %s 失败：%v %s", strings.Join(args, " "), err, s)
+		return "", err
 	}
-	return s, nil
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
+	defer cancel()
+	return adbwire.Install(ctx, l, m.cfg.APKPath)
 }
 
 // Run 轮询设备，直到 ctx 结束。
 func (m *Manager) Run(ctx context.Context) {
-	if _, err := m.run(ctx, 15*time.Second, "start-server"); err != nil {
-		log.Printf("adb 启动失败：%v", err)
+	if !usbio.Supported {
+		m.mu.Lock()
+		m.lastErr = "这个系统不支持数据线连接"
+		m.mu.Unlock()
+		return
 	}
 	t := time.NewTicker(time.Second)
 	defer t.Stop()
@@ -231,89 +202,123 @@ func (m *Manager) Run(ctx context.Context) {
 	}
 }
 
-type listed struct{ serial, state, model string }
+type listed struct {
+	serial, state, model, msg string
+	link                      adbwire.Opener
+}
 
-func parseDevices(out string) []listed {
-	var res []listed
-	for _, line := range strings.Split(out, "\n") {
-		line = strings.TrimSpace(line)
-		// 跳过提示行：「* daemon started」、「adb server version (41) doesn't match this client (39); killing...」等
-		if line == "" || strings.HasPrefix(line, "List of devices") || strings.HasPrefix(line, "*") || strings.HasPrefix(line, "adb ") || strings.HasPrefix(line, "adb:") {
-			continue
+// listDevices 当前的设备：USB 直连的，加上 adb 后台服务管着的（同一台手机直连上了就不经服务）
+func (m *Manager) listDevices(ctx context.Context) []listed {
+	devs, err := usbio.ADBDevices()
+	m.mu.Lock()
+	if err != nil {
+		if err.Error() != m.lastErr {
+			log.Printf("读取 USB 设备失败：%v", err)
 		}
-		fields := strings.Fields(line)
-		if len(fields) < 2 {
-			continue
+		m.lastErr = err.Error()
+	} else {
+		m.lastErr = ""
+		m.syncUSB(ctx, devs)
+	}
+	direct := map[string]listed{} // 直连的（连着、正在连）
+	failed := map[string]listed{} // 打不开的：被占用、驱动不是 WinUSB 等，adb 服务管着它时改经服务
+	for _, p := range m.usb {
+		l := listed{serial: p.serial, state: p.state, model: p.model, msg: p.msg}
+		if p.conn != nil {
+			l.link = p.conn
 		}
-		l := listed{serial: fields[0], state: fields[1]}
-		for _, f := range fields[2:] {
-			if v, ok := strings.CutPrefix(f, "model:"); ok {
-				l.model = strings.ReplaceAll(v, "_", " ")
+		if p.conn == nil && (p.state == stBusy || p.state == stError) {
+			if p.state == stBusy {
+				l.state = stError
 			}
+			failed[p.serial] = l
+		} else {
+			direct[p.serial] = l
 		}
+	}
+	m.mu.Unlock()
+
+	srv, err := adbwire.ServerDevices(ctx)
+	if running := err == nil; running != m.serverSeen {
+		m.serverSeen = running
+		if running {
+			log.Printf("电脑上有 adb 后台服务在运行，它占着的手机经它连接")
+		}
+	}
+	return mergeDevices(direct, failed, srv)
+}
+
+// mergeDevices 合并直连的和 adb 服务列出的设备：同一台手机直连上了就不经服务；直连打不开、服务管着它时改经服务
+func mergeDevices(direct, failed map[string]listed, srv []adbwire.ServerDevice) []listed {
+	var res []listed
+	for _, d := range srv {
+		if _, ok := direct[d.Serial]; ok {
+			continue
+		}
+		delete(failed, d.Serial)
+		res = append(res, listed{serial: d.Serial, state: d.State, model: d.Model, link: adbwire.Server{Serial: d.Serial}})
+	}
+	for _, l := range direct {
+		res = append(res, l)
+	}
+	for _, l := range failed {
 		res = append(res, l)
 	}
 	return res
 }
 
 func (m *Manager) poll(ctx context.Context) {
-	out, err := m.run(ctx, 5*time.Second, "devices", "-l")
-	m.mu.Lock()
-	wasAvailable := m.available
-	m.available = err == nil
-	if err != nil && err.Error() != m.lastErr {
-		log.Printf("无法获取设备列表：%v", err)
-		m.lastErr = err.Error()
-	}
-	if err == nil {
-		m.lastErr = ""
-	}
-	m.mu.Unlock()
-	if err != nil {
-		if wasAvailable {
-			m.changed()
-		}
-		m.failCount++
-		// adb 后台服务偶尔会卡死（端口能连上但立即断开，或一直无响应），连续失败就重启它
-		if m.failCount >= 3 && time.Since(m.lastRestart) > 30*time.Second {
-			m.restartServer(ctx)
-		}
-		return
-	}
-	m.failCount = 0
-
 	seen := map[string]bool{}
-	changed := !wasAvailable
-	for _, l := range parseDevices(out) {
+	changed := false
+	for _, l := range m.listDevices(ctx) {
 		seen[l.serial] = true
 		m.mu.Lock()
 		d, ok := m.devices[l.serial]
 		if !ok {
 			d = &Device{Serial: l.serial, Model: l.model, Transport: transportOf(l.serial)}
 			m.devices[l.serial] = d
-			log.Printf("发现设备 %s（%s，状态 %s）", l.serial, l.model, l.state)
+			if l.model != "" {
+				log.Printf("发现设备 %s（%s）", l.serial, l.model)
+			} else {
+				log.Printf("发现设备 %s", l.serial)
+			}
 			changed = true
 		}
 		if d.State != l.state {
 			d.State = l.state
 			changed = true
 		}
+		d.link = l.link
+		if d.Model == "" && l.model != "" {
+			d.Model = l.model
+			changed = true
+		}
 		startSetup := false
 		switch l.state {
-		case "device":
-			if d.Stage == "" || d.Stage == StageUnauthorized || d.Stage == StageOffline {
+		case stDevice:
+			if d.Stage == "" || d.Stage == StageUnauthorized || d.Stage == StageOffline || (d.Stage == StageError && d.listError) {
 				d.Stage = StageStarting
 				d.Message = ""
+				d.listError = false
 				startSetup = !d.setupRunning
 				d.setupRunning = d.setupRunning || startSetup
 			} else if d.Stage == StageReady && time.Since(d.lastReverse) > 5*time.Second {
 				d.lastReverse = time.Now()
 				go m.ensureReverse(ctx, d.Serial)
 			}
-		case "unauthorized":
+		case stUnauthorized:
 			if d.Stage != StageUnauthorized {
 				d.Stage = StageUnauthorized
 				d.Message = "请在手机上点「允许 USB 调试」"
+				changed = true
+			}
+		case stConnecting:
+			// 正在握手（一般几毫秒），界面保持原样
+		case stError:
+			if d.Stage != StageSuppressed && (d.Stage != StageError || d.Message != l.msg) {
+				d.Stage = StageError
+				d.Message = l.msg
+				d.listError = true
 				changed = true
 			}
 		default:
@@ -392,7 +397,7 @@ func (m *Manager) setup(ctx context.Context, serial string) {
 	if d, ok := m.devices[serial]; ok {
 		d.ID = id
 		for _, o := range m.devices {
-			if o != d && o.ID == id && o.State == "device" {
+			if o != d && o.ID == id && o.State == stDevice {
 				other = o
 			}
 		}
@@ -401,7 +406,7 @@ func (m *Manager) setup(ctx context.Context, serial string) {
 	if transport == TransportWiFi {
 		if other != nil && other.Transport == TransportUSB {
 			log.Printf("设备 %s 已通过数据线连接，断开 WiFi 通道 %s", id, serial)
-			_, _ = m.run(ctx, 5*time.Second, "disconnect", serial)
+			_ = adbwire.ServerDisconnect(ctx, serial)
 			return
 		}
 	}
@@ -418,7 +423,7 @@ func (m *Manager) setup(ctx context.Context, serial string) {
 
 	// 1. 检查并安装手机端；已安装但和内置安装包不同时覆盖更新
 	reinstalled := false
-	out, err := m.run(ctx, 15*time.Second, "-s", serial, "shell", "pm", "path", m.cfg.Package)
+	out, err := m.shell(ctx, 15*time.Second, serial, "pm path "+m.cfg.Package)
 	if err == nil && strings.Contains(out, "package:") {
 		if update, key := m.needsUpdate(ctx, serial, out); update {
 			reinstalled = m.updateApp(ctx, serial, key)
@@ -430,7 +435,7 @@ func (m *Manager) setup(ctx context.Context, serial string) {
 		}
 		m.setStage(serial, StageInstalling, "正在安装手机端，部分手机需要在手机上点「允许安装」")
 		log.Printf("设备 %s：正在安装 %s", serial, m.cfg.APKPath)
-		if out, err := m.run(ctx, 3*time.Minute, "-s", serial, "install", "-r", m.cfg.APKPath); err != nil || !strings.Contains(out, "Success") {
+		if out, err := m.install(ctx, serial); err != nil || !strings.Contains(out, "Success") {
 			if err == nil {
 				err = fmt.Errorf("%s", out)
 			}
@@ -476,7 +481,7 @@ func (m *Manager) setup(ctx context.Context, serial string) {
 		if other != nil && other.Transport == TransportWiFi {
 			// 数据线插回来了：USB 优先，断开 WiFi 通道，手机端会经 USB 重连
 			log.Printf("设备 %s：数据线已插回，切回 USB", id)
-			_, _ = m.run(ctx, 5*time.Second, "disconnect", other.Serial)
+			_ = adbwire.ServerDisconnect(ctx, other.Serial)
 		} else {
 			log.Printf("设备 %s：已切换到 %s 通道，等待手机端重连", id, transport)
 		}
@@ -508,15 +513,17 @@ func (m *Manager) launchApp(ctx context.Context, serial, token string) error {
 		q.Set("pcid", m.cfg.PCID)
 	}
 	link := "p2d://connect?" + q.Encode()
-	// adb shell 会把参数拼接后交给手机上的 sh 执行，因此用单引号包住链接（url 编码后不含单引号）
-	_, err := m.run(ctx, 15*time.Second, "-s", serial, "shell",
-		"am", "start", "-a", "android.intent.action.VIEW", "-d", "'"+link+"'", m.cfg.Package)
+	// 命令交给手机上的 sh 执行，因此用单引号包住链接（url 编码后不含单引号）
+	out, err := m.shell(ctx, 15*time.Second, serial, "am start -a android.intent.action.VIEW -d '"+link+"' "+m.cfg.Package)
+	if err == nil && strings.Contains(out, "Error:") {
+		err = errors.New(out)
+	}
 	return err
 }
 
-// phoneID 手机的硬件序列号；取不到就用 adb 序列号。
+// phoneID 手机的硬件序列号；取不到就用连接的序列号。
 func (m *Manager) phoneID(ctx context.Context, serial string) string {
-	out, err := m.run(ctx, 5*time.Second, "-s", serial, "shell", "getprop", "ro.serialno")
+	out, err := m.shell(ctx, 5*time.Second, serial, "getprop ro.serialno")
 	if id := strings.TrimSpace(out); err == nil && id != "" && !strings.ContainsAny(id, " :") {
 		return id
 	}
@@ -524,14 +531,24 @@ func (m *Manager) phoneID(ctx context.Context, serial string) string {
 }
 
 func (m *Manager) reverse(ctx context.Context, serial string) error {
-	spec := fmt.Sprintf("tcp:%d", m.cfg.Port)
-	_, err := m.run(ctx, 10*time.Second, "-s", serial, "reverse", spec, spec)
-	return err
+	l, err := m.linkOf(serial)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	return adbwire.Reverse(ctx, l, m.cfg.Port)
 }
 
-// ensureReverse adb 服务重启等情况下隧道会丢失，定期检查并补上。
+// ensureReverse 手机重新连接、adb 服务重启等情况下隧道会丢失，定期检查并补上。
 func (m *Manager) ensureReverse(ctx context.Context, serial string) {
-	out, err := m.run(ctx, 5*time.Second, "-s", serial, "reverse", "--list")
+	l, err := m.linkOf(serial)
+	if err != nil {
+		return
+	}
+	lctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	out, err := adbwire.ReverseList(lctx, l)
+	cancel()
 	if err != nil {
 		return
 	}
@@ -544,21 +561,23 @@ func (m *Manager) ensureReverse(ctx context.Context, serial string) {
 // RemoveReverses 退出时清理所有隧道。
 func (m *Manager) RemoveReverses() {
 	m.mu.Lock()
-	var serials []string
-	for s, d := range m.devices {
-		if d.State == "device" {
-			serials = append(serials, s)
+	var links []adbwire.Opener
+	for _, d := range m.devices {
+		if d.State == stDevice && d.link != nil {
+			links = append(links, d.link)
 		}
 	}
 	m.mu.Unlock()
-	for _, s := range serials {
-		_, _ = m.run(context.Background(), 3*time.Second, "-s", s, "reverse", "--remove", fmt.Sprintf("tcp:%d", m.cfg.Port))
+	for _, l := range links {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		_ = adbwire.ReverseRemove(ctx, l, m.cfg.Port)
+		cancel()
 	}
 }
 
 func (m *Manager) deviceName(ctx context.Context, serial string) string {
 	for _, prop := range []string{"ro.product.marketname", "ro.vendor.oplus.market.name", "ro.config.marketing_name", "ro.product.model"} {
-		out, err := m.run(ctx, 5*time.Second, "-s", serial, "shell", "getprop", prop)
+		out, err := m.shell(ctx, 5*time.Second, serial, "getprop "+prop)
 		if err == nil && strings.TrimSpace(out) != "" {
 			return strings.TrimSpace(out)
 		}
@@ -569,17 +588,4 @@ func (m *Manager) deviceName(ctx context.Context, serial string) string {
 func fileExists(p string) bool {
 	st, err := os.Stat(p)
 	return err == nil && !st.IsDir()
-}
-
-func isDir(p string) bool {
-	st, err := os.Stat(p)
-	return err == nil && st.IsDir()
-}
-
-// joinPath 拼接 PATH 风格的目录列表，b 为空时只返回 a
-func joinPath(a, b string) string {
-	if b == "" {
-		return a
-	}
-	return a + string(os.PathListSeparator) + b
 }

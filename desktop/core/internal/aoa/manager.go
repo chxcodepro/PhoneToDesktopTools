@@ -51,7 +51,7 @@ type Config struct {
 	HostName string // 显示在手机上的电脑名
 	PCID     string
 	StateDir string // 记住的手机（aoa.json）
-	// ADBAvailable adb 能用时，开了 USB 调试的手机交给 adb（能自动装 App）；为空表示没有 adb
+	// ADBAvailable 能经 USB 调试连接时（internal/adb），开了 USB 调试的手机交给它（能自动装 App）；为空表示不能
 	ADBAvailable func() bool
 }
 
@@ -199,7 +199,7 @@ func phoneID(d usbDevice) string {
 func entryKey(d usbDevice) string { return fmt.Sprintf("%s#%d", d.Name, d.Addr) }
 
 func (m *Manager) adbHandles(d usbDevice) bool {
-	return d.hasADB() && m.cfg.ADBAvailable != nil && m.cfg.ADBAvailable()
+	return d.HasADB() && m.cfg.ADBAvailable != nil && m.cfg.ADBAvailable()
 }
 
 func (m *Manager) poll(ctx context.Context) {
@@ -230,8 +230,8 @@ func (m *Manager) poll(ctx context.Context) {
 	var toProbe []*entry
 	for _, d := range list {
 		acc := isAccessory(d.VID, d.PID)
-		// 开了 USB 调试、电脑上又有 adb 的手机交给 adb（含配件模式下又开了调试的 2D01）
-		if m.adbHandles(d) || (!acc && !d.maybePhone()) {
+		// 开了 USB 调试的手机交给 USB 调试连接（internal/adb，含配件模式下又开了调试的 2D01）
+		if m.adbHandles(d) || (!acc && !d.MaybePhone()) {
 			continue
 		}
 		key := entryKey(d)

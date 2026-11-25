@@ -8,29 +8,32 @@
 |---|---|
 | 地址 | `ws://127.0.0.1:39271/mcp?token=<令牌>` |
 | 传输 | WebSocket 文本帧，每帧一条 JSON-RPC 2.0 消息 |
-| Android 隧道 | 电脑执行 `adb reverse tcp:39271 tcp:39271`，手机访问自己的 127.0.0.1 即到达电脑 |
+| Android 隧道 | 电脑经 ADB 建立反向转发（相当于 `adb reverse tcp:39271 tcp:39271`），手机访问自己的 127.0.0.1 即到达电脑 |
 | 令牌错误 | HTTP 401，握手失败，手机端提示「请重新插拔数据线」 |
 
 ### 1.1 自动连接流程（Android）
 
-电脑端 Core 检测到已授权的设备后，按顺序全自动执行：
+电脑端 Core 不用 adb 程序，自己经 USB 和手机的 adbd 通信（`desktop/core/internal/adbwire`，协议同 AOSP 的 `protocol.txt`）：
+找到有 ADB 接口（FF/42/01）的设备（Windows 按设备接口 GUID `{F72FE0D4-CBCB-407D-8814-9ED673D0DD6B}`，Linux 读 sysfs），
+发 CNXN，用 `~/.android/adbkey` 签名通过验证（没被允许过时把公钥发给手机，手机弹出「允许 USB 调试吗？」）。
+电脑上有 adb 后台服务占着手机时，改经它的 5037 端口执行下面这些服务。连上后按顺序全自动执行（括号里是等价的 adb 命令）：
 
-1. `adb -s <序列号> shell pm path com.p2d.mobile`：没有安装就执行 `adb install -r <内置 APK>`
-2. `adb -s <序列号> reverse tcp:39271 tcp:39271`
+1. `shell:pm path com.p2d.mobile`：没有安装就用 `exec:cmd package install -r -S <大小>` 传入内置 APK（`adb install -r`）
+2. `reverse:forward:tcp:39271;tcp:39271`（`adb reverse`）：之后手机连自己的 39271 端口时，adbd 发来 OPEN `tcp:39271`，电脑连本机的 39271 端口并双向转发
 3. 生成随机令牌（32 位十六进制），通过 Deep Link 启动 App：
 
 ```
-adb -s <序列号> shell am start -a android.intent.action.VIEW \
+shell:am start -a android.intent.action.VIEW \
   -d 'p2d://connect?token=<令牌>&host=<电脑名>&os=<windows|linux>&port=39271' com.p2d.mobile
 ```
 
-指定了包名，这个 Intent 只会投递给本 App。手机端收到 Deep Link 后立即连接。令牌按手机（`ro.serialno`）而不是按 adb 通道管理，手机的所有通道都断开后才作废，下次连接重新生成。
+指定了包名，这个 Intent 只会投递给本 App。手机端收到 Deep Link 后立即连接。令牌按手机（`ro.serialno`）而不是按连接通道管理，手机的所有通道都断开后才作废，下次连接重新生成。
 
 ### 1.2 免调试连接（Android 配件模式 AOA，仅 Linux 电脑端）
 
 手机没开 USB 调试时，电脑端（`desktop/core/internal/aoa`）用 Linux 的 usbfs 直接访问手机的 USB 设备，手机端由 `mobile/modules/p2d-accessory` 处理：
 
-1. 电脑发现有 MTP（06/01/01）或 ADB（FF/42/01）接口的设备，发 `GET_PROTOCOL`（厂商请求 51）探测，支持的显示为「可以免调试连接」（开了 USB 调试、电脑上有 adb 的手机交给 adb）。
+1. 电脑发现有 MTP（06/01/01）或 ADB（FF/42/01）接口的设备，发 `GET_PROTOCOL`（厂商请求 51）探测，支持的显示为「可以免调试连接」（开了 USB 调试的手机走上面的 USB 调试连接）。
 2. 用户在电脑端点「免调试连接」（`POST /api/aoa/connect?id=<序列号>`），电脑记住这台手机（`aoa.json`，以后插上自动做这一步），发 6 个识别字符串（请求 52：厂商 `p2d`、型号 `P2D`、说明、版本 `1`、下载页地址、电脑标识）和启动请求（53）。
 3. 手机断开重连成 `18D1:2D00`（配件模式），系统按 `res/xml/p2d_accessory_filter.xml` 弹出「用 p2d 打开」，用户确认后 App 打开配件，两边用接口 0 的一对 bulk 端点收发字节。
 4. 管道上是多路复用帧（大端）：`0xA5 | 类型(1) | 流编号(4) | 长度(2) | 内容`，内容最长 8192 字节。
@@ -179,7 +182,7 @@ WiFi 连接不走 adb，而是手机直接连电脑的局域网 IP（详见第 9
 
 Core 在同一端口提供 HTTP 接口，只接受本机访问：
 
-- `GET /api/status`：电脑信息、adb 是否可用（不可用时 `adbError` 说明原因）、设备列表（序列号、型号、阶段）、当前会话；Windows 上有已插上但缺 USB 驱动的手机时带 `driverMissing: [{name, instanceId}]`；系统防火墙会挡住局域网直连端口时（银河麒麟）带 `lanBlocked: true`；`lan.tailscale` 是本机的 Tailscale 地址（100.64.0.0/10，装了 Tailscale 才有，它也在 `lan.addrs` 里，排在真实网卡后面）
+- `GET /api/status`：电脑信息、能否经 USB 调试连接（`adbAvailable`，不能时 `adbError` 说明原因）、设备列表（序列号、型号、阶段）、当前会话；Windows 上有已插上但缺 USB 驱动的手机时带 `driverMissing: [{name, instanceId}]`；系统防火墙会挡住局域网直连端口时（银河麒麟）带 `lanBlocked: true`；`lan.tailscale` 是本机的 Tailscale 地址（100.64.0.0/10，装了 Tailscale 才有，它也在 `lan.addrs` 里，排在真实网卡后面）
 - `POST /api/disconnect`：断开所有手机。设备在拔线前不会自动重连。连着的会话以 WebSocket 关闭码 **4409**（原因「电脑端已断开连接」）关闭，手机收到后不再自动重连，显示「电脑端已断开」；局域网连接在手机手动点「连接」前也会被拒（手机同样按 4409 处理）。只有令牌无效（401 / 4401）才提示重新插拔数据线或重新配对
 - `POST /api/aoa/connect?id=<序列号>`（Linux）：免调试连接一台手机（见 1.2），返回 `{ok, message?}`。状态接口里免调试连接的设备 `transport` 为 `aoa`，`stage` 多一个 `available`（可以点「免调试连接」）；开启时带 `aoa: {enabled, problem?}`
 - `POST /api/driver/install`（Windows）：以管理员身份（弹出 UAC）安装电脑端自带的 ADB 接口驱动（WinUSB，按兼容标识 `USB\Class_FF&SubClass_42&Prot_01` 匹配所有品牌手机），等安装结束返回 `{ok, message?}`。已装厂商驱动的手机不受影响

@@ -9,6 +9,8 @@ import (
 	"net"
 	"sync"
 	"time"
+
+	"p2d/core/internal/usbio"
 )
 
 // transport 配件的一对 bulk 端点。Read 一次读一个 USB 传输（最多 len(p) 字节），一段时间没有数据返回 errTimeout；
@@ -19,7 +21,7 @@ type transport interface {
 	Close() error
 }
 
-var errTimeout = errors.New("超时")
+var errTimeout = usbio.ErrTimeout
 
 // readBufSize 每次读取的缓冲：16 KiB，是 512 和 1024 的整数倍（bulk 读请求的长度要是包大小的整数倍）
 const readBufSize = 16384

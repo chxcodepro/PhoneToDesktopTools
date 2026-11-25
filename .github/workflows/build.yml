@@ -1,8 +1,8 @@
-# 构建全部可执行文件：电脑端核心（5 个平台）、手机端 APK、电脑端（Windows x64/ia32 便携版；Linux x64/arm64 的 AppImage，
+# 构建全部可执行文件：电脑端核心（5 个平台）、手机端 APK、电脑端（Windows x64/ia32 安装程序；Linux x64/arm64 的 AppImage，
 # 以及 x64/arm64/龙芯的 deb 和 tar.gz）。
 # - 每次推送 / PR：测试并构建，产物在 Actions 页面的 Artifacts 里下载（保留 14 天）。
 # - 推送 v 开头的标签（如 v0.1.0）：另外创建 GitHub Release 并上传产物。
-# 第三方文件（adb、Windows 运行库）由 scripts/fetch-vendor.sh 下载并核对 SHA-256，见 desktop/vendor/README.md。
+# 电脑端自己经 USB 连接手机（desktop/core/internal/adbwire），不带 adb；手机端安装包由 apk 任务构建后放进电脑端安装包。
 name: build
 
 on:
@@ -62,18 +62,6 @@ jobs:
         with:
           name: core
           path: dist/core/
-          retention-days: 14
-
-  vendor:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: 下载 adb 和 Windows 运行库
-        run: bash scripts/fetch-vendor.sh
-      - uses: actions/upload-artifact@v4
-        with:
-          name: vendor-adb
-          path: desktop/vendor/adb/
           retention-days: 14
 
   apk:
@@ -154,7 +142,7 @@ jobs:
           retention-days: 14
 
   desktop:
-    needs: [version, core, vendor, apk]
+    needs: [version, core, apk]
     strategy:
       fail-fast: false
       matrix:
@@ -178,10 +166,6 @@ jobs:
         with:
           name: core
           path: dist/core
-      - uses: actions/download-artifact@v4
-        with:
-          name: vendor-adb
-          path: desktop/vendor/adb
       - uses: actions/download-artifact@v4
         with:
           name: apk

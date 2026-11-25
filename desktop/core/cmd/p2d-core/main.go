@@ -11,7 +11,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"runtime"
@@ -39,25 +38,6 @@ func exeDir() string {
 		p = r
 	}
 	return filepath.Dir(p)
-}
-
-// findADB 优先使用程序目录内置的 adb，其次是 PATH 中的 adb（开发环境）。
-func findADB(flagVal string) string {
-	if flagVal != "" {
-		return flagVal
-	}
-	name := "adb"
-	if runtime.GOOS == "windows" {
-		name = "adb.exe"
-	}
-	bundled := filepath.Join(exeDir(), "vendor", "adb", name)
-	if _, err := os.Stat(bundled); err == nil {
-		return bundled
-	}
-	if p, err := exec.LookPath(name); err == nil {
-		return p
-	}
-	return bundled
 }
 
 // stateDir 保存记住的 WiFi 手机等状态的目录（<用户配置目录>/p2d）。
@@ -88,11 +68,10 @@ func migrateDir(old, dir string) string {
 
 func main() {
 	port := flag.Int("port", 39271, "监听端口（与手机端约定，一般不改）")
-	adbPath := flag.String("adb", "", "adb 路径，默认使用程序目录下 vendor/adb 中的内置 adb")
 	apkPath := flag.String("apk", "", "手机端安装包路径，默认 vendor/app/p2d.apk")
 	pkg := flag.String("pkg", "com.p2d.mobile", "手机端包名")
 	devToken := flag.String("dev-token", "", "开发调试用的固定令牌（正式使用请留空）")
-	noADB := flag.Bool("no-adb", false, "不启动 adb 设备发现（仅调试）")
+	noADB := flag.Bool("no-adb", false, "不连接开了 USB 调试的手机（仅调试）")
 	noAOA := flag.Bool("no-aoa", false, "不启用免调试连接（AOA 配件模式，仅 Linux）")
 	lanPort := flag.Int("lan-port", 39272, "局域网直连端口（手机输入电脑 IP 连接用），0 表示不开启")
 	showVersion := flag.Bool("version", false, "显示版本")
@@ -138,19 +117,18 @@ func main() {
 			apk = filepath.Join(exeDir(), "vendor", "app", "p2d.apk")
 		}
 		mgr = adb.New(adb.Config{
-			ADBPath:  findADB(*adbPath),
 			APKPath:  apk,
 			Package:  *pkg,
 			Port:     *port,
 			HostName: host,
 			PCID:     store.PCID(),
+			StateDir: stateDir(),
 		}, tokens)
 		mgr.OnGone = func(id string) { srv.CloseSerial(id, "手机已断开连接") }
 		srv.Devices = mgr
-		log.Printf("adb：%s", findADB(*adbPath))
 	}
 
-	// 免调试连接（Linux）：手机不开 USB 调试，经数据线用配件模式连接；开了调试、有 adb 的手机仍交给 adb
+	// 免调试连接（Linux）：手机不开 USB 调试，经数据线用配件模式连接；开了调试的手机仍走 USB 调试连接
 	var acc *aoa.Manager
 	if aoa.Supported && !*noAOA {
 		acc = aoa.New(aoa.Config{

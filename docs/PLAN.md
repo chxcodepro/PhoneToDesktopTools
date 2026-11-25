@@ -252,7 +252,7 @@ excel-report/
 
 **麒麟 Linux**：
 - 无需驱动；需写入 udev 规则 `/etc/udev/rules.d/51-android.rules`（首次通过 `pkexec` 提权一次，或提示用户以 root 运行一次初始化脚本）。
-- adb 二进制：x86_64 用官方 platform-tools；**arm64 / loong64 官方没有 adb**，需自行从 AOSP 源码静态交叉编译并内置（或后期在 Go 中直接实现 ADB USB 协议，彻底去掉 adb 依赖）。
+- adb：已在 Go 中直接实现 ADB USB 协议（`internal/adbwire`），不再带 adb，arm64 / loong64 和 x86_64 一样能用 USB 调试连接。
 
 ### 5.2 iOS：usbmux 隧道
 
@@ -376,7 +376,7 @@ p2d/
 | 风险 | 影响 | 对策 |
 |---|---|---|
 | Win7 驱动签名（SHA-2） | 驱动装不上 | 预存补丁 + libwdi 自签名方案 |
-| arm64 / loong64 无官方 adb | 麒麟 ARM/龙芯无法连接 Android | 交叉编译 adb；长期在 Go 中自研 ADB USB 协议 |
+| arm64 / loong64 无官方 adb | 麒麟 ARM/龙芯无法连接 Android | 已在 Go 中自研 ADB USB 协议，不再依赖 adb |
 | Electron 22 已停止维护 | 有已知安全漏洞 | 仅加载本地页面、关闭 nodeIntegration、启用 contextIsolation、禁止外链；不联网即无远程攻击面 |
 | 麒麟新版本使用 Wayland | X11 截图/键鼠失效 | 优先 X11；Wayland 下走 xdg-desktop-portal / UKUI 接口，列为后续适配 |
 | iOS 后台限制 / 上架审核 | iPhone 体验差或无法上架 | 要求前台使用；提供企业签/TestFlight 分发方案 |

@@ -6,22 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"unsafe"
 )
-
-// ioctl 编号要和内核头文件 linux/usbdevice_fs.h 算出来的一致
-func TestIoctlNumbers(t *testing.T) {
-	if unsafe.Sizeof(uintptr(0)) == 8 {
-		if ioctlControl != 0xC0185500 || ioctlBulk != 0xC0185502 {
-			t.Fatalf("64 位：CONTROL=%#x BULK=%#x", ioctlControl, ioctlBulk)
-		}
-	} else if ioctlControl != 0xC0105500 || ioctlBulk != 0xC0105502 {
-		t.Fatalf("32 位：CONTROL=%#x BULK=%#x", ioctlControl, ioctlBulk)
-	}
-	if ioctlClaim != 0x8004550F || ioctlRelease != 0x80045510 {
-		t.Fatalf("CLAIM=%#x RELEASE=%#x", ioctlClaim, ioctlRelease)
-	}
-}
 
 func writeAttrs(t *testing.T, dir string, attrs map[string]string) {
 	t.Helper()
@@ -57,7 +42,7 @@ func TestSysfsList(t *testing.T) {
 	if !isAccessory(d.VID, d.PID) || d.Serial != "ABC" || d.Bus != 1 || d.Addr != 7 {
 		t.Fatalf("设备 %+v", d)
 	}
-	iface, in, out, ok := d.accessoryEndpoints()
+	iface, in, out, ok := d.AccessoryEndpoints()
 	if !ok || iface != 0 || in != 0x81 || out != 0x01 {
 		t.Fatalf("端点 %d %#x %#x %v", iface, in, out, ok)
 	}
