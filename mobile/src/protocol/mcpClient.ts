@@ -6,7 +6,9 @@
 //   请求超时、令牌无效（HTTP 401）识别。
 
 import {
+  CLOSE_BY_PC,
   MCP_PROTOCOL_VERSION,
+  PC_CLOSED_TEXT,
   type ConnectionStatus,
   type JsonRpcRequest,
   type JsonRpcResponse,
@@ -299,6 +301,12 @@ export class McpClient {
       this.log(`连接关闭：code=${ev?.code ?? ''} ${ev?.reason ?? ''}`);
       this.teardownSocket('连接已断开');
       if (this.stopped) return;
+      if (ev?.code === CLOSE_BY_PC) {
+        // 用户在电脑上点了「断开」：不重连，等用户重新插线或在手机上手动连接
+        this.stopped = true;
+        this.setStatus('idle', ev.reason || PC_CLOSED_TEXT);
+        return;
+      }
       if (unauthorized || ev?.code === 4401) {
         this.stopped = true;
         // 局域网直连时 reason 是电脑端给的具体原因（未配对、电脑端已断开等）

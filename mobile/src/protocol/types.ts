@@ -8,11 +8,20 @@ export const MCP_PROTOCOL_VERSION = '2025-06-18';
 
 /** 连接状态 */
 export type ConnectionStatus =
-  | 'idle' // 尚未开始连接
+  | 'idle' // 尚未开始连接，或电脑端主动断开了（detail 以 PC_CLOSED_TEXT 开头）
   | 'connecting' // 正在建立 WebSocket / 握手
   | 'connected' // 握手完成，可以调用工具
   | 'disconnected' // 已断开（会自动重连，除非是用户主动断开）
   | 'unauthorized'; // 令牌无效（HTTP 401），需要重新插拔数据线
+
+/**
+ * 用户在电脑上点了「断开」时电脑端用的 WebSocket 关闭码（desktop/core/internal/server/session.go 的 CloseByPC）。
+ * 收到后不再自动重连：令牌已经作废，重连只会被拒绝。
+ */
+export const CLOSE_BY_PC = 4409;
+
+/** 电脑端主动断开时的提示（电脑端给的原因也以它开头） */
+export const PC_CLOSED_TEXT = '电脑端已断开连接';
 
 /** 权限级别（第 3 节） */
 export type PermissionLevel = 'readonly' | 'standard' | 'full';

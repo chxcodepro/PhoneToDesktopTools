@@ -13,6 +13,7 @@ import { Icon } from '@/components/ui/icon';
 import { Text } from '@/components/ui/text';
 import { cn } from '@/lib/utils';
 import { parseConnectQuery } from '@/protocol/deepLink';
+import { PC_CLOSED_TEXT } from '@/protocol/types';
 import { connectWith, initConnection, useConnection } from '@/state/connection';
 
 type StepState = 'pending' | 'active' | 'done' | 'error';
@@ -44,11 +45,13 @@ export default function ConnectScreen() {
   }, [status]);
 
   const hasLink = !!params;
+  // 用户在电脑上点了「断开」：不是出错，重新插拔数据线就能再连
+  const pcClosed = status === 'idle' && !!detail?.startsWith(PC_CLOSED_TEXT);
   const host = params?.host ?? '电脑';
   const lastStep: StepState =
     status === 'connected'
       ? 'done'
-      : status === 'unauthorized'
+      : status === 'unauthorized' || pcClosed
         ? 'error'
         : hasLink
           ? 'active'
@@ -72,7 +75,7 @@ export default function ConnectScreen() {
         </View>
 
         <Text className="text-center text-xl font-bold">
-          {status === 'connected' ? `已连接 ${host}` : hasLink ? '正在连接电脑' : '连接电脑'}
+          {status === 'connected' ? `已连接 ${host}` : pcClosed ? PC_CLOSED_TEXT : hasLink ? '正在连接电脑' : '连接电脑'}
         </Text>
 
         <Card className="px-3">
@@ -83,6 +86,9 @@ export default function ConnectScreen() {
           <Step state={lastStep} label={hasLink ? `连接 ${host}` : '自动连接'} />
         </Card>
 
+        {pcClosed ? (
+          <Text className="text-center text-sm text-muted-foreground">在电脑上点了「断开」。重新插拔数据线就能再次连接</Text>
+        ) : null}
         {status === 'unauthorized' ? (
           <Text className="text-center text-sm text-destructive">{detail ?? '令牌无效，请重新插拔数据线'}</Text>
         ) : null}

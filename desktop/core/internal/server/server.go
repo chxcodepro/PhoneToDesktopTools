@@ -231,7 +231,7 @@ func (s *Server) DisconnectAll() {
 	s.sessions = map[int64]*Session{}
 	s.mu.Unlock()
 	for _, sess := range all {
-		sess.Close("电脑端已断开连接")
+		sess.closeWith(CloseByPC, "电脑端已断开连接")
 	}
 	s.StopAllMCP()
 	log.Printf("已断开所有手机")

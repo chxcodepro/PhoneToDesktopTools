@@ -6,7 +6,7 @@ import { ChevronRight, FileText, Info, Monitor, MousePointer2, ScanLine, Termina
 import { Pressable, View } from 'react-native';
 
 import { BackgroundCard } from '@/components/devices/background-card';
-import { STATUS_LABEL, StatusDot } from '@/components/connection-status';
+import { statusLabel, StatusDot } from '@/components/connection-status';
 import { ModelSettings } from '@/components/model-settings';
 import { Screen } from '@/components/screen';
 import { Card, GroupTitle, Separator } from '@/components/ui/card';
@@ -33,7 +33,7 @@ const SWITCHES: { key: keyof Omit<Permissions, 'level'>; label: string; icon: Lu
 ];
 
 export default function SettingsScreen() {
-  const { status, params, permissions } = useConnection();
+  const { status, params, permissions, detail, route } = useConnection();
   const { autoConnect } = useDevices();
   return (
     <Screen title="设置">
@@ -48,7 +48,7 @@ export default function SettingsScreen() {
             <View className="flex-row items-center gap-1.5">
               <StatusDot status={status} />
               <Text numberOfLines={1} className="flex-shrink text-xs text-muted-foreground">
-                {params ? `${params.host} · ${osLabel(params.os)} · ${STATUS_LABEL[status]}` : STATUS_LABEL[status]}
+                {params ? `${params.host} · ${osLabel(params.os)} · ${statusLabel(status, detail, route)}` : statusLabel(status, detail, route)}
               </Text>
             </View>
           </View>

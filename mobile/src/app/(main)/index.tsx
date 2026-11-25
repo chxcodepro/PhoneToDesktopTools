@@ -22,7 +22,7 @@ import { Composer } from '@/components/agent/composer';
 import { ContextRing } from '@/components/agent/context-ring';
 import { ConversationDrawer, useDrawer } from '@/components/agent/drawer';
 import { LiveWindow } from '@/components/agent/live-window';
-import { STATUS_LABEL, StatusDot } from '@/components/connection-status';
+import { statusLabel, StatusDot } from '@/components/connection-status';
 import { ToolDebugPanel } from '@/components/tool-debug-panel';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -50,7 +50,7 @@ function RoundButton({ icon, onPress, active, label }: { icon: LucideIcon; onPre
 
 export default function AgentScreen() {
   const conv = useConversation();
-  const { status, params, route } = useConnection();
+  const { status, params, route, detail } = useConnection();
   const { targets } = useViewTargets();
   // 同时连接着的其他电脑数
   const extraCount = targets.filter((t) => t.pcId && t.status === 'connected').length;
@@ -145,7 +145,7 @@ export default function AgentScreen() {
                     : 'text-muted-foreground',
               )}
             >
-              {params || status !== 'idle' ? STATUS_LABEL[status] + (status === 'connected' && route === 'wifi' ? ' · WiFi' : '') : ''}
+              {params || status !== 'idle' ? statusLabel(status, detail, route) + (status === 'connected' && route === 'wifi' ? ' · WiFi' : '') : ''}
             </Text>
             {extraCount ? <Text className="text-xs text-success-foreground">{`+${extraCount} 台`}</Text> : null}
           </Pressable>

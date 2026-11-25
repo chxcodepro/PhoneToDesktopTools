@@ -9,7 +9,7 @@ import WebSocket, { WebSocketServer } from 'ws';
 
 import { buildWsUrl, parseConnectUrl, parseDraftUrl } from '../src/protocol/deepLink';
 import { McpClient, type WebSocketLike } from '../src/protocol/mcpClient';
-import type { ConnectionStatus, Permissions } from '../src/protocol/types';
+import { CLOSE_BY_PC, type ConnectionStatus, type Permissions } from '../src/protocol/types';
 
 const TOKEN = 'testtoken0123456789abcdef01234567';
 
@@ -95,6 +95,11 @@ async function startFakeServer(opts: FakeServerOptions = {}) {
     },
     setAnswerPing(v: boolean) {
       answerPing = v;
+    },
+    /** 以指定的关闭码关闭所有客户端（模拟电脑上点「断开」） */
+    closeAll(code: number, reason: string) {
+      for (const s of sockets) s.close(code, reason);
+      sockets.length = 0;
     },
     /** 强制断开所有客户端（模拟拔线） */
     dropAll() {
@@ -245,6 +250,29 @@ describe('McpClient', () => {
     await sleep(200);
     assert.equal(server.handshakes, 1);
     assert.equal(client.status, 'unauthorized');
+  });
+
+  it('电脑上点了断开（关闭码 4409）：显示电脑端已断开，不再重连', async () => {
+    const server = await startFakeServer();
+    const client = new McpClient({
+      url: buildWsUrl({ token: TOKEN, port: server.port }),
+      createSocket: nodeSocket,
+      reconnectBaseMs: 20,
+    });
+    cleanups.push(() => client.close(), server.close);
+    let lastDetail: string | undefined;
+    client.onStatus((_s, d) => {
+      lastDetail = d;
+    });
+
+    client.connect();
+    await waitStatus(client, 'connected');
+    server.closeAll(CLOSE_BY_PC, '电脑端已断开连接');
+    await waitStatus(client, 'idle');
+    await sleep(200);
+    assert.equal(client.status, 'idle');
+    assert.equal(lastDetail, '电脑端已断开连接');
+    assert.equal(server.handshakes, 1, '不应自动重连');
   });
 
   it('连接被断开后自动重连，并重新发送权限', async () => {

@@ -12,6 +12,7 @@ import { hmac } from '@noble/hashes/hmac';
 import { sha256 } from '@noble/hashes/sha2';
 
 import type { WebSocketLike } from './mcpClient';
+import { CLOSE_BY_PC } from './types';
 
 export type RandomBytes = (n: number) => Uint8Array;
 
@@ -372,8 +373,10 @@ export class SecureSocket implements WebSocketLike {
     if (this.closed) return;
     this.closed = true;
     this.readyState = 3;
-    // 电脑端明确拒绝：用 4401 让 McpClient 停止自动重连，reason 显示给用户
-    if (this.reject && ['unpaired', 'suppressed'].includes(this.reject.code)) this.onclose?.({ code: 4401, reason: this.reject.message });
+    // 电脑端明确拒绝：让 McpClient 停止自动重连，reason 显示给用户。
+    // 电脑上点了「断开」（suppressed）用 CLOSE_BY_PC，显示「电脑端已断开连接」；没配对用 4401
+    if (this.reject?.code === 'suppressed') this.onclose?.({ code: CLOSE_BY_PC, reason: this.reject.message });
+    else if (this.reject?.code === 'unpaired') this.onclose?.({ code: 4401, reason: this.reject.message });
     else this.onclose?.({ code, reason: this.reject?.message ?? reason });
   }
 }

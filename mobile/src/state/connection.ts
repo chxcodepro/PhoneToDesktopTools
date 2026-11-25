@@ -14,6 +14,7 @@ import { learnOsName } from '@/state/osProbe';
 import { fromBase64, SecureSocket, type RawSocket } from '@/protocol/secure';
 import {
   DEFAULT_PERMISSIONS,
+  PC_CLOSED_TEXT,
   type ConnectionStatus,
   type ConnectParams,
   type Permissions,
@@ -226,6 +227,11 @@ export function connectWith(params: ConnectParams): void {
       everConnected = true;
       clearFallback();
       void saveLastConnect(params);
+    }
+    // 电脑上点了「断开」：令牌已作废，清掉「上次连接」；不切 WiFi（用户就是要断开），等重新插线或手动连接
+    if (status === 'idle' && detail?.startsWith(PC_CLOSED_TEXT)) {
+      void saveLastConnect(null);
+      clearFallback();
     }
     if (status === 'unauthorized') {
       void saveLastConnect(null);

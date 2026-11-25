@@ -180,7 +180,7 @@ WiFi 连接不走 adb，而是手机直接连电脑的局域网 IP（详见第 9
 Core 在同一端口提供 HTTP 接口，只接受本机访问：
 
 - `GET /api/status`：电脑信息、adb 是否可用（不可用时 `adbError` 说明原因）、设备列表（序列号、型号、阶段）、当前会话；Windows 上有已插上但缺 USB 驱动的手机时带 `driverMissing: [{name, instanceId}]`；系统防火墙会挡住局域网直连端口时（银河麒麟）带 `lanBlocked: true`；`lan.tailscale` 是本机的 Tailscale 地址（100.64.0.0/10，装了 Tailscale 才有，它也在 `lan.addrs` 里，排在真实网卡后面）
-- `POST /api/disconnect`：断开所有手机。设备在拔线前不会自动重连
+- `POST /api/disconnect`：断开所有手机。设备在拔线前不会自动重连。连着的会话以 WebSocket 关闭码 **4409**（原因「电脑端已断开连接」）关闭，手机收到后不再自动重连，显示「电脑端已断开」；局域网连接在手机手动点「连接」前也会被拒（手机同样按 4409 处理）。只有令牌无效（401 / 4401）才提示重新插拔数据线或重新配对
 - `POST /api/aoa/connect?id=<序列号>`（Linux）：免调试连接一台手机（见 1.2），返回 `{ok, message?}`。状态接口里免调试连接的设备 `transport` 为 `aoa`，`stage` 多一个 `available`（可以点「免调试连接」）；开启时带 `aoa: {enabled, problem?}`
 - `POST /api/driver/install`（Windows）：以管理员身份（弹出 UAC）安装电脑端自带的 ADB 接口驱动（WinUSB，按兼容标识 `USB\Class_FF&SubClass_42&Prot_01` 匹配所有品牌手机），等安装结束返回 `{ok, message?}`。已装厂商驱动的手机不受影响
 - `POST /api/firewall/allow`（银河麒麟）：用 `pkexec` 弹出系统的密码框，执行 `kylin-firewall -A p2d -d inbound -m all -p tcp -L <局域网端口> -a allow`（规则已存在但被关掉时改为重新开启），公用、专用两种网络模式都放行，等结束返回 `{ok, message?}`

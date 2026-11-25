@@ -101,10 +101,19 @@ func (s *Session) Info() SessionInfo {
 }
 
 // Close 主动断开。
+// CloseByPC 用户在电脑上点了「断开」时的 WebSocket 关闭码：手机收到后不再自动重连，显示「电脑端已断开连接」
+// （手机端见 mobile/src/protocol/types.ts 的 CLOSE_BY_PC）。普通关闭时手机会以为是意外断线，马上重连，
+// 而令牌已经作废，就会被拒绝并提示「请重新插拔数据线」。
+const CloseByPC = 4409
+
 func (s *Session) Close(reason string) {
+	s.closeWith(websocket.CloseNormalClosure, reason)
+}
+
+func (s *Session) closeWith(code int, reason string) {
 	s.writeMu.Lock()
 	_ = s.conn.WriteControl(websocket.CloseMessage,
-		websocket.FormatCloseMessage(websocket.CloseNormalClosure, reason), time.Now().Add(time.Second))
+		websocket.FormatCloseMessage(code, reason), time.Now().Add(time.Second))
 	s.writeMu.Unlock()
 	s.cancel()
 	_ = s.conn.Close()
