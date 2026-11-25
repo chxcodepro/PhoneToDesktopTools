@@ -68,6 +68,7 @@ async function startFakeServer(opts: FakeServerOptions = {}) {
           });
           break;
         case 'tools/call':
+          if (msg.params.name === 'slow') break; // 一直不回（模拟长时间运行的命令）
           if (msg.params.name === 'sys_info') {
             reply({ content: [{ type: 'text', text: 'hostname: TEST-PC' }] });
           } else {
@@ -203,6 +204,31 @@ describe('McpClient', () => {
     assert.deepEqual(server.received[2].params, perms);
 
     await assert.rejects(client.request('no/such'), /Method not found/);
+  });
+
+  it('点「停止」：正在执行的工具立即返回 AbortError，并通知电脑端取消', async () => {
+    const server = await startFakeServer();
+    const client = new McpClient({ url: buildWsUrl({ token: TOKEN, port: server.port }), createSocket: nodeSocket });
+    cleanups.push(() => client.close(), server.close);
+    client.connect();
+    await waitStatus(client, 'connected');
+
+    const ctl = new AbortController();
+    const call = client.callTool('slow', {}, { signal: ctl.signal });
+    await sleep(50);
+    ctl.abort();
+    await assert.rejects(call, (e: Error) => e.name === 'AbortError');
+    await sleep(50);
+    const callReq = server.received.find((r) => r.method === 'tools/call');
+    const cancel = server.received.find((r) => r.method === 'notifications/cancelled');
+    assert.ok(callReq && cancel, '应发出取消通知');
+    assert.equal(typeof (cancel.params as { requestId: unknown }).requestId, 'number');
+
+    // 已经中止的 signal：不发请求，直接返回
+    await assert.rejects(client.callTool('sys_info', {}, { signal: ctl.signal }), (e: Error) => e.name === 'AbortError');
+    // 取消后连接照常可用
+    const ok = await client.callTool('sys_info');
+    assert.deepEqual(ok.content, [{ type: 'text', text: 'hostname: TEST-PC' }]);
   });
 
   it('令牌错误（401）进入 unauthorized，且不再重连', async () => {

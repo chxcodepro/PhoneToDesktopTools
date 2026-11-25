@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"p2d/core/internal/portres"
 	"p2d/core/internal/procutil"
 )
 
@@ -201,6 +202,10 @@ func (m *Manager) run(ctx context.Context, timeout time.Duration, args ...string
 		return s, fmt.Errorf("adb %s 超时", strings.Join(args, " "))
 	}
 	if err != nil {
+		// adb 后台服务要监听 5037，这个端口被 Windows 保留时一直启动失败（netstat 看不到占用）
+		if portres.ReservedOutput(s) {
+			return s, fmt.Errorf("adb 无法启动：%s（adb %s）", portres.Hint(5037, 1), strings.Join(args, " "))
+		}
 		if hint := explainExit(err); hint != "" {
 			return s, fmt.Errorf("%s（adb %s：%v）", hint, strings.Join(args, " "), err)
 		}
@@ -232,7 +237,8 @@ func parseDevices(out string) []listed {
 	var res []listed
 	for _, line := range strings.Split(out, "\n") {
 		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "List of devices") || strings.HasPrefix(line, "*") {
+		// 跳过提示行：「* daemon started」、「adb server version (41) doesn't match this client (39); killing...」等
+		if line == "" || strings.HasPrefix(line, "List of devices") || strings.HasPrefix(line, "*") || strings.HasPrefix(line, "adb ") || strings.HasPrefix(line, "adb:") {
 			continue
 		}
 		fields := strings.Fields(line)

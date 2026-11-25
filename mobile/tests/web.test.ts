@@ -162,6 +162,27 @@ describe('手机工具', () => {
     assert.equal((await t2.call('download_to_pc', { url: 'ftp://x/a.exe' })).isError, true);
   });
 
+  it('把对话里的图片存到电脑：按编号或文件名，不填取最近一张；未连接电脑时报错', async () => {
+    const refs: string[] = [];
+    const t = createPhoneTools({
+      fetch,
+      downloadToPc: null,
+      saveAttachment: async (ref) => {
+        refs.push(ref);
+        return { path: '/home/u/下载/PhoneToDesktop/a.jpg', size: 70970, name: 'a.jpg' };
+      },
+    });
+    assert.ok(t.list().some((x) => x.name === 'save_attachment_to_pc'));
+    const r = await t.call('save_attachment_to_pc', { attachment: ' att_1 ' });
+    assert.equal(r.isError, false);
+    assert.match(textOf(r), /已把 a\.jpg 保存到电脑：\/home\/u\/下载\/PhoneToDesktop\/a\.jpg/);
+    await t.call('save_attachment_to_pc', {});
+    assert.deepEqual(refs, ['att_1', '']);
+
+    const off = createPhoneTools({ fetch, downloadToPc: null, saveAttachment: null });
+    assert.equal((await off.call('save_attachment_to_pc', {})).isError, true);
+  });
+
   it('驱动搜索', async () => {
     const { t } = tools({});
     const s = textOf(await t.call('driver_search', { query: 'PCI\\VEN_10EC&DEV_8168' }));

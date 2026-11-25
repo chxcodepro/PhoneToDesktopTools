@@ -49,7 +49,7 @@ package() {
   local root="$WORK/deb-$arch"
   [ -x "$dir/$EXE" ] || { echo "找不到 $dir/$EXE" >&2; exit 1; }
 
-  mkdir -p "$root$DEST" "$root/DEBIAN" "$root/usr/share/applications" "$root/usr/share/icons/hicolor/256x256/apps"
+  mkdir -p "$root$DEST" "$root/DEBIAN" "$root/usr/share/applications" "$root/usr/share/icons/hicolor/256x256/apps" "$root/lib/udev/rules.d"
   cp -a "$dir/." "$root$DEST/"
   cp "$APP/build/icon.png" "$root/usr/share/icons/hicolor/256x256/apps/$PKG.png"
   cat > "$root/usr/share/applications/$PKG.desktop" <<DESKTOP
@@ -63,6 +63,20 @@ Type=Application
 Categories=Utility;
 StartupWMClass=PhoneToDesktop
 DESKTOP
+  # 免调试连接（AOA）：电脑端以普通用户身份运行，要能打开安卓手机的 USB 设备节点（/dev/bus/usb/…）。
+  # uaccess 让当前登录桌面的用户获得访问权限（systemd-logind 设置 ACL），规则文件名要排在 73-seat-late 之前。
+  cat > "$root/lib/udev/rules.d/70-phonetodesktop.rules" <<'UDEV'
+# PhoneToDesktop 免调试连接（Android 配件模式）：让登录桌面的用户能访问安卓手机的 USB 设备
+SUBSYSTEM!="usb", GOTO="p2d_end"
+ENV{DEVTYPE}!="usb_device", GOTO="p2d_end"
+ENV{ID_USB_INTERFACES}=="", IMPORT{builtin}="usb_id"
+# 没开 USB 调试的手机（MTP 接口）、开了调试的手机（ADB 接口）：电脑端发请求让它切换到配件模式
+ENV{ID_USB_INTERFACES}=="*:060101:*", TAG+="uaccess"
+ENV{ID_USB_INTERFACES}=="*:ff4201:*", TAG+="uaccess"
+# 切换后的配件设备（Google 统一的 18D1:2D00～2D05）
+ATTR{idVendor}=="18d1", ATTR{idProduct}=="2d0[0-5]", TAG+="uaccess", MODE="0666"
+LABEL="p2d_end"
+UDEV
   # 版本号如 0.1.0-ci.12：dpkg 把「-」后面当作修订号，合法
   cat > "$root/DEBIAN/control" <<CONTROL
 Package: $PKG
@@ -77,7 +91,8 @@ Description: PhoneToDesktop 电脑端
  用手机通过数据线或 WiFi 控制这台电脑。
 CONTROL
   # 安装后：Chromium 沙箱需要 setuid 的 chrome-sandbox（没有它 Electron 在部分系统上无法启动）；
-  # 和 WPS 一样把图标放到每个用户的桌面（麒麟用户习惯从桌面打开）以及新用户的桌面模板 /etc/skel/桌面
+  # 和 WPS 一样把图标放到每个用户的桌面（麒麟用户习惯从桌面打开）以及新用户的桌面模板 /etc/skel/桌面；
+  # 重新加载 udev 规则，已经插着的手机也立即生效
   cat > "$root/DEBIAN/postinst" <<'POSTINST'
 #!/bin/sh
 set -e
@@ -85,6 +100,10 @@ chmod 4755 /opt/PhoneToDesktop/chrome-sandbox || true
 command -v update-desktop-database >/dev/null && update-desktop-database -q || true
 . /opt/PhoneToDesktop/desktop-dirs.sh
 for_each_desktop place || true
+if command -v udevadm >/dev/null; then
+  udevadm control --reload-rules || true
+  udevadm trigger --subsystem-match=usb --action=change || true
+fi
 POSTINST
   cat > "$root/DEBIAN/postrm" <<'POSTRM'
 #!/bin/sh
@@ -101,6 +120,7 @@ if [ "$1" = remove ] || [ "$1" = purge ]; then
     fi
   done
   rm -f /etc/skel/桌面/phonetodesktop.desktop /etc/skel/Desktop/phonetodesktop.desktop
+  command -v udevadm >/dev/null && udevadm control --reload-rules || true
 fi
 POSTRM
   # 查找每个用户的桌面目录（user-dirs.dirs 里的 XDG_DESKTOP_DIR，没有时用「桌面」或「Desktop」）

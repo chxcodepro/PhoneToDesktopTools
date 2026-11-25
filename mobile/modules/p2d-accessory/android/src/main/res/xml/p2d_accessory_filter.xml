@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 只响应 PhoneToDesktop 电脑端（desktop/core/internal/aoa/frame.go 里的识别字符串，两边要一致） -->
+<resources>
+  <usb-accessory manufacturer="PhoneToDesktop" model="P2D" />
+</resources>

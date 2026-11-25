@@ -26,7 +26,30 @@ adb -s <序列号> shell am start -a android.intent.action.VIEW \
 
 指定了包名，这个 Intent 只会投递给本 App。手机端收到 Deep Link 后立即连接。令牌按手机（`ro.serialno`）而不是按 adb 通道管理，手机的所有通道都断开后才作废，下次连接重新生成。
 
-### 1.2 WiFi：局域网直连
+### 1.2 免调试连接（Android 配件模式 AOA，仅 Linux 电脑端）
+
+手机没开 USB 调试时，电脑端（`desktop/core/internal/aoa`）用 Linux 的 usbfs 直接访问手机的 USB 设备，手机端由 `mobile/modules/p2d-accessory` 处理：
+
+1. 电脑发现有 MTP（06/01/01）或 ADB（FF/42/01）接口的设备，发 `GET_PROTOCOL`（厂商请求 51）探测，支持的显示为「可以免调试连接」（开了 USB 调试、电脑上有 adb 的手机交给 adb）。
+2. 用户在电脑端点「免调试连接」（`POST /api/aoa/connect?id=<序列号>`），电脑记住这台手机（`aoa.json`，以后插上自动做这一步），发 6 个识别字符串（请求 52：厂商 `PhoneToDesktop`、型号 `P2D`、说明、版本 `1`、下载页地址、电脑标识）和启动请求（53）。
+3. 手机断开重连成 `18D1:2D00`（配件模式），系统按 `res/xml/p2d_accessory_filter.xml` 弹出「用 PhoneToDesktop 打开」，用户确认后 App 打开配件，两边用接口 0 的一对 bulk 端点收发字节。
+4. 管道上是多路复用帧（大端）：`0xA5 | 类型(1) | 流编号(4) | 长度(2) | 内容`，内容最长 8192 字节。
+
+| 类型 | 方向 | 内容 |
+|---|---|---|
+| 1 HELLO | 手机 → 电脑 | `{"v":1,"nonce","name","app"}`，打开配件后每秒一次（也是心跳）；nonce 变了说明手机端重开过，旧流全部作废 |
+| 2 CONFIG | 电脑 → 手机 | `{"v":1,"nonce","token","host","os","pcid"}`，同一次插线期间令牌不变 |
+| 3 PONG | 电脑 → 手机 | 心跳回复（用户在电脑上点了「断开」后只回它、不再发 CONFIG） |
+| 4 OPEN | 手机 → 电脑 | 手机本机回环端口（优先 39273）上来了一条 TCP 连接，电脑把它接到本机 39271 |
+| 5 DATA | 双向 | 流数据 |
+| 6 CLOSE | 双向 | 流已关闭 |
+| 7 ACK | 双向 | 4 字节：已写给本机连接的字节数。每个流每个方向最多 256 KiB 在途，读管道的一方永远不会被某个流阻塞 |
+
+手机收到 CONFIG 后拼成 `p2d://connect?token=…&host=…&os=…&port=<本机端口>&pcid=…`，和 adb 下发的 Deep Link 走同一套连接逻辑，所以会话、权限、自动配对 WiFi 都和 adb 通道一样，令牌按手机的 USB 序列号（即 `ro.serialno`）管理。
+
+USB 细节：每次 bulk 写入不超过 15000 字节（对方每次读 16 KiB），长度正好是 512 的整数倍时拆成两次写，免得对方的读请求等不到短包。6 秒收不到对方的心跳就作废所有流，等重新握手。
+
+### 1.3 WiFi：局域网直连
 
 WiFi 连接不走 adb，而是手机直接连电脑的局域网 IP（详见第 9 节）。Deep Link 里额外带 `pcid`（电脑标识），手机 USB 连上后调用 `p2d/pc.info` 记下电脑的局域网地址，没配对过就调用 `p2d/pair.issue` 自动配对。拔掉数据线（令牌失效 / 连接断开）时，手机自动改用 WiFi 直连同一台电脑；插回数据线时电脑重新下发 Deep Link，手机切回 USB（可在手机「设备」页关闭）。
 
@@ -111,7 +134,7 @@ WiFi 连接不走 adb，而是手机直接连电脑的局域网 IP（详见第 9
 
 ## 6. 文件上传（自定义扩展）
 
-用户在 Agent 对话里添加的文件（以及模型不支持图片时的图片），还有 Agent 用手机网络下载的驱动、安装包（`download_to_pc` 工具），由手机分块上传到电脑，保存在系统「下载」目录下的 `PhoneToDesktop` 文件夹（Windows：`%USERPROFILE%\Downloads\PhoneToDesktop`；Linux：`XDG_DOWNLOAD_DIR`，通常是 `~/下载/PhoneToDesktop`）。需要「读写文件」开关和「标准」以上权限。
+用户在 Agent 对话里添加的文件、用户要求存到电脑的图片（`save_attachment_to_pc` 工具；图片默认只发给模型看，不存到电脑），还有 Agent 用手机网络下载的驱动、安装包（`download_to_pc` 工具），由手机分块上传到电脑，保存在系统「下载」目录下的 `PhoneToDesktop` 文件夹（Windows：`%USERPROFILE%\Downloads\PhoneToDesktop`；Linux：`XDG_DOWNLOAD_DIR`，通常是 `~/下载/PhoneToDesktop`）。需要「读写文件」开关和「标准」以上权限。
 
 | 方法 | 参数 | 返回 |
 |---|---|---|
@@ -158,6 +181,7 @@ Core 在同一端口提供 HTTP 接口，只接受本机访问：
 
 - `GET /api/status`：电脑信息、adb 是否可用（不可用时 `adbError` 说明原因）、设备列表（序列号、型号、阶段）、当前会话；Windows 上有已插上但缺 USB 驱动的手机时带 `driverMissing: [{name, instanceId}]`；系统防火墙会挡住局域网直连端口时（银河麒麟）带 `lanBlocked: true`；`lan.tailscale` 是本机的 Tailscale 地址（100.64.0.0/10，装了 Tailscale 才有，它也在 `lan.addrs` 里，排在真实网卡后面）
 - `POST /api/disconnect`：断开所有手机。设备在拔线前不会自动重连
+- `POST /api/aoa/connect?id=<序列号>`（Linux）：免调试连接一台手机（见 1.2），返回 `{ok, message?}`。状态接口里免调试连接的设备 `transport` 为 `aoa`，`stage` 多一个 `available`（可以点「免调试连接」）；开启时带 `aoa: {enabled, problem?}`
 - `POST /api/driver/install`（Windows）：以管理员身份（弹出 UAC）安装电脑端自带的 ADB 接口驱动（WinUSB，按兼容标识 `USB\Class_FF&SubClass_42&Prot_01` 匹配所有品牌手机），等安装结束返回 `{ok, message?}`。已装厂商驱动的手机不受影响
 - `POST /api/firewall/allow`（银河麒麟）：用 `pkexec` 弹出系统的密码框，执行 `kylin-firewall -A PhoneToDesktop -d inbound -m all -p tcp -L <局域网端口> -a allow`（规则已存在但被关掉时改为重新开启），公用、专用两种网络模式都放行，等结束返回 `{ok, message?}`
 

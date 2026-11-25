@@ -15,7 +15,7 @@ import { createStore, useStore } from '@/state/store';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { runAgent, type AgentEvent, type AgentTools } from './agent';
-import { formatSize, isSmallTextFile, readText, uploadToPc, type Attachment } from './attachments';
+import { formatSize, isSmallTextFile, readText, uploadToPcDetailed, type Attachment } from './attachments';
 import { canCompress, compressHistory, isContextOverflow } from './compress';
 import { downloadToPc } from './downloads';
 import { extensionApi, extensionPrompt } from './extensionStore';
@@ -30,6 +30,7 @@ import {
   type AskAnswer,
   type AskOption,
   type AskQuestion,
+  type PcFile,
   type PhoneToolDeps,
   type ScheduleApi,
 } from './phoneTools';
@@ -339,7 +340,7 @@ function pcTargets(): PcTarget[] {
       async call(name, args, signal) {
         const c = await waitForClient(15_000, signal);
         if (!c) throw new Error('电脑连接已断开（等待 15 秒仍未重连），请检查数据线 / WiFi 和电脑端程序');
-        return c.callTool(name, args);
+        return c.callTool(name, args, { signal });
       },
     });
   }
@@ -356,7 +357,7 @@ function pcTargets(): PcTarget[] {
       async call(name, args, signal) {
         const c = await waitForExtra(id, 15_000, signal);
         if (!c) throw new Error(`「${deviceLabel(dev)}」的连接已断开（等待 15 秒仍未重连），请检查 WiFi 和电脑端程序`);
-        return c.callTool(name, args);
+        return c.callTool(name, args, { signal });
       },
     });
   }
@@ -420,8 +421,48 @@ export function isChoiceWaiting(id: string): boolean {
   return pendingChoices.has(id);
 }
 
-/** 多台电脑时 download_to_pc 要传到的那台（调用期间设置；download_to_pc 不会同时执行两个） */
+/** 多台电脑时 download_to_pc / save_attachment_to_pc 要传到的那台（调用期间设置；这两个工具不会同时执行） */
 let downloadClient: McpClient | null = null;
+
+/** 需要选电脑的手机工具（同时连着多台电脑时要加 pc 参数） */
+const PC_TARGET_PHONE_TOOLS = new Set(['download_to_pc', 'save_attachment_to_pc']);
+
+/** 最近发给模型、没有存到电脑的图片（编号 → 附件），用户之后说「存到电脑」时由 save_attachment_to_pc 上传。只在内存里，App 重开后清空 */
+const recentImages = new Map<string, { att: Attachment; itemId: string }>();
+const MAX_RECENT_IMAGES = 20;
+
+function rememberImage(att: Attachment, itemId: string): void {
+  recentImages.delete(att.id);
+  recentImages.set(att.id, { att, itemId });
+  while (recentImages.size > MAX_RECENT_IMAGES) recentImages.delete(recentImages.keys().next().value as string);
+}
+
+/** 按编号或文件名找图片；不填时取最近一张 */
+function findRecentImage(ref: string): { att: Attachment; itemId: string } | null {
+  const list = [...recentImages.values()];
+  if (!ref) return list[list.length - 1] ?? null;
+  return recentImages.get(ref) ?? [...list].reverse().find((x) => x.att.name === ref) ?? null;
+}
+
+async function saveAttachment(ref: string, opts: { signal?: AbortSignal }): Promise<PcFile & { name: string }> {
+  const hit = findRecentImage(ref);
+  if (!hit) throw new Error(recentImages.size ? `没有找到附件「${ref}」` : '没有可以保存的图片（App 重新打开后之前的图片会清空），请让用户重新发送');
+  const c = downloadClient ?? getClient();
+  if (!c) throw new Error('电脑连接已断开，请检查数据线 / WiFi');
+  const { att, itemId } = hit;
+  setAttachment(itemId, att.id, { status: 'uploading', progress: 0 });
+  try {
+    const r = await uploadToPcDetailed(c, att, {
+      signal: opts.signal,
+      onProgress: (sent, total) => setAttachment(itemId, att.id, { progress: total ? sent / total : 1 }),
+    });
+    setAttachment(itemId, att.id, { status: 'saved', path: r.path, progress: 1 });
+    return { ...r, name: att.name };
+  } catch (e) {
+    setAttachment(itemId, att.id, { status: 'sent' }); // 模型已经看过了，上传失败不算附件出错
+    throw e;
+  }
+}
 
 const phoneDeps: PhoneToolDeps = {
   askUser,
@@ -431,6 +472,7 @@ const phoneDeps: PhoneToolDeps = {
     if (!c) throw new Error('电脑连接已断开，请检查数据线 / WiFi');
     return downloadToPc(c, url, name, opts);
   },
+  saveAttachment,
   // 下载进度显示在实时画面小窗和虚拟桌面页的状态栏
   onProgress: (text) => conversationStore.set((st) => (st.live ? { live: { ...st.live, summary: text } } : {})),
 };
@@ -519,12 +561,12 @@ function buildTools(withPc: boolean): AgentTools {
       const names = pcs.map((t) => t.name);
       const phone = phoneTools
         .list()
-        .map((t) => (pcs.length > 1 && t.name === 'download_to_pc' ? withPcParam(t, names, '传到哪台电脑') : t));
+        .map((t) => (pcs.length > 1 && PC_TARGET_PHONE_TOOLS.has(t.name) ? withPcParam(t, names, '传到哪台电脑') : t));
       return [...(withPc ? pcTools.list() : []), ...(pcs.length > 1 ? [pcCopyTool(names)] : []), ...phone, ...extTools.list()];
     },
     async call(name, args, signal) {
       if (name === 'pc_copy_file') return runPcCopy(args, signal);
-      if (name === 'download_to_pc' && multi()) {
+      if (PC_TARGET_PHONE_TOOLS.has(name) && multi()) {
         const { pc, ...rest } = args;
         const t = pcTools.resolve({ pc });
         if (!t) return errorResult(`请用 pc 参数指定传到哪台电脑：${pcTargets().map((x) => x.name).join('、')}`);
@@ -615,8 +657,9 @@ function setAttachment(itemId: string, attId: string, patch: Partial<UiAttachmen
 }
 
 /**
- * 处理附件：支持图片的模型直接收图片；其余附件上传到电脑，告诉模型保存路径。
- * 电脑未连接时，小的文本文件直接把内容交给模型。
+ * 处理附件：
+ * - 图片只给模型看（支持图片的模型直接收图片，否则在手机上识别文字），不存到电脑；用户要放到电脑上时 Agent 调用 save_attachment_to_pc。
+ * - 文件在电脑连着时上传到电脑（模型看不到文件，要在电脑上读），告诉模型保存路径；电脑未连接时，小的文本文件直接把内容交给模型。
  */
 async function prepareAttachments(
   itemId: string,
@@ -628,27 +671,29 @@ async function prepareAttachments(
   const notes: string[] = [];
   for (const a of atts) {
     if (signal.aborted) break;
-    if (a.kind === 'image' && supportsVision) {
-      parts.push({ type: 'image_url', image_url: { url: `data:image/jpeg;base64,${a.base64}` } });
+    if (a.kind === 'image') {
+      rememberImage(a, itemId);
+      const where = `编号 ${a.id}，没有存到电脑；用户要放到电脑上时调用 save_attachment_to_pc`;
+      if (supportsVision) {
+        parts.push({ type: 'image_url', image_url: { url: `data:image/jpeg;base64,${a.base64}` } });
+        notes.push(`- 图片 ${a.name}（${formatSize(a.size)}，${where}）`);
+      } else {
+        // 模型看不到图片：在手机上识别图片里的文字交给模型
+        const r = ocrAvailable ? await recognizeText(a.base64) : null;
+        if (r?.lines.length) notes.push(`- 图片 ${a.name}（${where}）中的文字（手机端识别，坐标为图片像素）：\n${formatOcr(r, null)}`);
+        else notes.push(`- 图片 ${a.name}（${where}）：${r ? '图片中没有识别到文字' : '当前模型看不到图片'}`);
+      }
       setAttachment(itemId, a.id, { status: 'sent' });
       continue;
-    }
-    // 模型看不到图片：先在手机上识别图片里的文字交给模型（同时照常上传到电脑）
-    if (a.kind === 'image' && ocrAvailable) {
-      const r = await recognizeText(a.base64);
-      if (r?.lines.length) notes.push(`- ${a.name} 中的文字（手机端识别，坐标为图片像素）：\n${formatOcr(r, null)}`);
-      else if (r) notes.push(`- ${a.name}：图片中没有识别到文字`);
-      // 电脑没连接时不用上传，识别结果已经交给模型
-      if (r && !getClient()) {
-        setAttachment(itemId, a.id, { status: 'sent' });
-        continue;
-      }
     }
     const client = getClient();
     if (client) {
       setAttachment(itemId, a.id, { status: 'uploading', progress: 0 });
       try {
-        const path = await uploadToPc(client, a, (sent, total) => setAttachment(itemId, a.id, { progress: total ? sent / total : 1 }));
+        const { path } = await uploadToPcDetailed(client, a, {
+          onProgress: (sent, total) => setAttachment(itemId, a.id, { progress: total ? sent / total : 1 }),
+          signal,
+        });
         setAttachment(itemId, a.id, { status: 'saved', path, progress: 1 });
         notes.push(`- ${a.name}（${formatSize(a.size)}）：已保存到电脑 ${path}`);
       } catch (e) {

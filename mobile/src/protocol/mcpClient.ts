@@ -170,12 +170,17 @@ export class McpClient {
     return res.tools ?? [];
   }
 
-  /** 调用工具 */
-  async callTool(name: string, args: Record<string, unknown> = {}, options: { timeoutMs?: number } = {}): Promise<ToolResult> {
+  /** 调用工具。signal 中止时（用户点「停止」）通知电脑端取消，电脑端会结束正在执行的命令 */
+  async callTool(
+    name: string,
+    args: Record<string, unknown> = {},
+    options: { timeoutMs?: number; signal?: AbortSignal } = {},
+  ): Promise<ToolResult> {
     const res = (await this.request(
       'tools/call',
       { name, arguments: args },
       options.timeoutMs ?? Math.max(this.opts.requestTimeoutMs, 660_000),
+      options.signal,
     )) as ToolResult;
     return { content: res.content ?? [], isError: res.isError };
   }
@@ -185,21 +190,36 @@ export class McpClient {
     await this.request('p2d/setPermissions', p);
   }
 
-  /** 发送 JSON-RPC 请求 */
-  request(method: string, params?: unknown, timeoutMs?: number): Promise<unknown> {
+  /** 发送 JSON-RPC 请求。signal 中止时立即返回 AbortError，并按 MCP 规范发 notifications/cancelled 通知电脑端 */
+  request(method: string, params?: unknown, timeoutMs?: number, signal?: AbortSignal): Promise<unknown> {
     const ws = this.ws;
     if (!ws || ws.readyState !== WS_OPEN) {
       return Promise.reject(new McpError(-32000, '未连接到电脑'));
     }
+    if (signal?.aborted) return Promise.reject(abortError());
     const id = this.nextId++;
     const msg: JsonRpcRequest = { jsonrpc: '2.0', id, method };
     if (params !== undefined) msg.params = params;
     return new Promise((resolve, reject) => {
+      const onAbort = () => {
+        const p = this.pending.get(id);
+        if (!p) return;
+        clearTimeout(p.timer);
+        this.pending.delete(id);
+        this.notify('notifications/cancelled', { requestId: id, reason: '用户停止' });
+        reject(abortError());
+      };
+      const done = <T>(fn: (v: T) => void) => (v: T) => {
+        signal?.removeEventListener('abort', onAbort);
+        fn(v);
+      };
       const timer = setTimeout(() => {
         this.pending.delete(id);
+        signal?.removeEventListener('abort', onAbort);
         reject(new McpError(-32001, `请求超时：${method}`));
       }, timeoutMs ?? this.opts.requestTimeoutMs);
-      this.pending.set(id, { resolve, reject, timer });
+      this.pending.set(id, { resolve: done(resolve), reject: done(reject), timer });
+      signal?.addEventListener('abort', onAbort, { once: true });
       try {
         ws.send(JSON.stringify(msg));
       } catch (e) {
@@ -467,4 +487,8 @@ function errorMessage(ev: { message?: string; error?: unknown } | null | undefin
   const err = ev.error;
   if (err instanceof Error) return err.message;
   return err ? String(err) : '';
+}
+
+function abortError(): Error {
+  return Object.assign(new Error('已停止'), { name: 'AbortError' });
 }

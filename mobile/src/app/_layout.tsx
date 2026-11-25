@@ -1,5 +1,6 @@
 import '../global.css';
 
+import Constants from 'expo-constants';
 import * as Linking from 'expo-linking';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import { StatusBar } from 'expo-status-bar';
@@ -14,6 +15,7 @@ import { parseDraftUrl } from '@/protocol/deepLink';
 import { initExtensions } from '@/agent/extensionStore';
 import { initScheduler } from '@/agent/scheduler';
 import { handleIncomingUrl, initConnection } from '@/state/connection';
+import { watchAccessory } from '@/native/accessory';
 import { watchKeepAlive } from '@/native/keepAlive';
 import { initMulti } from '@/state/multi';
 import { setDraft } from '@/state/ui';
@@ -28,6 +30,8 @@ export default function RootLayout() {
   useEffect(() => {
     // 当前电脑先连，再连「同时连接」的其他电脑
     void initConnection().then(initMulti);
+    // 免调试连接：电脑经数据线（配件模式）发来连接参数时，和插线拉起 App 一样处理
+    void initConnection().then(() => watchAccessory((u) => handleIncomingUrl(u), Constants.expoConfig?.version ?? ''));
     // 连着电脑时开前台服务，切到后台也不断开
     watchKeepAlive();
     void initScheduler();

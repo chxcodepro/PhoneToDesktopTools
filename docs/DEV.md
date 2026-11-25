@@ -93,7 +93,7 @@ GitHub 上在仓库「Settings → Secrets and variables → Actions」里添加
 
 ## 已知待办
 
-- **adb**：Windows 和 Linux x86_64 用 33.0.3（Win7 实测结论见 TESTING.md 1.5）；麒麟 arm64 用麒麟软件源里的 adb 8.1 和它的 6 个库（见 desktop/vendor/README.md）；龙芯没有可用的 adb，只能 WiFi 连接。`bash scripts/fetch-vendor.sh` 会下载并核对。
+- **adb**：Windows 和 Linux x86_64 用 33.0.3（Win7 实测结论见 TESTING.md 1.5）；麒麟 arm64 用麒麟软件源里的 adb 8.1 和它的 6 个库（见 desktop/vendor/README.md）；龙芯没有可用的 adb，数据线用免调试连接（AOA，见 PROTOCOL.md 1.2），或用 WiFi。`bash scripts/fetch-vendor.sh` 会下载并核对。
 - **真机验证**：已在小米 9（Android 15）、一加 PJZ110（Android 17）+ Windows 10 上跑通自动安装、自动连接、自动重连、远程桌面、WiFi 直连，以及用 DeepSeek 驱动 Agent 操作电脑。
 - **OCR（iOS）**：Android 已用 ML Kit 中文模型离线识别（`modules/p2d-ocr`）；iOS 还没实现（可用 Vision 的 `VNRecognizeTextRequest`），目前 iPhone 上看不到图片的模型拿不到截图文字。
 - **麒麟**：x86_64 虚拟机上全部功能实测通过（TESTING.md 2.4）；arm64、龙芯没有真机，未实测。
@@ -104,7 +104,7 @@ GitHub 上在仓库「Settings → Secrets and variables → Actions」里添加
 |---|---|---|---|---|---|
 | 兆芯、海光、Intel | x86_64 | 上游 Go 1.20 | Electron 22（官方） | 33.0.3（官方） | deb、AppImage |
 | 飞腾、鲲鹏、海思麒麟 | arm64 | 上游 Go 1.20 | Electron 22（官方） | 8.1（麒麟软件源） | deb、AppImage |
-| 龙芯 3A5000 / 3A6000 | loongarch64（旧世界） | 龙芯旧世界 Go 1.20.12 | 龙芯 Electron 22.3.27 | 没有，只能 WiFi | deb |
+| 龙芯 3A5000 / 3A6000 | loongarch64（旧世界） | 龙芯旧世界 Go 1.20.12 | 龙芯 Electron 22.3.27 | 没有，用免调试连接或 WiFi | deb |
 | 龙芯 3A4000 | mips64el | — | 没有 Electron 22 | 没有 | 不支持 |
 | 申威 | sw64 | 上游 Go 不支持 | 没有 | 没有 | 不支持 |
 

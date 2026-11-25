@@ -1,0 +1,24 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <!-- 配件模式（AOA）：没有这个功能的手机也能安装，只是不能免调试连接 -->
+  <uses-feature android:name="android.hardware.usb.accessory" android:required="false" />
+
+  <application>
+    <!--
+      电脑端把手机切换到配件模式后，系统弹出「用 PhoneToDesktop 打开」：用户点确定就启动这个透明页面，
+      它打开配件（此时 App 已获得这个配件的访问权限）、拉起主界面，然后立即关闭。
+    -->
+    <activity
+      android:name="expo.modules.p2daccessory.UsbAccessoryActivity"
+      android:exported="true"
+      android:excludeFromRecents="true"
+      android:noHistory="true"
+      android:theme="@android:style/Theme.Translucent.NoTitleBar">
+      <intent-filter>
+        <action android:name="android.hardware.usb.action.USB_ACCESSORY_ATTACHED" />
+      </intent-filter>
+      <meta-data
+        android:name="android.hardware.usb.action.USB_ACCESSORY_ATTACHED"
+        android:resource="@xml/p2d_accessory_filter" />
+    </activity>
+  </application>
+</manifest>

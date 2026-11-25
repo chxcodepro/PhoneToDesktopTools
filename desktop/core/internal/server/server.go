@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"reflect"
 	"runtime"
 	"strings"
 	"sync"
@@ -30,14 +31,23 @@ type DeviceSource interface {
 	SuppressAll()    // 用户点「断开」后，拔线前不再自动连接
 }
 
+// AccessorySource 免调试连接（AOA 配件模式，由 internal/aoa 实现，仅 Linux）
+type AccessorySource interface {
+	Devices() any            // 设备列表，字段和 adb 设备相同
+	Problem() string         // 读不到 USB 设备的原因
+	Connect(id string) error // 用户点了「免调试连接」
+	SuppressAll()            // 用户点「断开」后，拔线前不再连接
+}
+
 // Server MCP 服务。
 type Server struct {
-	reg      *tools.Registry
-	Tokens   *TokenStore
-	Devices  DeviceSource
-	LAN      *LANConfig      // 局域网直连，未开启时为 nil
-	Driver   *ElevatedAction // 手机 USB 驱动检测与安装（仅 Windows），不支持时为 nil
-	Firewall *ElevatedAction // 防火墙放行局域网直连端口（银河麒麟），不支持时为 nil
+	reg       *tools.Registry
+	Tokens    *TokenStore
+	Devices   DeviceSource
+	Accessory AccessorySource // 免调试连接，不支持的系统为 nil
+	LAN       *LANConfig      // 局域网直连，未开启时为 nil
+	Driver    *ElevatedAction // 手机 USB 驱动检测与安装（仅 Windows），不支持时为 nil
+	Firewall  *ElevatedAction // 防火墙放行局域网直连端口（银河麒麟），不支持时为 nil
 
 	// 用户在电脑上点了「断开」：局域网的自动重连先拒绝，手机上手动点「连接」才接受
 	lanSuppressed atomic.Bool
@@ -78,6 +88,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/paired/remove", s.handlePairingAPI)
 	mux.HandleFunc("/api/driver/install", s.handleElevated(func() *ElevatedAction { return s.Driver }, "这个系统不需要安装手机驱动"))
 	mux.HandleFunc("/api/firewall/allow", s.handleElevated(func() *ElevatedAction { return s.Firewall }, "这个系统不需要放行防火墙"))
+	mux.HandleFunc("/api/aoa/connect", s.handleAOAConnect)
 	return localOnly(mux)
 }
 
@@ -210,6 +221,9 @@ func (s *Server) DisconnectAll() {
 	if s.Devices != nil {
 		s.Devices.SuppressAll()
 	}
+	if s.Accessory != nil {
+		s.Accessory.SuppressAll()
+	}
 	s.Tokens.RevokeAll()
 	s.lanSuppressed.Store(true)
 	s.mu.Lock()
@@ -235,12 +249,24 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		"sessions": s.Sessions(),
 		"lan":      s.lanStatus(),
 	}
+	devices := []any{}
 	if s.Devices != nil {
 		st["adbAvailable"] = s.Devices.Available()
 		if p := s.Devices.Problem(); p != "" {
 			st["adbError"] = p
 		}
-		st["devices"] = s.Devices.Snapshot()
+		devices = appendItems(devices, s.Devices.Snapshot())
+	}
+	if s.Accessory != nil {
+		aoa := map[string]any{"enabled": true}
+		if p := s.Accessory.Problem(); p != "" {
+			aoa["problem"] = p
+		}
+		st["aoa"] = aoa
+		devices = appendItems(devices, s.Accessory.Devices())
+	}
+	if s.Devices != nil || s.Accessory != nil {
+		st["devices"] = devices
 	}
 	if m := s.Driver.pending(); m != nil {
 		st["driverMissing"] = m
@@ -259,4 +285,34 @@ func (s *Server) handleDisconnect(w http.ResponseWriter, r *http.Request) {
 	}
 	s.DisconnectAll()
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// appendItems 把任意切片的元素追加到 out（adb 和免调试连接的设备类型不同，状态接口里合成一个列表）
+func appendItems(out []any, list any) []any {
+	v := reflect.ValueOf(list)
+	if v.Kind() != reflect.Slice {
+		return out
+	}
+	for i := 0; i < v.Len(); i++ {
+		out = append(out, v.Index(i).Interface())
+	}
+	return out
+}
+
+// handleAOAConnect 电脑端界面上点了「免调试连接」：让这台手机切换到配件模式
+func (s *Server) handleAOAConnect(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	res := map[string]any{"ok": true}
+	if s.Accessory == nil {
+		res = map[string]any{"ok": false, "message": "这个系统不支持免调试连接，请在手机上开启 USB 调试"}
+	} else if err := s.Accessory.Connect(r.URL.Query().Get("id")); err != nil {
+		res = map[string]any{"ok": false, "message": err.Error()}
+	} else {
+		s.lanSuppressed.Store(false)
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(res)
 }

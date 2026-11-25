@@ -1,5 +1,5 @@
 // p2d-core：PhoneToDesktop 电脑端核心服务（被控端）。
-// 监听 127.0.0.1，经 adb 隧道（USB 或 WiFi）为手机 Agent 提供 MCP 工具。
+// 监听 127.0.0.1，经 adb 隧道或免调试连接（AOA，Linux）为手机 Agent 提供 MCP 工具；局域网直连另开端口。
 package main
 
 import (
@@ -20,8 +20,10 @@ import (
 	"time"
 
 	"p2d/core/internal/adb"
+	"p2d/core/internal/aoa"
 	"p2d/core/internal/lan"
 	"p2d/core/internal/lanfw"
+	"p2d/core/internal/portres"
 	"p2d/core/internal/screen"
 	"p2d/core/internal/server"
 	"p2d/core/internal/tools"
@@ -74,6 +76,7 @@ func main() {
 	pkg := flag.String("pkg", "com.p2d.mobile", "手机端包名")
 	devToken := flag.String("dev-token", "", "开发调试用的固定令牌（正式使用请留空）")
 	noADB := flag.Bool("no-adb", false, "不启动 adb 设备发现（仅调试）")
+	noAOA := flag.Bool("no-aoa", false, "不启用免调试连接（AOA 配件模式，仅 Linux）")
 	lanPort := flag.Int("lan-port", 39272, "局域网直连端口（手机输入电脑 IP 连接用），0 表示不开启")
 	showVersion := flag.Bool("version", false, "显示版本")
 	installDriver := flag.String("install-adb-driver", "", "（内部使用）以管理员身份安装手机 USB 驱动，结果写入指定文件")
@@ -130,8 +133,28 @@ func main() {
 		log.Printf("adb：%s", findADB(*adbPath))
 	}
 
+	// 免调试连接（Linux）：手机不开 USB 调试，经数据线用配件模式连接；开了调试、有 adb 的手机仍交给 adb
+	var acc *aoa.Manager
+	if aoa.Supported && !*noAOA {
+		acc = aoa.New(aoa.Config{
+			Port:     *port,
+			HostName: host,
+			PCID:     store.PCID(),
+			StateDir: stateDir(),
+			ADBAvailable: func() bool {
+				return mgr != nil && mgr.Available()
+			},
+		}, tokens)
+		acc.OnGone = func(id string) { srv.CloseSerial(id, "手机已断开连接") }
+		srv.Accessory = acc
+	}
+
 	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", *port))
 	if err != nil {
+		if portres.Reserved(err) {
+			// 界面按「被 Windows 保留」识别这一行，给出处理办法（不是「已有实例在运行」）
+			log.Fatalf("无法启动：%s", portres.Hint(*port, 2))
+		}
 		log.Fatalf("无法监听端口 %d：%v（是否已经有一个实例在运行？）", *port, err)
 	}
 	httpSrv := &http.Server{Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second}
@@ -148,7 +171,11 @@ func main() {
 	if *lanPort > 0 {
 		lanLn, err := net.Listen("tcp", fmt.Sprintf(":%d", *lanPort))
 		if err != nil {
-			log.Printf("局域网直连未开启：无法监听端口 %d（%v）", *lanPort, err)
+			if portres.Reserved(err) {
+				log.Printf("局域网直连未开启：%s", portres.Hint(*lanPort, 1))
+			} else {
+				log.Printf("局域网直连未开启：无法监听端口 %d（%v）", *lanPort, err)
+			}
 		} else {
 			srv.LAN.Port = *lanPort
 			lanSrv := &http.Server{Handler: srv.LANHandler(), ReadHeaderTimeout: 10 * time.Second}
@@ -175,6 +202,10 @@ func main() {
 	if mgr != nil {
 		go mgr.Run(ctx)
 		log.Printf("等待手机通过数据线连接…")
+	}
+	if acc != nil {
+		go acc.Run(ctx)
+		log.Printf("免调试连接已开启：没开 USB 调试的手机也能用数据线连接")
 	}
 
 	sig := make(chan os.Signal, 1)

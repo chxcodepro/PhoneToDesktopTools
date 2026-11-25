@@ -1,6 +1,8 @@
 // 电脑端 Core 状态接口（GET /api/status）的数据结构，与 desktop/core/internal/server、internal/adb 保持一致。
 
 export type DeviceStage =
+  /** 免调试连接：插着一台没开 USB 调试的手机，点「免调试连接」后连接 */
+  | 'available'
   | 'unauthorized'
   | 'offline'
   | 'installing'
@@ -11,11 +13,12 @@ export type DeviceStage =
   | '';
 
 export interface CoreDevice {
-  /** adb 序列号；WiFi 通道是 ip:port */
+  /** adb 序列号；WiFi 通道是 ip:port；免调试连接是 aoa:<USB 插口> */
   serial: string;
   /** 手机硬件序列号，USB 和 WiFi 通道相同；会话的 serial 就是它 */
   id?: string;
-  transport?: 'usb' | 'wifi';
+  /** aoa：免调试连接（Android 配件模式，不需要 USB 调试，仅 Linux） */
+  transport?: 'usb' | 'wifi' | 'aoa';
   model: string;
   state: string;
   stage: DeviceStage;
@@ -81,6 +84,8 @@ export interface CoreStatus {
   adbAvailable?: boolean;
   /** adb 不可用的原因（如缺少运行库） */
   adbError?: string;
+  /** 免调试连接（Linux）：开启时有；problem 是读不到 USB 设备的原因 */
+  aoa?: { enabled: boolean; problem?: string };
   /** 已插上但还没装 USB 驱动的手机（Windows） */
   driverMissing?: { name: string; instanceId: string }[];
   /** 系统防火墙会挡住手机通过 WiFi 连接（银河麒麟） */
@@ -139,6 +144,8 @@ export interface P2DApi {
   installDriver(): Promise<{ ok: boolean; message?: string }>;
   /** 放行防火墙（会弹出系统的密码框），完成后返回结果 */
   allowFirewall(): Promise<{ ok: boolean; message?: string }>;
+  /** 免调试连接一台手机（记住它，以后插上自动连） */
+  aoaConnect(id: string): Promise<{ ok: boolean; message?: string }>;
   /** 开启 / 关闭开机自动启动 */
   setAutostart(on: boolean): Promise<void>;
   /** 立即检查更新 */

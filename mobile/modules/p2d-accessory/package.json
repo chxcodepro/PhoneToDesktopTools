@@ -1,0 +1,6 @@
+{
+  "name": "p2d-accessory",
+  "version": "0.1.0",
+  "private": true,
+  "description": "免调试连接：电脑端（Linux）把手机切换到 Android 配件模式（AOA）后，经数据线收发数据，手机不用开 USB 调试"
+}

@@ -172,7 +172,7 @@ async function callMcp(serverId: string, tool: string, args: Record<string, unkn
   }
   const client = getClient();
   if (!client) throw new Error('电脑未连接，电脑上的 MCP 不可用');
-  const call = async () => normalizeResult(await client.request('p2d/mcp.call', { id: serverId, name: tool, arguments: args }, 610_000));
+  const call = async () => normalizeResult(await client.request('p2d/mcp.call', { id: serverId, name: tool, arguments: args }, 610_000, signal));
   try {
     return await call();
   } catch (e) {

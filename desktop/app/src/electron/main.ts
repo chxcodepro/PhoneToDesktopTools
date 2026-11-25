@@ -3,7 +3,7 @@ import { app, BrowserWindow, globalShortcut, ipcMain, Menu, nativeImage, session
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { allowFirewall, cancelPairing, CoreProcess, disconnect, fetchStatus, installDriver, removePaired, startPairing } from './core';
+import { allowFirewall, aoaConnect, cancelPairing, CoreProcess, disconnect, fetchStatus, installDriver, removePaired, startPairing } from './core';
 import { getAutostart, initAutostart, setAutostart } from './autostart';
 import { checkUpdate, getUpdate, startAutoCheck } from './update';
 import { OverlayManager } from './overlay';
@@ -163,6 +163,7 @@ async function poll(): Promise<void> {
   let next: AppStatus;
   try {
     const status = await fetchStatus();
+    core.markOnline();
     const sess = status.sessions?.[0];
     next = {
       coreOnline: true,
@@ -173,7 +174,7 @@ async function poll(): Promise<void> {
       update: getUpdate(),
     };
   } catch {
-    next = { coreOnline: false, coreError: core.lastError || undefined, hotkey, autostart: getAutostart(), update: getUpdate() };
+    next = { coreOnline: false, coreError: core.offlineReason() || undefined, hotkey, autostart: getAutostart(), update: getUpdate() };
     core.ensureRunning();
   }
   current = next;
@@ -197,6 +198,9 @@ function registerIpc(): void {
       .finally(() => void poll());
   ipcMain.handle('p2d:installDriver', () => fix(installDriver));
   ipcMain.handle('p2d:allowFirewall', () => fix(allowFirewall));
+  ipcMain.handle('p2d:aoaConnect', (_e, id: unknown) =>
+    typeof id === 'string' ? fix(() => aoaConnect(id)) : { ok: false, message: '参数不对' },
+  );
   ipcMain.handle('p2d:setAutostart', (_e, on: unknown) => toggleAutostart(on === true));
   ipcMain.handle('p2d:checkUpdate', () => checkUpdate());
   // 只打开检查结果里的地址，不接受页面传来的地址

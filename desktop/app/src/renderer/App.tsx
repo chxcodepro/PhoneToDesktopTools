@@ -267,9 +267,31 @@ function LanBlocked({ addr }: { addr?: string }) {
   );
 }
 
+/** 插着一台没开 USB 调试的手机（Linux）：点一下免调试连接，以后这台手机插上就自动连 */
+function AoaCandidate({ device }: { device: CoreDevice }) {
+  const { busy, error, start } = useFix(() => window.p2d.aoaConnect(device.id || device.serial), '连接失败');
+  return (
+    <Card className="flex flex-col gap-2 p-3">
+      <div className="flex items-center gap-2.5 text-[13px]">
+        <Smartphone className="h-3.5 w-3.5 text-primary" />
+        <span className="flex-1 truncate font-medium">{device.model || '安卓手机'}</span>
+        <Badge variant="muted">未开 USB 调试</Badge>
+      </div>
+      {device.message ? <span className="pl-6 text-xs text-muted-foreground">{device.message}</span> : null}
+      <Button size="sm" className="ml-6 self-start" disabled={busy} onClick={start}>
+        {busy ? <Spinner className="h-3 w-3" /> : <Plug className="h-3.5 w-3.5" />}
+        免调试连接
+      </Button>
+      {error ? <span className="pl-6 text-xs text-destructive">{error}</span> : null}
+    </Card>
+  );
+}
+
 function Waiting({ s, onPair }: { s: AppStatus; onPair: () => void }) {
   const adb = s.status?.adbAvailable;
   const lan = s.status?.lan;
+  const aoa = s.status?.aoa;
+  const candidates = s.status?.devices?.filter((d) => d.transport === 'aoa' && d.stage === 'available') ?? [];
   const [showPaired, setShowPaired] = useState(false);
   const paired = lan?.paired ?? [];
   return (
@@ -277,6 +299,9 @@ function Waiting({ s, onPair }: { s: AppStatus; onPair: () => void }) {
       <Hero animated />
       <div className="text-center text-lg font-bold">{s.coreOnline ? '等待手机连接' : '正在启动服务…'}</div>
       {!s.coreOnline && s.coreError && <div className="text-center text-xs text-destructive">{s.coreError}</div>}
+      {candidates.map((d) => (
+        <AoaCandidate key={d.serial} device={d} />
+      ))}
       <Card className="mt-auto">
         {s.status?.driverMissing?.length ? (
           <DriverMissing names={s.status.driverMissing.map((d) => d.name)} />
@@ -289,6 +314,16 @@ function Waiting({ s, onPair }: { s: AppStatus; onPair: () => void }) {
         )}
         {!adb && s.status?.adbError ? (
           <div className="line-clamp-3 break-all px-3 pb-2.5 pl-9 text-xs text-warning-foreground">{s.status.adbError.replace(/（adb .*$/, '')}</div>
+        ) : null}
+        {aoa?.enabled ? (
+          <>
+            {sep}
+            <Row
+              icon={aoa.problem ? warn : ok}
+              label="免调试连接"
+              right={aoa.problem ? <Badge variant="warning">不可用</Badge> : <Badge variant="success">就绪</Badge>}
+            />
+          </>
         ) : null}
         {sep}
         <Row icon={warn} label="iPhone 驱动" right={<Badge variant="muted">暂不支持</Badge>} />
@@ -348,7 +383,31 @@ function Waiting({ s, onPair }: { s: AppStatus; onPair: () => void }) {
   );
 }
 
+/** 免调试连接：电脑没法给手机装 App、也没法拉起它，要用户在手机上点确认打开 */
+function ConnectingAoa({ device }: { device: CoreDevice }) {
+  const stage = device.stage;
+  const opened = stage === 'ready';
+  return (
+    <>
+      <Hero animated />
+      <div className="text-center text-lg font-bold">正在连接 {device.model || '手机'}</div>
+      <Card className="mt-auto">
+        <Row icon={ok} label="检测到手机（免调试连接）" />
+        {sep}
+        <Row icon={opened ? ok : stage === 'starting' ? <Spinner /> : pending} label="在手机上打开 App" />
+        {stage === 'starting' && device.message ? (
+          <div className="px-3 pb-2.5 pl-9 text-xs text-muted-foreground">{device.message}</div>
+        ) : null}
+        {sep}
+        <Row icon={opened ? <Spinner /> : pending} label="启动并连接" muted={!opened} />
+      </Card>
+      {stage === 'error' && device.message && <div className="text-center text-xs text-destructive">{device.message}</div>}
+    </>
+  );
+}
+
 function Connecting({ device }: { device: CoreDevice }) {
+  if (device.transport === 'aoa') return <ConnectingAoa device={device} />;
   const name = device.model || device.serial;
   const stage = device.stage;
   const installDone = stage === 'starting' || stage === 'ready';

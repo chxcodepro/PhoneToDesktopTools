@@ -13,7 +13,7 @@ desktop/vendor/
     └── p2d.apk          手机端安装包（mobile 构建产物）
 ```
 
-龙芯版没有 adb：麒麟和龙芯（Loongnix）的软件源里都没有旧世界 LoongArch 的 adb，龙芯版目前只能用 WiFi 连接；系统里装了 adb 时电脑端会自动使用。
+龙芯版没有 adb：麒麟和龙芯（Loongnix）的软件源里都没有旧世界 LoongArch 的 adb，龙芯版用数据线时走免调试连接（Android 配件模式，不需要 adb），也可以用 WiFi；系统里装了 adb 时电脑端会自动使用。
 
 运行 `bash scripts/fetch-vendor.sh` 会自动下载 adb 和 Windows 运行库到这里并核对 SHA-256（GitHub 构建也用它）；手机端安装包由 `scripts/build-apk.sh` 生成。Windows 版 adb 必须用 **33.0.3**：更新的版本用到了 Win8 / Win10 才有的系统函数，在 Win7 上启动失败或连接手机时崩溃（实测结果见 TESTING.md 1.5）。
 

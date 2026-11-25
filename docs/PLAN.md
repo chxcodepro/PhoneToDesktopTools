@@ -352,6 +352,8 @@ PhoneToDesktopTools/
 | M6 iOS | usbmux 隧道 + iOS 适配 | iPhone 可用 | 1.5 周 |
 | M7 扩展 | MCP 客户端（远程 MCP + 电脑 stdio MCP 转发）、Skill 安装 / 按需加载 / 脚本在电脑执行、扩展页面 | 可安装 MCP 与 Skill | 2 周 |
 | M8 增强 | UI 控件树、文档读取、AOA 免调试连接 | 准确度、易用性 | 1.5 周 |
+
+> AOA 实施结果（2026年11月24日）：只在 Linux（银河麒麟，含龙芯）实现，用内核 usbfs，不依赖 libusb。Windows 没做：手机没开 USB 调试时只有 MTP 接口、被系统 MTP 驱动占着，电脑发不出切换请求，要替换手机驱动或装第三方过滤驱动（UsbDk）才行。协议见 PROTOCOL.md 1.2。
 | M9 兼容与打包 | Win7 x86/x64 实机、麒麟 x64/arm64(/loong64) 实机测试；驱动包；绿色版打包 | 发布包 | 1.5 周 |
 
 **合计约 14 周**（1~2 人）。M1 完成后即可在真机上演示核心链路。

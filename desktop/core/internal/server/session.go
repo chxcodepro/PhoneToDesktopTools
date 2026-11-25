@@ -84,6 +84,7 @@ type Session struct {
 
 	ctx     context.Context
 	cancel  context.CancelFunc
+	calls   map[string]context.CancelFunc // 进行中的 tools/call（请求 ID → 取消），手机点「停止」时取消
 	stream  streamState
 	uploads uploadState
 }
@@ -231,8 +232,21 @@ func (s *Session) dispatch(m rpcMessage) {
 			"serverInfo":      map[string]any{"name": "p2d-core", "version": Version},
 			"instructions":    "这是用户的电脑。操作前可先调用 sys_info 了解系统；看屏幕用 screen_capture；读写文件用 fs_* 工具。",
 		})
-	case "notifications/initialized", "notifications/cancelled":
+	case "notifications/initialized":
 		// 无需处理
+	case "notifications/cancelled":
+		// 手机上点了「停止」：结束对应的工具调用（命令会连同子进程一起结束）
+		var p struct {
+			RequestID json.RawMessage `json:"requestId"`
+		}
+		_ = json.Unmarshal(m.Params, &p)
+		s.mu.Lock()
+		cancel := s.calls[string(p.RequestID)]
+		s.mu.Unlock()
+		if cancel != nil {
+			log.Printf("[会话 %d] 手机端取消了请求 %s", s.id, p.RequestID)
+			cancel()
+		}
 	case "ping":
 		if !notify {
 			s.reply(m.ID, nil)
@@ -249,9 +263,27 @@ func (s *Session) dispatch(m rpcMessage) {
 			return
 		}
 		perms := s.Info().Permissions
+		ctx, cancel := context.WithCancel(s.ctx)
+		key := string(m.ID)
+		if !notify {
+			s.mu.Lock()
+			if s.calls == nil {
+				s.calls = map[string]context.CancelFunc{}
+			}
+			s.calls[key] = cancel
+			s.mu.Unlock()
+		}
 		go func() {
+			defer func() {
+				cancel()
+				if !notify {
+					s.mu.Lock()
+					delete(s.calls, key)
+					s.mu.Unlock()
+				}
+			}()
 			start := time.Now()
-			res, ok := s.reg.Call(s.ctx, perms, p.Name, p.Arguments)
+			res, ok := s.reg.Call(ctx, perms, p.Name, p.Arguments)
 			if !ok {
 				s.fail(m.ID, errInvalidParams, "工具不存在："+p.Name)
 				return

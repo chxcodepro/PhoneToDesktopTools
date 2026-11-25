@@ -1,4 +1,4 @@
-// 在手机上执行的 Agent 工具（不经过电脑）：联网搜索、读网页、查微软驱动目录、下载文件并传到电脑，
+// 在手机上执行的 Agent 工具（不经过电脑）：联网搜索、读网页、查微软驱动目录、下载文件并传到电脑、把对话里的图片存到电脑，
 // 以及在对话里弹出选择卡片、等用户做决定（ask_user）。
 // 和电脑工具合并后一起交给模型。下载到电脑的那一步依赖 React Native，由调用方注入，便于在 Node 中测试。
 
@@ -21,6 +21,8 @@ export interface PhoneToolDeps {
   /** 下载文件并传到电脑；电脑未连接时为 null */
   downloadToPc:
     ((url: string, name: string, opts: { signal?: AbortSignal; onProgress?: (text: string) => void }) => Promise<PcFile>) | null;
+  /** 把用户在对话里发的图片附件传到电脑（ref 为附件编号或文件名，空表示最近一张）；电脑未连接时为 null */
+  saveAttachment?: ((ref: string, opts: { signal?: AbortSignal }) => Promise<PcFile & { name: string }>) | null;
   /** 下载进度（显示在实时画面小窗等处） */
   onProgress?: (text: string) => void;
   /** 在对话里显示选择卡片，等用户选完再返回；不提供时 ask_user 不可用 */
@@ -250,6 +252,18 @@ export const PHONE_TOOLS: ToolInfo[] = [
     },
   },
   {
+    name: 'save_attachment_to_pc',
+    description:
+      '把用户在对话里发来的图片保存到电脑的「下载/PhoneToDesktop」目录，返回电脑上的路径。发来的图片默认只给你看、不会存到电脑；' +
+      '只在用户要求把图片放到电脑上（保存、放到桌面、插进文档等）时调用，之后用电脑工具复制或移动到目标位置。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        attachment: { type: 'string', description: '附件编号或文件名（见用户消息里的附件列表）；不填表示最近发来的那张图片' },
+      },
+    },
+  },
+  {
     name: 'download_to_pc',
     description:
       '用手机的网络下载文件，经连接通道（数据线或 WiFi）传到电脑的「下载/PhoneToDesktop」目录（电脑本身不需要联网）。返回电脑上的保存路径、SHA-256，Windows 上还会返回数字签名状态。' +
@@ -408,6 +422,12 @@ export function createPhoneTools(deps: PhoneToolDeps): AgentTools {
           const q = parseAskArgs(args);
           if (typeof q === 'string') return text(q, true);
           return text(formatAnswer(await deps.askUser(q, signal)));
+        }
+        case 'save_attachment_to_pc': {
+          if (!deps.saveAttachment) return text('电脑未连接，无法保存到电脑', true);
+          const r = await deps.saveAttachment(str(args.attachment), { signal });
+          return text(`已把 ${r.name} 保存到电脑：${r.path}
+大小：${formatBytes(r.size)}`);
         }
         case 'download_to_pc': {
           if (!deps.downloadToPc) return text('电脑未连接，无法传输文件', true);

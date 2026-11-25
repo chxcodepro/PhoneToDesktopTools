@@ -33,6 +33,7 @@
 ## 特性
 
 - **只用数据线**：手机插上电脑就自动连接，电脑不需要网络、WiFi、蓝牙。电脑端会自动给手机安装、更新 App。
+- **免调试连接（麒麟）**：手机不开 USB 调试也能用数据线连接（Android 配件模式），第一次在电脑端点一下「免调试连接」，以后插上自动连。
 - **AI Agent**：手机负责调用大模型（自己的网络、自己的 API Key），电脑只负责执行，模型 Key 不会留在电脑上。
 - **电脑端能力**：执行命令（可申请管理员权限）、浏览 / 搜索 / 读写文件、读取 Word / Excel / PPT / PDF / WPS 文档、截屏、鼠标键盘（支持中文输入）、读取和操作界面控件（Windows）。
 - **远程桌面**：手机上实时查看并操作电脑屏幕。
@@ -50,7 +51,7 @@
 | 电脑 | Windows 10 / 11、Windows 7 SP1（x64 / x86） | `PhoneToDesktop-<版本>-win-x64-portable.exe` / `-win-ia32-portable.exe` |
 | 电脑 | 银河麒麟 V10 arm64（飞腾、鲲鹏、海思麒麟） | `PhoneToDesktop-<版本>-linux-arm64.deb` |
 | 电脑 | 银河麒麟 V10 x86_64（兆芯、海光、Intel） | `PhoneToDesktop-<版本>-linux-amd64.deb` |
-| 电脑 | 银河麒麟 V10 龙芯 3A5000 / 3A6000 | `PhoneToDesktop-<版本>-linux-loongarch64.deb`（只能 WiFi 连接） |
+| 电脑 | 银河麒麟 V10 龙芯 3A5000 / 3A6000 | `PhoneToDesktop-<版本>-linux-loongarch64.deb`（没有 adb：数据线用免调试连接，或用 WiFi） |
 
 暂不支持：iPhone、龙芯 3A4000（mips64el）、申威（sw64）。
 
@@ -67,6 +68,7 @@
 
      然后双击桌面上的「PhoneToDesktop」图标。
 3. 手机打开「开发者选项 → USB 调试」，用数据线连接电脑，在手机上点「允许 USB 调试」。
+   麒麟电脑也可以不开 USB 调试：手机上先装好 App，插线后在电脑端窗口点「免调试连接」（见 [安装说明](docs/INSTALL.md)）。
 4. 电脑端会自动给手机安装 App 并连接，窗口显示「已连接」即可在手机上操作电脑。
 5. 使用 Agent 前，在手机 App「设置 → 模型」里填写大模型的接口地址和 API Key。
 
