@@ -1,11 +1,12 @@
-// PhoneToDesktop 电脑端主进程：启动 Core、轮询状态、主窗口、托盘、被控红框、断开热键。
+// p2d 电脑端主进程：启动 Core、轮询状态、主窗口、托盘、被控红框、断开热键。
 import { app, BrowserWindow, globalShortcut, ipcMain, Menu, nativeImage, session, shell, Tray } from 'electron';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { allowFirewall, aoaConnect, cancelPairing, CoreProcess, disconnect, fetchStatus, installDriver, removePaired, startPairing } from './core';
 import { getAutostart, initAutostart, setAutostart } from './autostart';
-import { checkUpdate, getUpdate, startAutoCheck } from './update';
+import { checkUpdate, getUpdate, repoUrl, startAutoCheck } from './update';
+import { aboutInfo, exportLogs } from './logs';
 import { OverlayManager } from './overlay';
 import { deviceNameFor, type AppStatus } from '../shared/types';
 
@@ -26,6 +27,31 @@ let overlays: OverlayManager | null = null; // screen 模块需在 ready 之后�
 // 这些系统改用软件绘制。界面很简单，不需要 GPU。
 if (process.platform === 'win32' && Number(os.release().split('.')[0]) < 10) {
   app.disableHardwareAcceleration();
+}
+
+// 数据目录：改名前叫 PhoneToDesktop（%APPDATA%\PhoneToDesktop、~/.config/PhoneToDesktop），现在是 p2d。
+// 第一次运行新版时把旧目录搬过来（设置、运行日志，以及 Core 的配对记录都在里面）；要在单实例锁之前做（锁文件也在这个目录里）
+migrateUserData();
+
+function migrateUserData(): void {
+  const appData = app.getPath('appData');
+  const oldDir = path.join(appData, 'PhoneToDesktop');
+  const newDir = path.join(appData, 'p2d');
+  if (!fs.existsSync(oldDir)) return;
+  try {
+    if (fs.existsSync(newDir) && fs.readdirSync(newDir).length === 0) fs.rmdirSync(newDir);
+    if (!fs.existsSync(newDir)) {
+      fs.renameSync(oldDir, newDir);
+      return;
+    }
+    // 新目录里已经有东西（比如先启动过新版）：把旧目录里新目录没有的文件复制过去，旧目录改名留作备份
+    fs.cpSync(oldDir, newDir, { recursive: true, force: false, errorOnExist: false });
+    fs.renameSync(oldDir, `${oldDir}.old`);
+  } catch (e) {
+    // 文件被占用等：这次先继续用旧目录，下次启动再搬
+    console.error('搬迁数据目录失败：', e);
+    app.setPath('userData', oldDir);
+  }
 }
 
 // 只允许运行一个实例
@@ -49,7 +75,7 @@ function createMainWindow(): void {
     fullscreenable: false,
     frame: false,
     show: false,
-    title: 'PhoneToDesktop',
+    title: 'p2d',
     backgroundColor: '#ffffff',
     icon: iconPath('app.png'),
     webPreferences: {
@@ -92,11 +118,11 @@ async function doDisconnect(): Promise<void> {
 }
 
 function trayState(s: AppStatus): { icon: string; tip: string } {
-  if (!s.coreOnline) return { icon: 'tray-idle.png', tip: 'PhoneToDesktop：服务未启动' };
-  if (s.controllerName) return { icon: 'tray-controlled.png', tip: `PhoneToDesktop：${s.controllerName} 正在控制此电脑` };
+  if (!s.coreOnline) return { icon: 'tray-idle.png', tip: 'p2d：服务未启动' };
+  if (s.controllerName) return { icon: 'tray-controlled.png', tip: `p2d：${s.controllerName} 正在控制此电脑` };
   const busy = s.status?.devices?.some((d) => ['installing', 'starting', 'ready', 'unauthorized'].includes(d.stage));
-  if (busy) return { icon: 'tray-connecting.png', tip: 'PhoneToDesktop：正在连接手机' };
-  return { icon: 'tray-idle.png', tip: 'PhoneToDesktop：等待手机连接' };
+  if (busy) return { icon: 'tray-connecting.png', tip: 'p2d：正在连接手机' };
+  return { icon: 'tray-idle.png', tip: 'p2d：等待手机连接' };
 }
 
 // 状态每秒轮询一次，只在图标、提示文字真的变化时才更新托盘：
@@ -125,6 +151,8 @@ function trayMenu(): Menu {
       ? [{ label: '开机自动启动', type: 'checkbox' as const, checked: auto.enabled, click: () => toggleAutostart(!getAutostart().enabled) }]
       : []),
     { label: '检查更新', click: () => void checkUpdate().then(showMainWindow) },
+    // 窗口打不开、服务起不来时也能从托盘导出日志
+    { label: '导出日志…', click: () => void exportLogs(null, current) },
     { type: 'separator' },
     {
       label: '退出',
@@ -148,7 +176,7 @@ function toggleAutostart(on: boolean): void {
 
 function createTray(): void {
   tray = new Tray(nativeImage.createFromPath(iconPath('tray-idle.png')));
-  tray.setToolTip('PhoneToDesktop');
+  tray.setToolTip('p2d');
   tray.setContextMenu(trayMenu());
   tray.on('click', () => showMainWindow());
 }
@@ -209,6 +237,9 @@ function registerIpc(): void {
     const url = u.url || u.page;
     if (url?.startsWith('https://')) void shell.openExternal(url);
   });
+  ipcMain.handle('p2d:about', () => aboutInfo());
+  ipcMain.on('p2d:openRepo', () => void shell.openExternal(repoUrl()));
+  ipcMain.handle('p2d:exportLogs', () => exportLogs(mainWindow, current));
   ipcMain.on('p2d:minimize', () => mainWindow?.minimize());
   ipcMain.on('p2d:hide', () => mainWindow?.hide());
   ipcMain.on('p2d:overlayInteractive', (e, interactive: unknown) => {

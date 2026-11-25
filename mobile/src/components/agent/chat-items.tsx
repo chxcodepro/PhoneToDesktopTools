@@ -1,7 +1,7 @@
 // Agent 对话中的各类条目：用户消息、助手回答、执行步骤（含截图）、提示。
 
 import { Image } from 'expo-image';
-import { AlertCircle, Brain, Check, ChevronRight, FileText, Monitor, X } from 'lucide-react-native';
+import { AlertCircle, Brain, Check, ChevronRight, FileText, X } from 'lucide-react-native';
 import { useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, View } from 'react-native';
 import Animated, { FadeIn, FadeOut, LinearTransition, useAnimatedStyle, withTiming } from 'react-native-reanimated';
@@ -15,17 +15,11 @@ import { Text } from '@/components/ui/text';
 import type { Step, UiAttachment, UiItem } from '@/agent/conversations';
 import { cn } from '@/lib/utils';
 
+/** 附件下方的小字：上传进度或出错原因。存好后的提示显示在对话面板中间（conversationStore.toast），这里只显示大小 */
 function AttachmentStatus({ a }: { a: UiAttachment }) {
   switch (a.status) {
     case 'uploading':
       return <Text className="text-[10px] text-muted-foreground">{`上传中 ${Math.round((a.progress ?? 0) * 100)}%`}</Text>;
-    case 'saved':
-      return (
-        <View className="flex-row items-center gap-0.5">
-          <Icon as={Monitor} size={10} className="text-success-foreground" />
-          <Text className="text-[10px] text-success-foreground">已存到电脑</Text>
-        </View>
-      );
     case 'error':
       return (
         <View className="flex-row items-center gap-0.5">
@@ -48,7 +42,7 @@ function UserAttachments({ items }: { items: UiAttachment[] }) {
         a.kind === 'image' && a.uri ? (
           <Pressable key={a.id} onPress={() => setZoom(a.uri!)} className="items-end gap-0.5">
             <Image source={{ uri: a.uri }} style={{ width: 96, height: 96, borderRadius: 10 }} contentFit="cover" />
-            {a.status === 'uploading' || a.status === 'saved' || a.status === 'error' ? <AttachmentStatus a={a} /> : null}
+            {a.status === 'uploading' || a.status === 'error' ? <AttachmentStatus a={a} /> : null}
           </Pressable>
         ) : (
           <View key={a.id} className="w-48 flex-row items-center gap-2 rounded-xl border border-border bg-muted px-2.5 py-2">

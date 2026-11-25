@@ -45,7 +45,7 @@ C:\p2d-test\
    - `正在安装 …`：部分手机需要在手机上确认安装。
    - `已启动手机端，等待连接` → `手机已连接`：说明自动连接成功。
 5. 在手机上让 Agent 截图、读写文件、执行命令，并试试远程桌面。
-6. 也可以测电脑端界面：仓库 `desktop/app/release/win-unpacked/` 整个文件夹拷进去，运行 `PhoneToDesktop.exe`（目前只打了 64 位）。把 adb 和 apk 放到 `resources\core\vendor\` 下，结构与上面一致。
+6. 也可以测电脑端界面：仓库 `desktop/app/release/win-unpacked/` 整个文件夹拷进去，运行 `p2d.exe`（目前只打了 64 位）。把 adb 和 apk 放到 `resources\core\vendor\` 下，结构与上面一致。
 7. 需要记录的结果：
    - adb 哪个版本能在 Win7 上运行；
    - 驱动是否安装成功；
@@ -54,7 +54,7 @@ C:\p2d-test\
 
 ### 1.4 打包进安装包
 
-adb 33.0.3 放到仓库 `desktop/vendor/adb/windows-amd64/` 和 `windows-386/`，手机端 APK 放到 `desktop/vendor/app/p2d.apk`，再运行 `npm run dist:win64`，它们会被一起打进便携版（见 desktop/vendor/README.md）。
+adb 33.0.3 放到仓库 `desktop/vendor/adb/windows-amd64/` 和 `windows-386/`，手机端 APK 放到 `desktop/vendor/app/p2d.apk`，再运行 `npm run dist:win64`，它们会被一起打进安装程序（见 desktop/vendor/README.md）。
 
 ### 1.5 测试结果（2026年11月23日，Win7 旗舰版 SP1 x64 虚拟机，一加 13）
 
@@ -159,7 +159,7 @@ adb 33.0.3 放到仓库 `desktop/vendor/adb/windows-amd64/` 和 `windows-386/`�
 | 项目 | 结果 |
 |---|---|
 | 插上没开调试的手机 | 正常：GET_PROTOCOL 探测成功，界面显示「可以免调试连接」 |
-| 点「免调试连接」 | 正常：约 2 秒后手机以 `18D1:2D00` 重新出现，电脑端打开配件接口；手机上点「用 PhoneToDesktop 打开」后 20 秒内握手、建立会话、同步权限 |
+| 点「免调试连接」 | 正常：约 2 秒后手机以 `18D1:2D00` 重新出现，电脑端打开配件接口；手机上点「用 p2d 打开」后 20 秒内握手、建立会话、同步权限 |
 | 虚拟桌面 24 帧/秒、宽 1280；Agent 执行命令 | 正常 |
 | 拔线 | 正常：手机 4 秒内改用 WiFi 连接 |
 | 插回 | 正常：电脑端记得这台手机，自动切换；勾过「默认」后手机不再弹窗，3 秒内握手并切回数据线 |
@@ -179,7 +179,7 @@ adb 33.0.3 放到仓库 `desktop/vendor/adb/windows-amd64/` 和 `windows-386/`�
 
 | 项目 | 期望 |
 |---|---|
-| 手机没装 App 时点「免调试连接」 | 手机提示打开下载页；电脑端停在「请在手机上打开 PhoneToDesktop」 |
+| 手机没装 App 时点「免调试连接」 | 手机提示打开下载页；电脑端停在「请在手机上打开 p2d」 |
 | 用 tar.gz 解压运行（没有 udev 规则） | 提示「没有权限访问这台手机的 USB 设备」 |
 | 龙芯版（没有 adb），手机开着 USB 调试 | 也走免调试连接 |
 | 锁屏状态下点「免调试连接」 | 部分手机不切换，10 秒后提示解锁后重试 |

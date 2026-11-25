@@ -184,7 +184,7 @@ export const BOT_WALL_HINT =
   '该网站开启了人机验证（如 Cloudflare），不能自动访问，也不要尝试绕过。' +
   '请换用其他官方来源（如微软更新目录 driver_search、厂商的其他下载地址、系统软件源）；' +
   '确实只能从这里下载时，用 ask_user 请用户在手机浏览器打开该网址手动完成验证并下载，' +
-  '下载好后在对话里点「＋ → 文件」选中它，App 会把文件传到电脑的「下载/PhoneToDesktop」目录。';
+  '下载好后在对话里点「＋ → 文件」选中它，App 会把文件传到电脑的「下载/p2d」目录。';
 
 async function getText(
   fetch: FetchLike,

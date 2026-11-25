@@ -73,20 +73,43 @@ export function watchKeepAlive(): void {
 
 // ---------- 切到后台后断开过 ----------
 // 允许了「忽略电池优化」，ColorOS 仍会在 App 切到后台约 5 秒后关掉它的网络，要在「耗电管理」里选「完全允许后台行为」。
-// 系统没有接口能查到这个开关，所以记下「在后台时断开过」，提示卡片继续显示；之后在后台待了一分钟以上都没断开，就不再提示。
+// 系统没有接口能查到这个开关，所以按实际表现判断：
+// - 切到后台后不久（BG_CUT_WINDOW 内）断开：手机系统在限制后台，提示去设置。更晚的断开多半是电脑那边（拔线、关程序、休眠），不算。
+// - 连着电脑在后台待了 BG_OK_AFTER 以上都没断：后台运行已经放开了，不再提示（「忽略电池优化」没打开也不提示）。
+// - 从「应用设置」回来：认为用户已经改好了，先不提示；之后真的又被断开再提示。
 
-const DROP_KEY = 'p2d.bgDropped';
-const dropStore = createStore<{ dropped: boolean }>({ dropped: false });
+const BG_KEY = 'p2d.bgState';
+const LEGACY_DROP_KEY = 'p2d.bgDropped';
+/** 切到后台后多久内断开算系统限制（ColorOS 约 5 秒） */
+const BG_CUT_WINDOW = 45_000;
+/** 在后台连着待了这么久没断，就认为后台运行已放开 */
+const BG_OK_AFTER = 20_000;
 
-function setDropped(v: boolean): void {
-  if (dropStore.get().dropped === v) return;
-  dropStore.set({ dropped: v });
-  void AsyncStorage.setItem(DROP_KEY, v ? '1' : '0').catch(() => undefined);
+interface BgState {
+  /** 切到后台后不久就断开过，还没确认改好 */
+  dropped: boolean;
+  /** 确认后台运行没问题（后台连着待够了时间，或刚从应用设置回来） */
+  ok: boolean;
 }
 
+const bgStore = createStore<BgState>({ dropped: false, ok: false });
+
+function setBg(patch: Partial<BgState>): void {
+  const cur = bgStore.get();
+  if (Object.entries(patch).every(([k, v]) => cur[k as keyof BgState] === v)) return;
+  bgStore.set(patch);
+  void AsyncStorage.setItem(BG_KEY, JSON.stringify(bgStore.get())).catch(() => undefined);
+}
+
+/** 从「应用设置」回来时当作已经改好 */
+let visitingSettings = false;
+
 function watchBackgroundDrops(): void {
-  void AsyncStorage.getItem(DROP_KEY)
-    .then((v) => dropStore.set({ dropped: v === '1' }))
+  void AsyncStorage.multiGet([BG_KEY, LEGACY_DROP_KEY])
+    .then(([[, v], [, legacy]]) => {
+      if (v) bgStore.set(JSON.parse(v) as BgState);
+      else if (legacy === '1') bgStore.set({ dropped: true, ok: false });
+    })
     .catch(() => undefined);
   let bgSince = 0;
   let droppedThisTime = false;
@@ -95,8 +118,12 @@ function watchBackgroundDrops(): void {
       bgSince = connectionStore.get().status === 'connected' ? Date.now() : 0;
       droppedThisTime = false;
     } else if (st === 'active') {
-      // 连着电脑在后台待了一分钟以上都没断：后台运行已经被允许了
-      if (bgSince && !droppedThisTime && Date.now() - bgSince >= 60_000 && connectionStore.get().status === 'connected') setDropped(false);
+      if (visitingSettings) {
+        visitingSettings = false;
+        setBg({ dropped: false, ok: true });
+      } else if (bgSince && !droppedThisTime && Date.now() - bgSince >= BG_OK_AFTER && connectionStore.get().status === 'connected') {
+        setBg({ dropped: false, ok: true });
+      }
       bgSince = 0;
     }
   });
@@ -104,8 +131,12 @@ function watchBackgroundDrops(): void {
   connectionStore.subscribe(() => {
     const cur = connectionStore.get().status;
     if (last === 'connected' && cur !== 'connected' && bgSince && AppState.currentState !== 'active') {
-      droppedThisTime = true;
-      setDropped(true);
+      if (Date.now() - bgSince <= BG_CUT_WINDOW) {
+        droppedThisTime = true;
+        setBg({ dropped: true, ok: false });
+      } else {
+        bgSince = 0; // 在后台待了很久才断开，多半是电脑那边，这一轮不再判断
+      }
     }
     last = cur;
   });
@@ -114,9 +145,14 @@ function watchBackgroundDrops(): void {
 /** OPPO / 一加 / 真我（ColorOS）：要在「耗电管理」里选「完全允许后台行为」 */
 export const isColorOS = Platform.OS === 'android' && /oppo|oneplus|realme/i.test(String((Platform.constants as { Manufacturer?: string }).Manufacturer ?? ''));
 
-/** 在后台时断开过（需要用户去系统设置里放开后台限制） */
+/** 切到后台后不久就断开过（需要用户去系统设置里放开后台限制） */
 export function useBackgroundDropped(): boolean {
-  return useStore(dropStore).dropped;
+  return useStore(bgStore).dropped;
+}
+
+/** 已经确认后台运行没问题（这时即使没打开「忽略电池优化」也不提示） */
+export function useBackgroundOk(): boolean {
+  return useStore(bgStore).ok;
 }
 
 // ---------- 允许后台运行 ----------
@@ -136,8 +172,9 @@ export function requestBackground(): void {
   native?.requestBackground();
 }
 
-/** 打开本应用的系统设置页（厂商的「耗电管理」在里面） */
+/** 打开本应用的系统设置页（厂商的「耗电管理」在里面）；回来时先当作已经改好 */
 export function openAppSettings(): void {
+  visitingSettings = true;
   native?.openAppSettings();
 }
 

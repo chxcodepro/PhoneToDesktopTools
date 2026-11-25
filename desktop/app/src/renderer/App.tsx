@@ -1,10 +1,29 @@
 // 电脑端主窗口：等待连接 → 正在连接 → 已连接
-import { AlertTriangle, ArrowUpCircle, CheckCircle2, Circle, Minus, Monitor, OctagonX, Plug, QrCode, Smartphone, Trash2, Wifi, X } from 'lucide-react';
+import {
+  AlertTriangle,
+  ArrowUpCircle,
+  CheckCircle2,
+  Circle,
+  ExternalLink,
+  FileDown,
+  Github,
+  Info,
+  Minus,
+  Monitor,
+  OctagonX,
+  Plug,
+  QrCode,
+  RefreshCw,
+  Smartphone,
+  Trash2,
+  Wifi,
+  X,
+} from 'lucide-react';
 import QRCode from 'qrcode';
 import { useEffect, useState } from 'react';
 import { Badge, Button, Card, Kbd, Spinner } from '@/components/ui';
 import { cn, formatDuration, platformLabel } from '@/lib/utils';
-import { deviceNameFor, type AppStatus, type CoreDevice, type CoreLan } from '../shared/types';
+import { deviceNameFor, type AboutInfo, type AppStatus, type CoreDevice, type CoreLan } from '../shared/types';
 
 function useAppStatus(): AppStatus {
   const [s, setS] = useState<AppStatus>({ coreOnline: false });
@@ -34,9 +53,15 @@ export function App() {
   const [pairingView, setPairingView] = useState(false);
   const lan = st?.lan;
   const [manualCheck, setManualCheck] = useState(false);
+  const [aboutView, setAboutView] = useState(false);
+  const checkNow = () => {
+    setManualCheck(true);
+    void window.p2d.checkUpdate();
+  };
 
   let body: JSX.Element;
-  if (pairingView && lan?.enabled) body = <Pairing lan={lan} onClose={() => setPairingView(false)} />;
+  if (aboutView) body = <About s={s} onCheck={checkNow} onClose={() => setAboutView(false)} />;
+  else if (pairingView && lan?.enabled) body = <Pairing lan={lan} onClose={() => setPairingView(false)} />;
   else if (session)
     body = (
       <Connected
@@ -73,14 +98,15 @@ export function App() {
           </label>
         ) : null}
         <button
-          className="hover:text-foreground"
-          title={`${platformLabel(st?.os, st?.arch)}，点击检查更新`}
-          onClick={() => {
-            setManualCheck(true);
-            void window.p2d.checkUpdate();
-          }}
+          className={cn(
+            'flex h-6 items-center gap-1 rounded-md border border-border px-2 text-foreground hover:bg-accent',
+            aboutView && 'bg-accent',
+          )}
+          title={`v${s.update?.current ?? ''} · 检查更新、导出日志、项目主页`}
+          onClick={() => setAboutView((v) => !v)}
         >
-          {s.update?.current ? `v${s.update.current}` : platformLabel(st?.os, st?.arch)} · 检查更新
+          <Info className="h-3 w-3" />
+          关于
         </button>
       </footer>
     </div>
@@ -94,7 +120,7 @@ function TitleBar() {
         <div className="flex h-5 w-5 items-center justify-center rounded-md bg-primary text-white">
           <Smartphone className="h-3 w-3" strokeWidth={2.5} />
         </div>
-        <span className="text-[13px] font-semibold">PhoneToDesktop</span>
+        <span className="text-[13px] font-semibold">p2d</span>
       </div>
       <div className="no-drag flex h-full">
         <button
@@ -200,6 +226,85 @@ function UpdateBanner({ u, manual, onClose }: { u?: AppStatus['update']; manual:
         </button>
       ) : null}
     </Card>
+  );
+}
+
+/** 关于：版本、检查更新、导出日志、项目主页 */
+function About({ s, onCheck, onClose }: { s: AppStatus; onCheck: () => void; onClose: () => void }) {
+  const [info, setInfo] = useState<AboutInfo | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
+  useEffect(() => {
+    void window.p2d.about().then(setInfo);
+  }, []);
+  const doExport = () => {
+    setExporting(true);
+    setResult(null);
+    void window.p2d
+      .exportLogs()
+      .then((r) => {
+        if (r.ok) setResult({ ok: true, text: `已保存到 ${r.path}` });
+        else if (r.message) setResult({ ok: false, text: r.message });
+      })
+      .finally(() => setExporting(false));
+  };
+  return (
+    <div className="flex flex-1 flex-col gap-3">
+      <div className="flex flex-col items-center gap-1 text-center">
+        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-white">
+          <Smartphone className="h-5 w-5" strokeWidth={2.25} />
+        </div>
+        <div className="text-base font-semibold">p2d 电脑端</div>
+        <div className="text-xs text-muted-foreground">
+          {info ? `v${info.version} · ${platformLabel(s.status?.os, s.status?.arch)}` : ' '}
+        </div>
+      </div>
+      <Card className="overflow-hidden">
+        <Row
+          icon={<RefreshCw className="h-3.5 w-3.5 text-muted-foreground" />}
+          label="检查更新"
+          right={
+            <Button size="sm" variant="outline" disabled={s.update?.state === 'checking'} onClick={onCheck}>
+              {s.update?.state === 'checking' ? <Spinner className="h-3 w-3" /> : null}
+              检查
+            </Button>
+          }
+        />
+        {sep}
+        <Row
+          icon={<FileDown className="h-3.5 w-3.5 text-muted-foreground" />}
+          label="导出日志"
+          right={
+            <Button size="sm" variant="outline" disabled={exporting} onClick={doExport}>
+              {exporting ? <Spinner className="h-3 w-3" /> : null}
+              导出
+            </Button>
+          }
+        />
+        {result ? (
+          <div className={cn('break-all px-3 pb-2.5 text-[11px]', result.ok ? 'text-muted-foreground' : 'text-destructive')}>{result.text}</div>
+        ) : null}
+        {sep}
+        <button className="block w-full text-left hover:bg-accent" title={info?.repoUrl} onClick={() => window.p2d.openRepo()}>
+          <Row
+            icon={<Github className="h-3.5 w-3.5 text-muted-foreground" />}
+            label="项目主页"
+            right={
+              <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                GitHub
+                <ExternalLink className="h-3 w-3" />
+              </span>
+            }
+          />
+        </button>
+      </Card>
+      <div className="px-1 text-[11px] leading-relaxed text-muted-foreground">
+        出了问题时导出日志，连同问题描述发到项目主页的 Issues。日志不含配对令牌和配对码。
+      </div>
+      <Button variant="outline" className="mt-auto w-full" onClick={onClose}>
+        返回
+      </Button>
+    </div>
   );
 }
 
@@ -558,7 +663,7 @@ function Pairing({ lan, onClose }: { lan: CoreLan; onClose: () => void }) {
   }
   return (
     <div className="flex flex-1 flex-col items-center gap-2.5 text-center">
-      <div className="text-sm font-semibold">用 PhoneToDesktop 扫码配对</div>
+      <div className="text-sm font-semibold">用 p2d 手机端扫码配对</div>
       <div className="flex h-[150px] w-[150px] items-center justify-center rounded-lg border border-border bg-white p-1.5">
         {qr ? <img src={qr} alt="配对二维码" className="h-full w-full" /> : <Spinner />}
       </div>

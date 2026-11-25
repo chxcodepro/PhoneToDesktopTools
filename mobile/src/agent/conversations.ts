@@ -12,6 +12,7 @@ import { activeIds, getExtraClient, multiStore } from '@/state/multi';
 import { uiStore } from '@/state/ui';
 import { loadJson, saveJson } from '@/state/storage';
 import { createStore, useStore } from '@/state/store';
+import { appLog } from '@/lib/applog';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { runAgent, type AgentEvent, type AgentTools } from './agent';
@@ -136,6 +137,8 @@ export interface ConversationState {
   totalTokens: number;
   live: LiveAction | null;
   ready: boolean;
+  /** 对话面板中间短暂显示的提示（附件上传到电脑成功后等），id 每次不同 */
+  toast: { id: string; text: string } | null;
 }
 
 const INDEX_KEY = 'p2d.conversations.v1';
@@ -155,7 +158,17 @@ export const conversationStore = createStore<ConversationState>({
   totalTokens: 0,
   live: null,
   ready: false,
+  toast: null,
 });
+
+/** 在对话面板中间显示一条提示，2.5 秒后自动消失 */
+function flashToast(text: string): void {
+  const toast = { id: `t_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`, text };
+  conversationStore.set({ toast });
+  setTimeout(() => {
+    if (conversationStore.get().toast?.id === toast.id) conversationStore.set({ toast: null });
+  }, 2500);
+}
 
 let abort: AbortController | null = null;
 let seq = 0;
@@ -456,7 +469,9 @@ async function saveAttachment(ref: string, opts: { signal?: AbortSignal }): Prom
       signal: opts.signal,
       onProgress: (sent, total) => setAttachment(itemId, att.id, { progress: total ? sent / total : 1 }),
     });
+    // 电脑确认收完（upload.end 成功）才算存好，这时才提示
     setAttachment(itemId, att.id, { status: 'saved', path: r.path, progress: 1 });
+    flashToast(`已把 ${att.name} 存到电脑`);
     return { ...r, name: att.name };
   } catch (e) {
     setAttachment(itemId, att.id, { status: 'sent' }); // 模型已经看过了，上传失败不算附件出错
@@ -493,7 +508,7 @@ function pcCopyTool(names: string[]): ToolInfo {
   return {
     name: 'pc_copy_file',
     description:
-      '把一台电脑上的文件传到另一台电脑（经手机中转，不需要两台电脑互通网络），保存到目标电脑的「下载/PhoneToDesktop」目录，返回保存路径。只能传单个文件，文件夹请先压缩；最大 1 GB。',
+      '把一台电脑上的文件传到另一台电脑（经手机中转，不需要两台电脑互通网络），保存到目标电脑的「下载/p2d」目录，返回保存路径。只能传单个文件，文件夹请先压缩；最大 1 GB。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -626,6 +641,8 @@ function applyEvent(e: AgentEvent): void {
         break;
       }
       case 'tool_end': {
+        // 只记工具名和简短结果（不记参数和对话内容）
+        if (e.isError) appLog('warn', `工具 ${e.name} 出错：${e.summary}`.slice(0, 500));
         for (let i = out.length - 1; i >= 0; i--) {
           const it = out[i];
           if (it.kind !== 'steps' || !it.steps.some((s) => s.id === e.id)) continue;
@@ -695,6 +712,7 @@ async function prepareAttachments(
           signal,
         });
         setAttachment(itemId, a.id, { status: 'saved', path, progress: 1 });
+        flashToast(`已把 ${a.name} 存到电脑`);
         notes.push(`- ${a.name}（${formatSize(a.size)}）：已保存到电脑 ${path}`);
       } catch (e) {
         const msg = (e as Error).message;
@@ -734,6 +752,7 @@ function toTurnStats(model: string, contextWindow: number, st: UsageStats): Turn
 }
 
 function notice(text: string, tone: 'info' | 'error' = 'info'): void {
+  appLog(tone === 'error' ? 'warn' : 'info', `对话提示：${text}`);
   mutateItems((items) => [...items, { kind: 'notice', id: uid('n'), text, tone }]);
 }
 

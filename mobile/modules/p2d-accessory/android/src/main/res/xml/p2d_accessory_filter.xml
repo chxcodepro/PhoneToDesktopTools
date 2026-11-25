@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 只响应 PhoneToDesktop 电脑端（desktop/core/internal/aoa/frame.go 里的识别字符串，两边要一致） -->
+<!-- 只响应 p2d 电脑端（desktop/core/internal/aoa/frame.go 里的识别字符串，两边要一致）；PhoneToDesktop 是改名前的电脑端，也认 -->
 <resources>
+  <usb-accessory manufacturer="p2d" model="P2D" />
   <usb-accessory manufacturer="PhoneToDesktop" model="P2D" />
 </resources>

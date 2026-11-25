@@ -1,19 +1,21 @@
 <div align="center">
 
-# PhoneToDesktop
+# p2d
+
+（原名 PhoneToDesktop）
 
 用手机通过一根数据线控制电脑：手机上的 AI Agent 帮你执行命令、读写文件、看屏幕、操作鼠标键盘，也可以手动远程桌面。
 
 电脑不需要联网，支持 Windows 7 / 10 / 11 和银河麒麟。
 
-[![Build](https://github.com/chxcodepro/PhoneToDesktopTools/actions/workflows/build.yml/badge.svg)](https://github.com/chxcodepro/PhoneToDesktopTools/actions/workflows/build.yml)
-[![Release](https://img.shields.io/github/v/release/chxcodepro/PhoneToDesktopTools?include_prereleases&label=Release)](https://github.com/chxcodepro/PhoneToDesktopTools/releases)
+[![Build](https://github.com/chxcodepro/p2d/actions/workflows/build.yml/badge.svg)](https://github.com/chxcodepro/p2d/actions/workflows/build.yml)
+[![Release](https://img.shields.io/github/v/release/chxcodepro/p2d?include_prereleases&label=Release)](https://github.com/chxcodepro/p2d/releases)
 ![Windows](https://img.shields.io/badge/Windows-7%20%7C%2010%20%7C%2011-0078D6?logo=windows)
 ![Kylin](https://img.shields.io/badge/%E9%93%B6%E6%B2%B3%E9%BA%92%E9%BA%9F-V10-C00000?logo=linux&logoColor=white)
 ![Android](https://img.shields.io/badge/Android-7.0%2B-3DDC84?logo=android&logoColor=white)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-[安装说明](docs/INSTALL.md) · [下载](https://github.com/chxcodepro/PhoneToDesktopTools/releases) · [开发说明](docs/DEV.md) · [通信协议](docs/PROTOCOL.md)
+[安装说明](docs/INSTALL.md) · [下载](https://github.com/chxcodepro/p2d/releases) · [开发说明](docs/DEV.md) · [通信协议](docs/PROTOCOL.md)
 
 </div>
 
@@ -41,32 +43,32 @@
 - **权限由手机控制**：只读 / 标准 / 完全控制三档，可以单独关闭命令、文件、屏幕、键鼠。电脑屏幕四周出现红框表示正在被控制，随时可以用热键断开。
 - **WiFi 直连（可选）**：配对后可以在同一局域网内无线连接，全程端到端加密；也支持通过 Tailscale 远程连接。
 - **扩展**：支持远程 MCP、电脑上的 stdio MCP 和 Skill，支持定时任务（可以指定在哪几台电脑上执行）。
-- **免安装**：Windows 是单个便携版 exe，自带 adb、USB 驱动和运行库；麒麟用 deb 安装。支持开机自启和检查更新。
+- **安装简单**：Windows 是一个安装程序（不需要管理员权限），自带 adb、USB 驱动和运行库；麒麟用 deb 安装。支持开机自启和检查更新。
 
 ## 支持的平台
 
 | 端 | 系统 | 安装包 |
 |---|---|---|
-| 手机 | Android（arm64 / armv7） | `PhoneToDesktop-<版本>-android.apk` |
-| 电脑 | Windows 10 / 11、Windows 7 SP1（x64 / x86） | `PhoneToDesktop-<版本>-win-x64-portable.exe` / `-win-ia32-portable.exe` |
-| 电脑 | 银河麒麟 V10 arm64（飞腾、鲲鹏、海思麒麟） | `PhoneToDesktop-<版本>-linux-arm64.deb` |
-| 电脑 | 银河麒麟 V10 x86_64（兆芯、海光、Intel） | `PhoneToDesktop-<版本>-linux-amd64.deb` |
-| 电脑 | 银河麒麟 V10 龙芯 3A5000 / 3A6000 | `PhoneToDesktop-<版本>-linux-loongarch64.deb`（没有 adb：数据线用免调试连接，或用 WiFi） |
+| 手机 | Android（arm64 / armv7） | `p2d-<版本>-android.apk` |
+| 电脑 | Windows 10 / 11、Windows 7 SP1（x64 / x86） | `p2d-<版本>-win-x64-setup.exe` / `-win-ia32-setup.exe`（安装程序） |
+| 电脑 | 银河麒麟 V10 arm64（飞腾、鲲鹏、海思麒麟） | `p2d-<版本>-linux-arm64.deb` |
+| 电脑 | 银河麒麟 V10 x86_64（兆芯、海光、Intel） | `p2d-<版本>-linux-amd64.deb` |
+| 电脑 | 银河麒麟 V10 龙芯 3A5000 / 3A6000 | `p2d-<版本>-linux-loongarch64.deb`（没有 adb：数据线用免调试连接，或用 WiFi） |
 
 暂不支持：iPhone、龙芯 3A4000（mips64el）、申威（sw64）。
 
 ## 快速开始
 
-1. 从 [Releases](https://github.com/chxcodepro/PhoneToDesktopTools/releases) 下载对应电脑的安装包。
+1. 从 [Releases](https://github.com/chxcodepro/p2d/releases) 下载对应电脑的安装包。
 2. 电脑上运行：
    - **Windows**：把 exe 放到固定的目录（不要直接在 U 盘里运行），双击运行。
    - **银河麒麟**：
 
      ```bash
-     sudo dpkg -i PhoneToDesktop-<版本>-linux-arm64.deb
+     sudo dpkg -i p2d-<版本>-linux-arm64.deb
      ```
 
-     然后双击桌面上的「PhoneToDesktop」图标。
+     然后双击桌面上的「p2d」图标。
 3. 手机打开「开发者选项 → USB 调试」，用数据线连接电脑，在手机上点「允许 USB 调试」。
    麒麟电脑也可以不开 USB 调试：手机上先装好 App，插线后在电脑端窗口点「免调试连接」（见 [安装说明](docs/INSTALL.md)）。
 4. 电脑端会自动给手机安装 App 并连接，窗口显示「已连接」即可在手机上操作电脑。
@@ -104,7 +106,7 @@ flowchart LR
 # 电脑端 Core：交叉编译全部平台，输出到 dist/core/
 bash scripts/build-core.sh 0.1.0-dev
 
-# 电脑端界面：打包 Windows 便携版
+# 电脑端界面：打包 Windows 安装程序
 cd desktop/app && npm ci && npm run dist:win64
 
 # 手机端：类型检查和测试

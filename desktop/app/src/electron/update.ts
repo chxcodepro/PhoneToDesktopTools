@@ -1,5 +1,5 @@
 // 检查更新：查询 GitHub 仓库最新发布（Release）的版本，有新版本时给出本机对应的安装包下载地址。
-// 不自动下载安装：打开浏览器下载，用户自己覆盖安装（便携版 exe、deb 的安装方式不同，见 docs/INSTALL.md）。
+// 不自动下载安装：打开浏览器下载，用户自己覆盖安装（Windows 安装程序、deb 的安装方式不同，见 docs/INSTALL.md）。
 // 仓库地址不写死在代码里：CI 打包时把 GITHUB_REPOSITORY 写进 package.json 的 p2d.updateRepo，
 // 本地打包没有这个字段，检查更新会提示「这个版本没有配置更新地址」。
 // 不能上网的电脑检查会失败，自动检查失败时不打扰用户。
@@ -45,7 +45,8 @@ export function compareVersions(a: string, b: string): number {
 
 /** 本机对应的安装包文件名结尾（和 electron-builder、scripts/package-linux.sh 的命名一致） */
 export function assetSuffixes(platform: string, arch: string, appImage: boolean): string[] {
-  if (platform === 'win32') return [arch === 'ia32' ? '-win-ia32-portable.exe' : '-win-x64-portable.exe'];
+  // Windows 打包成安装程序（更早的版本是便携版 -portable.exe，从便携版检查更新时找不到对应文件，会打开发布页）
+  if (platform === 'win32') return [arch === 'ia32' ? '-win-ia32-setup.exe' : '-win-x64-setup.exe'];
   if (platform !== 'linux') return [];
   if (appImage) return arch === 'arm64' ? ['-linux-arm64.AppImage'] : ['-linux-x86_64.AppImage', '-linux-x64.AppImage'];
   const deb: Record<string, string> = { x64: 'amd64', arm64: 'arm64', loong64: 'loongarch64' };
@@ -62,6 +63,14 @@ function updateRepo(): string | undefined {
   }
 }
 
+/** 本地打包的版本没有配置 updateRepo 时，「关于」里显示的项目主页 */
+const HOME_REPO = 'chxcodepro/p2d';
+
+/** 项目主页（GitHub 仓库）：优先用打包时写入的仓库，和检查更新一致 */
+export function repoUrl(): string {
+  return `https://github.com/${updateRepo() ?? HOME_REPO}`;
+}
+
 interface GhRelease {
   tag_name: string;
   html_url: string;
@@ -73,7 +82,7 @@ function getJson(url: string): Promise<{ status: number; body: unknown }> {
     // net 走 Chromium 的网络栈，会用系统代理设置
     const req = net.request({ url, method: 'GET' });
     req.setHeader('Accept', 'application/vnd.github+json');
-    req.setHeader('User-Agent', 'PhoneToDesktop');
+    req.setHeader('User-Agent', 'p2d');
     const timer = setTimeout(() => {
       req.abort();
       reject(new Error('连接超时'));
@@ -151,7 +160,7 @@ export function startAutoCheck(changed: () => void): void {
 
 /** 平台说明：下载后怎么装 */
 export function installHint(): string {
-  if (process.platform === 'win32') return '下载完成后，在托盘图标上右键「退出」，再运行新下载的 exe（可以删掉旧的）';
+  if (process.platform === 'win32') return '下载完成后运行新的安装程序，它会关闭正在运行的旧版本并直接覆盖安装，配对记录和设置都保留';
   if (process.env.APPIMAGE) return '下载完成后退出本程序，给新文件加上执行权限后运行';
   return '下载完成后双击 .deb 安装（或运行 sudo dpkg -i 文件名），会直接覆盖旧版本，然后重新打开本程序';
 }

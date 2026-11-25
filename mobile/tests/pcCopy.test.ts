@@ -40,7 +40,7 @@ function target(): Rpc & { got: Buffer[]; calls: string[]; name?: string } {
       }
       if (method === 'p2d/upload.end') {
         const all = Buffer.concat(t.got);
-        return { path: `/home/u/下载/PhoneToDesktop/${t.name}`, size: all.length };
+        return { path: `/home/u/下载/p2d/${t.name}`, size: all.length };
       }
       return {};
     },

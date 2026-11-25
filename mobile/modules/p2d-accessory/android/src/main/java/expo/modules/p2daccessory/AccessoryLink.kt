@@ -35,7 +35,8 @@ import java.util.concurrent.atomic.AtomicInteger
  */
 object AccessoryLink {
   const val TAG = "P2dAccessory"
-  const val MANUFACTURER = "PhoneToDesktop"
+  /** 电脑端的配件厂商名：p2d，改名前的电脑端是 PhoneToDesktop */
+  val MANUFACTURERS = setOf("p2d", "PhoneToDesktop")
   const val MODEL = "P2D"
   /** 本机监听端口：固定一个，App 重开后 JS 用保存的参数也能重连；被占用时随机选 */
   const val PREFERRED_PORT = 39273
@@ -48,7 +49,7 @@ object AccessoryLink {
   @Volatile var appVersion: String = ""
   private var receiverRegistered = false
 
-  fun isOurs(a: UsbAccessory): Boolean = a.manufacturer == MANUFACTURER && a.model == MODEL
+  fun isOurs(a: UsbAccessory): Boolean = a.manufacturer in MANUFACTURERS && a.model == MODEL
 
   fun isOpen(): Boolean = session?.alive == true
 

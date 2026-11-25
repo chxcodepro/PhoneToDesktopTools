@@ -19,7 +19,7 @@ type Device struct {
 
 // infLines 驱动描述文件。ClassGuid 和设备接口 GUID 与 Google USB 驱动相同，adb（AdbWinApi.dll）靠接口 GUID 找到手机。
 var infLines = []string{
-	`; PhoneToDesktop：安卓手机 ADB 接口驱动，使用系统自带的 WinUSB，不含驱动程序文件`,
+	`; p2d：安卓手机 ADB 接口驱动，使用系统自带的 WinUSB，不含驱动程序文件`,
 	`[Version]`,
 	`Signature   = "$Windows NT$"`,
 	`Class       = AndroidUsbDeviceClass`,

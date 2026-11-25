@@ -206,7 +206,7 @@ export function ConversationDrawer({ open, ctl }: { open: boolean; ctl: DrawerCo
               <Icon as={Monitor} size={20} className="text-primary-foreground" />
             </View>
             <Text numberOfLines={1} className="flex-1 text-xl font-semibold">
-              PhoneToDesktop
+              p2d
             </Text>
             <Pressable
               onPress={() => {

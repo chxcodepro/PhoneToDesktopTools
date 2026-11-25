@@ -1,4 +1,4 @@
-// p2d-core：PhoneToDesktop 电脑端核心服务（被控端）。
+// p2d-core：p2d 电脑端核心服务（被控端）。
 // 监听 127.0.0.1，经 adb 隧道或免调试连接（AOA，Linux）为手机 Agent 提供 MCP 工具；局域网直连另开端口。
 package main
 
@@ -60,13 +60,30 @@ func findADB(flagVal string) string {
 	return bundled
 }
 
-// stateDir 保存记住的 WiFi 手机等状态的目录。
+// stateDir 保存记住的 WiFi 手机等状态的目录（<用户配置目录>/p2d）。
+// 改名前叫 PhoneToDesktop：新目录还没有时把旧目录整个改名过来，配对记录、记住的手机都在里面。
+// 和电脑端界面（Electron）的数据目录是同一个，一般已经由界面先搬好了。
 func stateDir() string {
 	d, err := os.UserConfigDir()
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(d, "PhoneToDesktop")
+	return migrateDir(filepath.Join(d, "PhoneToDesktop"), filepath.Join(d, "p2d"))
+}
+
+// migrateDir 把改名前的目录 old 改名为 dir；dir 已存在或 old 不存在时不动。改名失败时继续用旧目录
+func migrateDir(old, dir string) string {
+	if _, err := os.Stat(dir); err == nil {
+		return dir
+	}
+	if _, err := os.Stat(old); err != nil {
+		return dir
+	}
+	if err := os.Rename(old, dir); err != nil {
+		log.Printf("把 %s 改名为 %s 失败（%v），继续使用旧目录", old, dir, err)
+		return old
+	}
+	return dir
 }
 
 func main() {
@@ -163,7 +180,7 @@ func main() {
 			log.Fatalf("服务异常退出：%v", err)
 		}
 	}()
-	log.Printf("PhoneToDesktop 电脑端 %s 已启动：%s（%s/%s）", server.Version, ln.Addr(), runtime.GOOS, runtime.GOARCH)
+	log.Printf("p2d 电脑端 %s 已启动：%s（%s/%s）", server.Version, ln.Addr(), runtime.GOOS, runtime.GOARCH)
 	if *devToken != "" {
 		log.Printf("开发令牌已启用：ws://127.0.0.1:%d/mcp?token=%s", *port, *devToken)
 	}

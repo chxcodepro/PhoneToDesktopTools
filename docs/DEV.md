@@ -81,7 +81,7 @@ GitHub 上在仓库「Settings → Secrets and variables → Actions」里添加
 |---|---|
 | `core` | 电脑端核心，5 个平台（Windows x64 / x86，Linux x64 / arm64 / loong64） |
 | `apk` | 手机端 APK（arm64-v8a + armeabi-v7a） |
-| `desktop-win` | 电脑端便携版 exe（x64、ia32），已内置 adb、运行库和 APK |
+| `desktop-win` | 电脑端安装程序 `-setup.exe`（x64、ia32 各一个），已内置 adb、运行库和 APK |
 | `desktop-linux` | 电脑端 deb 和 tar.gz（x64、arm64、龙芯），AppImage（x64、arm64） |
 
 - 每次推送和 PR 都会跑；产物保留 14 天。版本号为 `0.1.0-ci.<运行编号>`。
@@ -139,12 +139,12 @@ cd desktop/app
 npm install --ignore-scripts        # Electron 二进制见下方说明
 npm run typecheck                   # 类型检查（渲染进程 + 主进程）
 npm run dev                         # 生成图标、构建并以开发模式启动（使用仓库根目录 dist/core 下的 Core）
-npm run dist:win64                  # 打包 Windows x64 便携版，输出到 release/
+npm run dist:win64                  # 打包 Windows x64 安装程序，输出到 release/（dist:win 打 x64 和 ia32 两个）
 ```
 
 - **Electron 二进制**：本机代理环境下 Electron 自带的下载器会 TLS 握手失败。可以手动从 `https://cdn.npmmirror.com/binaries/electron/22.3.27/` 下载 `electron-v22.3.27-win32-x64.zip`，解压到 `node_modules/electron/dist/`，再写入 `node_modules/electron/path.txt`（内容为 `electron.exe`）。
 - **打包时**：设置 `ELECTRON_BUILDER_BINARIES_MIRROR=https://cdn.npmmirror.com/binaries/electron-builder-binaries/`；x64 可加 `-c.electronDist=node_modules/electron/dist -c.electronVersion=22.3.27` 复用已下载的 Electron。打包前需先运行 `bash scripts/build-core.sh`，`stage-core` 会把各平台 Core 复制到 `core-bin/`。
-- **开机自启**（`src/electron/autostart.ts`）：只在打包后生效，第一次运行默认开启，选择存在 `userData/settings.json`。Windows 用 `reg add` 写 `HKCU\...\Run\PhoneToDesktop`（路径带引号，便携版登记 exe 本身而不是临时解压目录），Linux 写 `~/.config/autostart/phonetodesktop.desktop`；都带 `--hidden`，开机后只在托盘。每次启动按选择重新登记，exe 换位置也能跟上。
+- **开机自启**（`src/electron/autostart.ts`）：只在打包后生效，第一次运行默认开启，选择存在 `userData/settings.json`。Windows 用 `reg add` 写 `HKCU\...\Run\p2d`（路径带引号，登记安装目录里的 exe；卸载时由 desktop/app/installer/installer.nsh 删掉这一项），Linux 写 `~/.config/autostart/p2d.desktop`（改名前的 `PhoneToDesktop` 项、`phonetodesktop.desktop` 登记时会删掉）；数据目录改名前叫 `PhoneToDesktop`，第一次运行新版时由 `src/electron/main.ts` 和 Core 的 `stateDir()` 搬到 `p2d`；都带 `--hidden`，开机后只在托盘。每次启动按选择重新登记，exe 换位置也能跟上。
 - **开发用环境变量**（打包后同样生效，但只在调试时使用）：
   - `P2D_CORE_ARGS`：传给 Core 的额外参数，如 `-dev-token e2etoken`、`-no-adb`
   - `P2D_PORT`：改用其他端口（同时传给 Core），避免与正在运行的 Core 冲突

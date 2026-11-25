@@ -1,11 +1,10 @@
-// 设置页：设备（进入设备列表）、打开 App 时自动连接、电脑权限（只在手机上设置）、模型预设、关于（版本、检查更新）。
+// 设置页：设备（进入设备列表）、打开 App 时自动连接、电脑权限（只在手机上设置）、模型预设、关于（进入关于页：版本、检查更新、导出日志、项目主页）。
 
 import { router } from 'expo-router';
 import type { LucideIcon } from 'lucide-react-native';
-import { ChevronRight, FileText, Monitor, MousePointer2, ScanLine, Terminal } from 'lucide-react-native';
+import { ChevronRight, FileText, Info, Monitor, MousePointer2, ScanLine, Terminal } from 'lucide-react-native';
 import { Pressable, View } from 'react-native';
 
-import { AppUpdate } from '@/components/app-update';
 import { BackgroundCard } from '@/components/devices/background-card';
 import { STATUS_LABEL, StatusDot } from '@/components/connection-status';
 import { ModelSettings } from '@/components/model-settings';
@@ -15,6 +14,7 @@ import { Icon } from '@/components/ui/icon';
 import { Segmented } from '@/components/ui/segmented';
 import { Switch } from '@/components/ui/switch';
 import { Text } from '@/components/ui/text';
+import { appVersion } from '@/lib/applog';
 import type { PermissionLevel, Permissions } from '@/protocol/types';
 import { osLabel, updatePermissions, useConnection } from '@/state/connection';
 import { setAutoConnect, useDevices } from '@/state/devices';
@@ -38,7 +38,7 @@ export default function SettingsScreen() {
   return (
     <Screen title="设置">
       {/* 设备：点一下进入设备列表 */}
-      <Pressable onPress={() => router.push('/devices')}>
+      <Pressable onPress={() => router.push('/devices')} className="active:opacity-70">
         <Card className="flex-row items-center gap-3 p-3">
           <View className="h-9 w-9 items-center justify-center rounded-md bg-primary/10">
             <Icon as={Monitor} size={18} className="text-primary" />
@@ -91,7 +91,19 @@ export default function SettingsScreen() {
 
       <ModelSettings />
 
-      <AppUpdate />
+      {/* 关于：版本、检查更新、导出日志、项目主页（和上面「设备」一样做成可点的卡片） */}
+      <Pressable onPress={() => router.push('/about')} className="mt-2 active:opacity-70">
+        <Card className="flex-row items-center gap-3 p-3">
+          <View className="h-9 w-9 items-center justify-center rounded-md bg-primary/10">
+            <Icon as={Info} size={18} className="text-primary" />
+          </View>
+          <View className="flex-1">
+            <Text className="font-semibold">关于</Text>
+            <Text className="text-xs text-muted-foreground">{`版本 ${appVersion()} · 检查更新、导出日志、项目主页`}</Text>
+          </View>
+          <Icon as={ChevronRight} size={18} className="text-muted-foreground" />
+        </Card>
+      </Pressable>
     </Screen>
   );
 }

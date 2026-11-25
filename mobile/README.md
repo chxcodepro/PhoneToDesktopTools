@@ -1,4 +1,4 @@
-# PhoneToDesktop 手机端
+# p2d 手机端
 
 Expo（SDK 58）+ expo-router + TypeScript，界面用 NativeWind v4 + react-native-reusables 风格组件（`src/components/ui/`）。
 协议见 [docs/PROTOCOL.md](../docs/PROTOCOL.md)。

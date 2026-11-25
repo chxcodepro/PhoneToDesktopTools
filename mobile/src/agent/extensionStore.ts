@@ -13,6 +13,7 @@ import { normalizeResult, RemoteMcp, type McpFetch } from '@/protocol/httpMcp';
 import type { ToolInfo, ToolResult } from '@/protocol/types';
 import { connectionStore, getClient } from '@/state/connection';
 import { createStore, useStore } from '@/state/store';
+import { BUILTIN_EDITED_SOURCE, BUILTIN_MCPS, BUILTIN_SKILLS, BUILTIN_SOURCE, builtinSkillMd } from './builtinExtensions';
 
 import type { ExtensionApi, ServerStatus, SkillPackage } from './extensionTools';
 import {
@@ -422,7 +423,9 @@ export async function saveSkillMd(id: string | null, md: string): Promise<Skill>
     // 改了名字：先删掉旧记录
     if (old.name.toLowerCase() !== parsed.name.toLowerCase()) await removeSkill(old.id);
   }
-  return saveSkill(parsed.name, parsed.description, files, old?.source ?? '手动创建', 'user');
+  // 改过的内置 Skill 标成「内置（已修改）」，App 更新时不会被覆盖
+  const source = old?.source === BUILTIN_SOURCE ? BUILTIN_EDITED_SOURCE : (old?.source ?? '手动创建');
+  return saveSkill(parsed.name, parsed.description, files, source, 'user');
 }
 
 export async function readSkillText(id: string, path = 'SKILL.md'): Promise<string> {
@@ -537,6 +540,52 @@ export function extensionPrompt(): string[] {
   return lines;
 }
 
+const BUILTIN_KEY = 'p2d.extensions.builtin.v1';
+
+/**
+ * 装上内置的 MCP 和 Skill（见 builtinExtensions.ts）。记下装过哪个版本：
+ * 用户删掉的不再装回来；版本更新时，用户没删、没改过的内置 Skill 更新内容（保留启用 / 停用状态）。
+ */
+async function installBuiltins(): Promise<void> {
+  let done: Record<string, number> = {};
+  try {
+    done = JSON.parse((await AsyncStorage.getItem(BUILTIN_KEY)) ?? '{}') as Record<string, number>;
+  } catch {
+    done = {};
+  }
+  let changed = false;
+  for (const b of BUILTIN_SKILLS) {
+    const prev = done[b.key];
+    if (prev !== undefined && prev >= b.version) continue;
+    try {
+      const existing = extensionStore.get().skills.find((x) => x.name.toLowerCase() === b.name.toLowerCase());
+      // 第一次：没有同名 Skill 才装；更新：只更新还是原样的内置 Skill
+      const install = prev === undefined ? !existing : existing?.source === BUILTIN_SOURCE;
+      if (install) {
+        const files: RawFile[] = [{ path: 'SKILL.md', data: encoder.encode(builtinSkillMd(b)) }];
+        for (const [path, content] of Object.entries(b.files)) files.push({ path, data: encoder.encode(content) });
+        saveSkill(b.name, b.description, files, BUILTIN_SOURCE, 'user');
+      }
+      done[b.key] = b.version;
+      changed = true;
+    } catch (e) {
+      console.warn(`内置 Skill「${b.name}」安装失败：`, e);
+    }
+  }
+  for (const m of BUILTIN_MCPS) {
+    if (done[m.key] !== undefined) continue;
+    try {
+      const dup = extensionStore.get().servers.some((x) => x.kind === 'remote' && x.url === m.draft.url);
+      if (!dup) await addServers([m.draft], 'user');
+      done[m.key] = m.version;
+      changed = true;
+    } catch (e) {
+      console.warn(`内置 MCP「${m.draft.name}」添加失败：`, e);
+    }
+  }
+  if (changed) await AsyncStorage.setItem(BUILTIN_KEY, JSON.stringify(done)).catch(() => undefined);
+}
+
 let started = false;
 
 export async function initExtensions(): Promise<void> {
@@ -551,6 +600,7 @@ export async function initExtensions(): Promise<void> {
   } catch {
     // 数据损坏时从空开始
   }
+  await installBuiltins();
   extensionStore.set({ ready: true });
   for (const s of extensionStore.get().servers) {
     if (s.kind === 'remote') void connectServer(s.id);

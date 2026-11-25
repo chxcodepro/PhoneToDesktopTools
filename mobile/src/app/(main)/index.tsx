@@ -2,7 +2,7 @@
 // 左上角三条杠（或在对话区向右滑）打开侧边抽屉；右上角按钮开关实时画面小窗，小窗的放大按钮进入虚拟桌面。
 
 import { router, useIsFocused } from 'expo-router';
-import { ArrowDown, Bug, Menu, MonitorPlay, Settings2, type LucideIcon } from 'lucide-react-native';
+import { ArrowDown, Bug, Menu, MonitorCheck, MonitorPlay, Settings2, type LucideIcon } from 'lucide-react-native';
 import { useEffect, useRef, useState } from 'react';
 import {
   Pressable,
@@ -236,6 +236,20 @@ export default function AgentScreen() {
             >
               <LiveWindow live={conv.live} running={conv.running} area={chatArea} />
             </Animated.View>
+          ) : null}
+          {/* 附件存到电脑等提示：显示在对话面板正中间，几秒后消失 */}
+          {conv.toast ? (
+            <View pointerEvents="none" style={StyleSheet.absoluteFill} className="items-center justify-center">
+              <Animated.View
+                key={conv.toast.id}
+                entering={FadeIn.duration(150)}
+                exiting={FadeOut.duration(200)}
+                className="max-w-[80%] flex-row items-center gap-2 rounded-xl bg-zinc-800/90 px-4 py-3"
+              >
+                <Icon as={MonitorCheck} size={18} className="text-emerald-400" />
+                <Text className="flex-shrink text-sm text-zinc-100">{conv.toast.text}</Text>
+              </Animated.View>
+            </View>
           ) : null}
         </View>
 

@@ -123,7 +123,7 @@ describe('手机工具', () => {
       fetch,
       downloadToPc: async (url, name) => {
         calls.push({ url, name });
-        return { path: `C:\\Users\\u\\Downloads\\PhoneToDesktop\\${name}`, size: 598115, ...file };
+        return { path: `C:\\Users\\u\\Downloads\\p2d\\${name}`, size: 598115, ...file };
       },
     });
     return { t, calls };
@@ -169,13 +169,13 @@ describe('手机工具', () => {
       downloadToPc: null,
       saveAttachment: async (ref) => {
         refs.push(ref);
-        return { path: '/home/u/下载/PhoneToDesktop/a.jpg', size: 70970, name: 'a.jpg' };
+        return { path: '/home/u/下载/p2d/a.jpg', size: 70970, name: 'a.jpg' };
       },
     });
     assert.ok(t.list().some((x) => x.name === 'save_attachment_to_pc'));
     const r = await t.call('save_attachment_to_pc', { attachment: ' att_1 ' });
     assert.equal(r.isError, false);
-    assert.match(textOf(r), /已把 a\.jpg 保存到电脑：\/home\/u\/下载\/PhoneToDesktop\/a\.jpg/);
+    assert.match(textOf(r), /已把 a\.jpg 保存到电脑：\/home\/u\/下载\/p2d\/a\.jpg/);
     await t.call('save_attachment_to_pc', {});
     assert.deepEqual(refs, ['att_1', '']);
 

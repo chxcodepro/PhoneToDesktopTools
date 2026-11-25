@@ -9,7 +9,10 @@ import (
 )
 
 // RuleName 放行规则在麒麟安全中心里显示的名称
-const RuleName = "PhoneToDesktop"
+const RuleName = "p2d"
+
+// oldRuleNames 改名前用过的规则名：这样的规则还在时直接开启它，不再新建一条
+var oldRuleNames = []string{"PhoneToDesktop"}
 
 // rule kylin-firewall -S 输出中的一行
 type rule struct {
@@ -102,12 +105,15 @@ func blocked(modesOut, rulesOut string, port int) bool {
 	return false
 }
 
-// hasRule 规则表里是否已有我们的规则（可能被用户关掉了）
-func hasRule(rulesOut string) bool {
-	for _, r := range parseRules(rulesOut) {
-		if r.name == RuleName {
-			return true
+// ourRule 规则表里我们的规则名（可能被用户关掉了，也可能是改名前的旧名字）；没有返回空
+func ourRule(rulesOut string) string {
+	rules := parseRules(rulesOut)
+	for _, name := range append([]string{RuleName}, oldRuleNames...) {
+		for _, r := range rules {
+			if r.name == name {
+				return name
+			}
 		}
 	}
-	return false
+	return ""
 }

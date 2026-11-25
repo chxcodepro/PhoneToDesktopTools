@@ -228,7 +228,7 @@ jobs:
         run: |
           mkdir release
           cp out/desktop-*/* release/
-          cp out/apk/p2d.apk "release/PhoneToDesktop-${GITHUB_REF_NAME#v}-android.apk"
+          cp out/apk/p2d.apk "release/p2d-${GITHUB_REF_NAME#v}-android.apk"
           for d in out/core/*/; do
             n=$(basename "$d")
             tar -czf "release/p2d-core-${GITHUB_REF_NAME#v}-$n.tar.gz" -C "$d" .

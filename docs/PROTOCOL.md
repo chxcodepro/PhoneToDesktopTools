@@ -31,8 +31,8 @@ adb -s <序列号> shell am start -a android.intent.action.VIEW \
 手机没开 USB 调试时，电脑端（`desktop/core/internal/aoa`）用 Linux 的 usbfs 直接访问手机的 USB 设备，手机端由 `mobile/modules/p2d-accessory` 处理：
 
 1. 电脑发现有 MTP（06/01/01）或 ADB（FF/42/01）接口的设备，发 `GET_PROTOCOL`（厂商请求 51）探测，支持的显示为「可以免调试连接」（开了 USB 调试、电脑上有 adb 的手机交给 adb）。
-2. 用户在电脑端点「免调试连接」（`POST /api/aoa/connect?id=<序列号>`），电脑记住这台手机（`aoa.json`，以后插上自动做这一步），发 6 个识别字符串（请求 52：厂商 `PhoneToDesktop`、型号 `P2D`、说明、版本 `1`、下载页地址、电脑标识）和启动请求（53）。
-3. 手机断开重连成 `18D1:2D00`（配件模式），系统按 `res/xml/p2d_accessory_filter.xml` 弹出「用 PhoneToDesktop 打开」，用户确认后 App 打开配件，两边用接口 0 的一对 bulk 端点收发字节。
+2. 用户在电脑端点「免调试连接」（`POST /api/aoa/connect?id=<序列号>`），电脑记住这台手机（`aoa.json`，以后插上自动做这一步），发 6 个识别字符串（请求 52：厂商 `p2d`、型号 `P2D`、说明、版本 `1`、下载页地址、电脑标识）和启动请求（53）。
+3. 手机断开重连成 `18D1:2D00`（配件模式），系统按 `res/xml/p2d_accessory_filter.xml` 弹出「用 p2d 打开」，用户确认后 App 打开配件，两边用接口 0 的一对 bulk 端点收发字节。
 4. 管道上是多路复用帧（大端）：`0xA5 | 类型(1) | 流编号(4) | 长度(2) | 内容`，内容最长 8192 字节。
 
 | 类型 | 方向 | 内容 |
@@ -134,7 +134,7 @@ WiFi 连接不走 adb，而是手机直接连电脑的局域网 IP（详见第 9
 
 ## 6. 文件上传（自定义扩展）
 
-用户在 Agent 对话里添加的文件、用户要求存到电脑的图片（`save_attachment_to_pc` 工具；图片默认只发给模型看，不存到电脑），还有 Agent 用手机网络下载的驱动、安装包（`download_to_pc` 工具），由手机分块上传到电脑，保存在系统「下载」目录下的 `PhoneToDesktop` 文件夹（Windows：`%USERPROFILE%\Downloads\PhoneToDesktop`；Linux：`XDG_DOWNLOAD_DIR`，通常是 `~/下载/PhoneToDesktop`）。需要「读写文件」开关和「标准」以上权限。
+用户在 Agent 对话里添加的文件、用户要求存到电脑的图片（`save_attachment_to_pc` 工具；图片默认只发给模型看，不存到电脑），还有 Agent 用手机网络下载的驱动、安装包（`download_to_pc` 工具），由手机分块上传到电脑，保存在系统「下载」目录下的 `p2d` 文件夹（Windows：`%USERPROFILE%\Downloads\p2d`；Linux：`XDG_DOWNLOAD_DIR`，通常是 `~/下载/p2d`）。需要「读写文件」开关和「标准」以上权限。
 
 | 方法 | 参数 | 返回 |
 |---|---|---|
@@ -183,7 +183,7 @@ Core 在同一端口提供 HTTP 接口，只接受本机访问：
 - `POST /api/disconnect`：断开所有手机。设备在拔线前不会自动重连
 - `POST /api/aoa/connect?id=<序列号>`（Linux）：免调试连接一台手机（见 1.2），返回 `{ok, message?}`。状态接口里免调试连接的设备 `transport` 为 `aoa`，`stage` 多一个 `available`（可以点「免调试连接」）；开启时带 `aoa: {enabled, problem?}`
 - `POST /api/driver/install`（Windows）：以管理员身份（弹出 UAC）安装电脑端自带的 ADB 接口驱动（WinUSB，按兼容标识 `USB\Class_FF&SubClass_42&Prot_01` 匹配所有品牌手机），等安装结束返回 `{ok, message?}`。已装厂商驱动的手机不受影响
-- `POST /api/firewall/allow`（银河麒麟）：用 `pkexec` 弹出系统的密码框，执行 `kylin-firewall -A PhoneToDesktop -d inbound -m all -p tcp -L <局域网端口> -a allow`（规则已存在但被关掉时改为重新开启），公用、专用两种网络模式都放行，等结束返回 `{ok, message?}`
+- `POST /api/firewall/allow`（银河麒麟）：用 `pkexec` 弹出系统的密码框，执行 `kylin-firewall -A p2d -d inbound -m all -p tcp -L <局域网端口> -a allow`（规则已存在但被关掉时改为重新开启），公用、专用两种网络模式都放行，等结束返回 `{ok, message?}`
 
 ## 8. 扩展（MCP / Skill，自定义扩展）
 
@@ -205,7 +205,7 @@ Core 在同一端口提供 HTTP 接口，只接受本机访问：
 
 ### 8.3 Skill
 
-文件存在手机上；`skill_run` 时按内容哈希同步到电脑缓存目录（`<用户缓存目录>/PhoneToDesktop/skills/<名称>-<哈希>/`，可用环境变量 `P2D_SKILL_DIR` 覆盖），再用 `shell_exec` 执行（受「执行命令」权限控制）。
+文件存在手机上；`skill_run` 时按内容哈希同步到电脑缓存目录（`<用户缓存目录>/p2d/skills/<名称>-<哈希>/`，可用环境变量 `P2D_SKILL_DIR` 覆盖），再用 `shell_exec` 执行（受「执行命令」权限控制）。
 
 | 方法 | 参数 | 结果 |
 |---|---|---|
@@ -223,7 +223,7 @@ Core 在同一端口提供 HTTP 接口，只接受本机访问：
 
 ## 9. 局域网直连（WiFi）
 
-电脑端在 `0.0.0.0:39272`（`-lan-port`，0 表示关闭）提供局域网入口，只有三个路径：`/p2d/ping`（探测，返回 `{app:"p2d", pc, name, os, osName}`；手机端「附近的电脑」扫描所在 /24 网段的这个地址来发现电脑）、`/p2d/pair`（配对）、`/p2d/secure`（加密会话）。状态接口等仍只接受本机访问。电脑身份和配对过的手机保存在用户配置目录 `PhoneToDesktop/lan.json`（仅当前用户可读）。
+电脑端在 `0.0.0.0:39272`（`-lan-port`，0 表示关闭）提供局域网入口，只有三个路径：`/p2d/ping`（探测，返回 `{app:"p2d", pc, name, os, osName}`；手机端「附近的电脑」扫描所在 /24 网段的这个地址来发现电脑）、`/p2d/pair`（配对）、`/p2d/secure`（加密会话）。状态接口等仍只接受本机访问。电脑身份和配对过的手机保存在用户配置目录 `p2d/lan.json`（仅当前用户可读）。
 
 电脑标识 `pc`（pcId）第一次启动时生成并存进 `lan.json`，之后不再改变。新建时由本机系统标识（Windows `MachineGuid` / Linux `machine-id`）加主机名派生，`lan.json` 丢失或换了位置（例如从 MSIX 打包的程序里启动，写 `%APPDATA%` 会被重定向）也会得到同一个 pcId；取不到系统标识时随机生成。`p2d/pc.info`、配对成功的 `ok` 和加密会话的 `hello` 里另带机器指纹 `mid`（同样派生，盐不同；取不到时不带）。手机端设备记录以 pcId 为主键，收到 `mid` 时把同一台电脑的旧记录（`mid` 相同；或旧记录没有 `mid` 且电脑名、系统都相同）合并掉，旧 pcId 下的对话归到新 pcId。旧版手机端忽略 `mid`。
 

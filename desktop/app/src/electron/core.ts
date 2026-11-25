@@ -65,7 +65,7 @@ export class CoreProcess {
     this.lastAttempt = Date.now();
     const exe = corePath();
     if (!fs.existsSync(exe)) {
-      // 便携版每次启动都解压到临时目录，杀毒软件（Windows Defender 等）常把没有数字签名的服务程序当成可疑程序删掉
+      // 杀毒软件（Windows Defender、火绒等）常把没有数字签名的服务程序当成可疑程序删掉
       this.lastError =
         `找不到电脑端服务程序（${exe}）。通常是杀毒软件把它删掉了：请在「Windows 安全中心 → 病毒和威胁防护 → 保护历史记录」里` +
         '找到 p2d-core.exe，选择「还原」或「允许」，然后重新打开本程序。';
@@ -142,7 +142,7 @@ export class CoreProcess {
     if (this.child && Date.now() - this.startedAt > UNRESPONSIVE_MS) {
       return (
         `电脑端服务已经运行了 ${Math.round((Date.now() - this.startedAt) / 1000)} 秒，但连不上它（127.0.0.1:${CORE_PORT}）。` +
-        `可能被安全软件拦截了，请把 PhoneToDesktop 加入信任；运行日志在 ${coreLogPath()}`
+        `可能被安全软件拦截了，请把 p2d 加入信任；运行日志在 ${coreLogPath()}`
       );
     }
     return '';

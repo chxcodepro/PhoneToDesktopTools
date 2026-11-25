@@ -138,7 +138,7 @@ async function readChunks(uri: string, onChunk: (b64: string, bytes: number) => 
 }
 
 /**
- * 把附件上传到电脑的「下载/PhoneToDesktop」目录，返回电脑上的保存路径。
+ * 把附件上传到电脑的「下载/p2d」目录，返回电脑上的保存路径。
  * 图片上传的是压缩后的版本（与发给模型的一致）。
  */
 export async function uploadToPc(client: McpClient, att: Attachment, onProgress?: (sent: number, total: number) => void): Promise<string> {

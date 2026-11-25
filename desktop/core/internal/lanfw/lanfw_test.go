@@ -35,12 +35,13 @@ func TestBlocked(t *testing.T) {
 	if blocked("kylin firewall status:\n    public mode   --------  off\n    private mode  --------  off\n", kylinRules, 39272) {
 		t.Fatal("防火墙关闭时不应拦截")
 	}
-	ours := kylinRules + "PhoneToDesktop       all       inbound     all      tcp     all        39272          all         all            allow    on \n"
+	ours := kylinRules + "p2d                  all       inbound     all      tcp     all        39272          all         all            allow    on \n"
 	if blocked(bothOn, ours, 39272) {
 		t.Fatal("加了规则后应放行")
 	}
-	if !hasRule(ours) || hasRule(kylinRules) {
-		t.Fatal("hasRule 判断错误")
+	old := kylinRules + "PhoneToDesktop       all       inbound     all      tcp     all        39272          all         all            allow    off \n"
+	if ourRule(ours) != "p2d" || ourRule(old) != "PhoneToDesktop" || ourRule(kylinRules) != "" {
+		t.Fatal("ourRule 判断错误")
 	}
 	off := kylinRules + "PhoneToDesktop       all       inbound     all      tcp     all        39272          all         all            allow    off \n"
 	if !blocked(bothOn, off, 39272) {

@@ -14,11 +14,24 @@ import { ConfirmHost } from '@/components/action-sheet';
 import { parseDraftUrl } from '@/protocol/deepLink';
 import { initExtensions } from '@/agent/extensionStore';
 import { initScheduler } from '@/agent/scheduler';
-import { handleIncomingUrl, initConnection } from '@/state/connection';
+import { connectionStore, handleIncomingUrl, initConnection } from '@/state/connection';
 import { watchAccessory } from '@/native/accessory';
 import { watchKeepAlive } from '@/native/keepAlive';
 import { initMulti } from '@/state/multi';
 import { setDraft } from '@/state/ui';
+import { appLog, installAppLog } from '@/lib/applog';
+
+// 尽早开始记日志（模块加载时），启动过程出的错也能记下
+installAppLog();
+// 连接状态变化写进日志（不含令牌）
+let lastConn = '';
+connectionStore.subscribe(() => {
+  const c = connectionStore.get();
+  const key = `${c.status}|${c.route ?? ''}|${c.pcId ?? ''}|${c.detail ?? ''}`;
+  if (key === lastConn) return;
+  lastConn = key;
+  appLog(c.status === 'unauthorized' ? 'warn' : 'info', `连接：${c.status}，通道 ${c.route ?? '无'}，电脑 ${c.params?.host ?? c.pcId ?? '无'}${c.addr ? `（${c.addr}）` : ''}${c.detail ? `：${c.detail}` : ''}`);
+});
 
 export default function RootLayout() {
   const scheme = useColorScheme();

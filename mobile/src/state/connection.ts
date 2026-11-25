@@ -301,8 +301,8 @@ export async function findReachable(addrs: string[], port: number, pcId: string,
         done = true;
         reject(
           new Error(
-            '连不上电脑：请确认电脑端已打开、手机和电脑在同一个 WiFi / 局域网（或者都连着同一个 Tailscale），并且电脑防火墙允许了 PhoneToDesktop。' +
-              '手机开着 VPN / 代理（如 NekoBox、Clash）时，要在其中打开「绕过局域网」，或把 PhoneToDesktop 设为不走代理。',
+            '连不上电脑：请确认电脑端已打开、手机和电脑在同一个 WiFi / 局域网（或者都连着同一个 Tailscale），并且电脑防火墙允许了 p2d。' +
+              '手机开着 VPN / 代理（如 NekoBox、Clash）时，要在其中打开「绕过局域网」，或把 p2d 设为不走代理。',
           ),
         );
       }

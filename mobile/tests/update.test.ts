@@ -24,8 +24,8 @@ const release = {
   tag_name: 'v0.2.0',
   html_url: 'https://github.com/o/r/releases/tag/v0.2.0',
   assets: [
-    { name: 'PhoneToDesktop-0.2.0-win-x64-portable.exe', browser_download_url: 'https://x/exe' },
-    { name: 'PhoneToDesktop-0.2.0-android.apk', browser_download_url: 'https://x/apk' },
+    { name: 'p2d-0.2.0-win-x64-portable.exe', browser_download_url: 'https://x/exe' },
+    { name: 'p2d-0.2.0-android.apk', browser_download_url: 'https://x/apk' },
   ],
 };
 

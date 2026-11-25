@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "PhoneToDesktop",
-    "slug": "phone-to-desktop",
+    "name": "p2d",
+    "slug": "p2d",
     "version": "0.1.0",
     "orientation": "default",
     "icon": "./assets/images/icon.png",
@@ -53,20 +53,21 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "允许 PhoneToDesktop 访问相册，用于把图片发给 Agent",
-          "cameraPermission": "允许 PhoneToDesktop 使用相机，用于拍照发给 Agent",
+          "photosPermission": "允许 p2d 访问相册，用于把图片发给 Agent",
+          "cameraPermission": "允许 p2d 使用相机，用于拍照发给 Agent",
           "microphonePermission": false
         }
       ],
       [
         "expo-camera",
         {
-          "cameraPermission": "允许 PhoneToDesktop 使用相机，用于扫码配对电脑和拍照发给 Agent",
+          "cameraPermission": "允许 p2d 使用相机，用于扫码配对电脑和拍照发给 Agent",
           "recordAudioAndroid": false,
           "barcodeScannerEnabled": true
         }
       ],
-      "./plugins/withReleaseSigning"
+      "./plugins/withReleaseSigning",
+      "expo-sharing"
     ],
     "experiments": {
       "typedRoutes": true,

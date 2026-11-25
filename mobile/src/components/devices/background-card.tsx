@@ -7,12 +7,14 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Icon } from '@/components/ui/icon';
 import { Text } from '@/components/ui/text';
-import { isColorOS, openAppSettings, requestBackground, useBackgroundAllowed, useBackgroundDropped } from '@/native/keepAlive';
+import { isColorOS, openAppSettings, requestBackground, useBackgroundAllowed, useBackgroundDropped, useBackgroundOk } from '@/native/keepAlive';
 
 export function BackgroundCard() {
   const allowed = useBackgroundAllowed();
   const dropped = useBackgroundDropped();
-  if (allowed && !dropped) return null;
+  const ok = useBackgroundOk();
+  // 只在真的被断开过，或者既没打开「忽略电池优化」、也还没确认后台没问题时提示
+  if (!dropped && (allowed || ok)) return null;
   const vendorTip = isColorOS
     ? '点「应用设置」，进入「耗电管理」，选「完全允许后台行为」。'
     : '点「应用设置」，在「耗电管理 / 电池」里允许后台运行（或关闭省电限制）。';
@@ -23,8 +25,8 @@ export function BackgroundCard() {
         <Text className="flex-1 text-sm font-medium">切到后台会断开电脑</Text>
       </View>
       <Text className="text-xs leading-5 text-muted-foreground">
-        {allowed
-          ? `刚才 App 在后台时和电脑断开了：手机系统仍在限制它的后台网络。${vendorTip}`
+        {dropped
+          ? `刚才 App 切到后台几秒后就和电脑断开了，手机系统还在限制它的后台网络。${vendorTip}改好回来后这条提示会消失，如果切到后台还被断开会再提示。`
           : `手机系统会在 App 切到后台几秒后关掉它的网络。先点「允许后台运行」，在弹出的系统窗口里选「允许」；${vendorTip}`}
       </Text>
       <View className="flex-row gap-2">

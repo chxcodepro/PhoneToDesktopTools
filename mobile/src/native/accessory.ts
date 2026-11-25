@@ -1,5 +1,5 @@
 // 免调试连接（modules/p2d-accessory，Android 配件模式）：
-// 电脑端（Linux）把没开 USB 调试的手机切换成配件，手机上点「用 PhoneToDesktop 打开」后，原生模块经数据线和电脑握手，
+// 电脑端（Linux）把没开 USB 调试的手机切换成配件，手机上点「用 p2d 打开」后，原生模块经数据线和电脑握手，
 // 拿到连接参数（令牌等）后拼成 p2d://connect?… 交给这里，之后和 adb 插线拉起 App 走同一套连接逻辑。
 
 import { requireOptionalNativeModule } from 'expo';

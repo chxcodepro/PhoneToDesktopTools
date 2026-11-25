@@ -127,6 +127,17 @@ export interface UpdateInfo {
   message?: string;
 }
 
+/** 「关于」页面显示的信息 */
+export interface AboutInfo {
+  version: string;
+  platform: string;
+  arch: string;
+  osRelease: string;
+  electron: string;
+  /** 项目主页（GitHub） */
+  repoUrl: string;
+}
+
 /** preload 暴露给页面的接口 */
 export interface P2DApi {
   getStatus(): Promise<AppStatus>;
@@ -152,6 +163,12 @@ export interface P2DApi {
   checkUpdate(): Promise<UpdateInfo>;
   /** 用浏览器下载新版本（没有本机对应的安装包时打开发布页） */
   openUpdate(): void;
+  /** 版本、系统、项目主页 */
+  about(): Promise<AboutInfo>;
+  /** 用浏览器打开项目主页（GitHub） */
+  openRepo(): void;
+  /** 选择保存位置后导出日志；用户取消时 ok=false 且没有 message */
+  exportLogs(): Promise<{ ok: boolean; path?: string; message?: string }>;
 }
 
 /** 会话所在手机当前在线的通道（同一台手机可能同时有 USB 和 WiFi 两条，USB 优先） */

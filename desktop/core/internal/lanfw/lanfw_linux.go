@@ -59,9 +59,9 @@ func Allow(port int) error {
 	}
 	rules, _ := exec.Command(kylinFirewall, "-S").Output()
 	args := []string{kylinFirewall, "-A", RuleName, "-d", "inbound", "-m", "all", "-p", "tcp", "-L", strconv.Itoa(port), "-a", "allow"}
-	if hasRule(string(rules)) {
+	if name := ourRule(string(rules)); name != "" {
 		// 规则还在、只是被关掉了（或端口不对）：直接开启。端口不对的情况先删掉重建会多弹一次密码框，这里不处理
-		args = []string{kylinFirewall, "--set-rule", RuleName, "on"}
+		args = []string{kylinFirewall, "--set-rule", name, "on"}
 	}
 	out, err := exec.Command(pkexec, args...).CombinedOutput()
 	cache.Lock()

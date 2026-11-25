@@ -58,12 +58,12 @@ export async function connectKnownByAddress(host: string, port: number): Promise
     info = (await r.json()) as typeof info;
   } catch {
     throw new Error(
-      `连不上 ${host}：请确认电脑端已打开、地址没输错，手机和电脑在同一个 WiFi（或者都连着同一个 Tailscale），并且电脑防火墙允许了 PhoneToDesktop。`,
+      `连不上 ${host}：请确认电脑端已打开、地址没输错，手机和电脑在同一个 WiFi（或者都连着同一个 Tailscale），并且电脑防火墙允许了 p2d。`,
     );
   } finally {
     clearTimeout(timer);
   }
-  if (info?.app !== 'p2d') throw new Error(`${host} 不是 PhoneToDesktop 电脑端`);
+  if (info?.app !== 'p2d') throw new Error(`${host} 不是 p2d 电脑端`);
   const pcId = info.pc;
   if (!pcId || !(await getPairKey(pcId))) return null;
   const dev = getDevice(pcId);

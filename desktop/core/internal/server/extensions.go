@@ -35,7 +35,7 @@ func SkillCacheDir() string {
 	if err != nil {
 		d = os.TempDir()
 	}
-	return filepath.Join(d, "PhoneToDesktop", "skills")
+	return filepath.Join(d, "p2d", "skills")
 }
 
 func skillDir(name, hash string) string {

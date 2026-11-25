@@ -1,4 +1,4 @@
-# PhoneToDesktop（暂定名）技术方案与开发计划
+# p2d（暂定名）技术方案与开发计划
 
 > 目标：手机通过 **USB 数据线** 连接电脑，由手机上的 AI Agent 操作电脑（执行命令、读写文件、看屏幕、控鼠标键盘）。
 > 电脑端无网络、无 WiFi、无蓝牙也能用；桌面端为**免安装、不依赖系统组件**的可执行文件。
@@ -66,7 +66,7 @@
 | 核心服务 | **Go 1.20.x** | 最后支持 Win7 的 Go 版本；纯 Go + 少量 syscall，`CGO_ENABLED=0` 优先 |
 | GUI 外壳 | **Electron 22.3.x**（Chromium 108） | Electron 22 是最后支持 Win7 的版本；同时有 linux x64 / arm64 构建 |
 | UI 框架 | React 18 + **Tailwind CSS v3** + **shadcn/ui（HSL 主题版）** | ⚠️ 见 3.3 兼容性说明 |
-| 打包 | electron-builder → `portable`（Win）/ `AppImage` + `tar.gz` 绿色目录（Linux） | 不写注册表、不需要管理员（驱动安装除外） |
+| 打包 | electron-builder → `nsis` 安装程序（Win，默认装到当前用户目录）/ `AppImage` + `deb`（Linux） | 不需要管理员（驱动安装、为所有用户安装除外）；最初用便携版，因每次解压到临时目录容易被杀毒软件删掉服务程序，改成安装程序 |
 | 龙芯 loong64 | Core + 内置轻量 Web 页面，用系统自带浏览器打开 | 或使用龙芯社区 Electron 构建（需验证） |
 
 > 备选：如果对体积敏感（Electron 约 80~100MB），可改用 Qt 5.15 原生界面，但就无法使用 shadcn/ui 风格了。**推荐 Electron 22 方案**，界面可以做得最好看，且与手机端共享设计语言。
@@ -316,7 +316,7 @@ excel-report/
 ## 6. 目录结构（计划）
 
 ```
-PhoneToDesktopTools/
+p2d/
 ├── docs/                    # 方案、协议文档
 ├── preview/                 # 界面预览（静态 HTML）
 ├── protocol/                # 协议定义（JSON Schema → 生成 Go / TS 类型）

@@ -14,8 +14,9 @@ APP="$ROOT/desktop/app"
 REL="$APP/release"
 WORK="${P2D_PKG_WORK:-$REL/pkg-work}"
 EXE=p2d-desktop          # electron-builder 的可执行文件名（package.json 的 name）
-PKG=phonetodesktop       # deb 包名
-DEST=/opt/PhoneToDesktop # 安装位置
+PKG=p2d                  # deb 包名
+OLD_PKG=phonetodesktop   # 改名前的包名：新包声明替换它，安装时 dpkg 会自动卸掉旧包（配置在 ~/.config 里，由程序自己搬迁）
+DEST=/opt/p2d            # 安装位置（改名前是 /opt/PhoneToDesktop）
 
 LOONG_ELECTRON_URL=https://ftp.loongnix.cn/electron/LoongArch/v22.3.27/electron-v22.3.27-linux-loong64.zip
 LOONG_ELECTRON_SHA=4b46329143bdfb34c11c10c4163b8bd85a3ff4506dd117c8838e479019563a53
@@ -45,7 +46,7 @@ assemble_loong64() {
 # 一个架构的目录 → .deb + .tar.gz
 package() {
   local dir="$1" arch="$2" # arch 用 Debian 的架构名：amd64 / arm64 / loongarch64
-  local name="PhoneToDesktop-$VERSION-linux-$arch"
+  local name="p2d-$VERSION-linux-$arch"
   local root="$WORK/deb-$arch"
   [ -x "$dir/$EXE" ] || { echo "找不到 $dir/$EXE" >&2; exit 1; }
 
@@ -54,19 +55,19 @@ package() {
   cp "$APP/build/icon.png" "$root/usr/share/icons/hicolor/256x256/apps/$PKG.png"
   cat > "$root/usr/share/applications/$PKG.desktop" <<DESKTOP
 [Desktop Entry]
-Name=PhoneToDesktop
+Name=p2d
 Comment=用手机控制这台电脑
 Exec=$DEST/$EXE %U
 Icon=$PKG
 Terminal=false
 Type=Application
 Categories=Utility;
-StartupWMClass=PhoneToDesktop
+StartupWMClass=p2d
 DESKTOP
   # 免调试连接（AOA）：电脑端以普通用户身份运行，要能打开安卓手机的 USB 设备节点（/dev/bus/usb/…）。
   # uaccess 让当前登录桌面的用户获得访问权限（systemd-logind 设置 ACL），规则文件名要排在 73-seat-late 之前。
-  cat > "$root/lib/udev/rules.d/70-phonetodesktop.rules" <<'UDEV'
-# PhoneToDesktop 免调试连接（Android 配件模式）：让登录桌面的用户能访问安卓手机的 USB 设备
+  cat > "$root/lib/udev/rules.d/70-p2d.rules" <<'UDEV'
+# p2d 免调试连接（Android 配件模式）：让登录桌面的用户能访问安卓手机的 USB 设备
 SUBSYSTEM!="usb", GOTO="p2d_end"
 ENV{DEVTYPE}!="usb_device", GOTO="p2d_end"
 ENV{ID_USB_INTERFACES}=="", IMPORT{builtin}="usb_id"
@@ -82,12 +83,15 @@ UDEV
 Package: $PKG
 Version: $VERSION
 Architecture: $arch
-Maintainer: PhoneToDesktop
+Maintainer: p2d
 Installed-Size: $(du -sk "$root" | cut -f1)
 Depends: libgtk-3-0, libnss3, libxss1, libxtst6, libasound2
+Conflicts: $OLD_PKG
+Replaces: $OLD_PKG
+Provides: $OLD_PKG
 Section: utils
 Priority: optional
-Description: PhoneToDesktop 电脑端
+Description: p2d 电脑端
  用手机通过数据线或 WiFi 控制这台电脑。
 CONTROL
   # 安装后：Chromium 沙箱需要 setuid 的 chrome-sandbox（没有它 Electron 在部分系统上无法启动）；
@@ -96,9 +100,9 @@ CONTROL
   cat > "$root/DEBIAN/postinst" <<'POSTINST'
 #!/bin/sh
 set -e
-chmod 4755 /opt/PhoneToDesktop/chrome-sandbox || true
+chmod 4755 /opt/p2d/chrome-sandbox || true
 command -v update-desktop-database >/dev/null && update-desktop-database -q || true
-. /opt/PhoneToDesktop/desktop-dirs.sh
+. /opt/p2d/desktop-dirs.sh
 for_each_desktop place || true
 if command -v udevadm >/dev/null; then
   udevadm control --reload-rules || true
@@ -112,26 +116,26 @@ if [ "$1" = remove ] || [ "$1" = purge ]; then
   # 程序目录此时已删除，desktop-dirs.sh 不在了，这里单独写一遍查找桌面目录的逻辑
   for h in /root /home/*; do
     [ -d "$h" ] || continue
-    for d in "$h/桌面" "$h/Desktop"; do rm -f "$d/phonetodesktop.desktop"; done
+    for d in "$h/桌面" "$h/Desktop"; do rm -f "$d/p2d.desktop"; done
     f="$h/.config/user-dirs.dirs"
     if [ -f "$f" ]; then
       d=$(sed -n 's/^XDG_DESKTOP_DIR="\(.*\)"$/\1/p' "$f" | sed "s|\$HOME|$h|")
-      [ -n "$d" ] && rm -f "$d/phonetodesktop.desktop"
+      [ -n "$d" ] && rm -f "$d/p2d.desktop"
     fi
   done
-  rm -f /etc/skel/桌面/phonetodesktop.desktop /etc/skel/Desktop/phonetodesktop.desktop
+  rm -f /etc/skel/桌面/p2d.desktop /etc/skel/Desktop/p2d.desktop
   command -v udevadm >/dev/null && udevadm control --reload-rules || true
 fi
 POSTRM
   # 查找每个用户的桌面目录（user-dirs.dirs 里的 XDG_DESKTOP_DIR，没有时用「桌面」或「Desktop」）
   cat > "$root$DEST/desktop-dirs.sh" <<'DIRS'
 # 由 postinst 调用：for_each_desktop place
-SRC=/usr/share/applications/phonetodesktop.desktop
+SRC=/usr/share/applications/p2d.desktop
 place() { # place <桌面目录> <属主>
   [ -d "$1" ] || return 0
-  cp "$SRC" "$1/phonetodesktop.desktop"
-  chown "$2" "$1/phonetodesktop.desktop" 2>/dev/null || true
-  chmod 755 "$1/phonetodesktop.desktop"
+  cp "$SRC" "$1/p2d.desktop"
+  chown "$2" "$1/p2d.desktop" 2>/dev/null || true
+  chmod 755 "$1/p2d.desktop"
 }
 for_each_desktop() {
   for h in /root /home/*; do
@@ -150,7 +154,7 @@ for_each_desktop() {
 DIRS
   chmod 755 "$root/DEBIAN/postinst" "$root/DEBIAN/postrm"
   dpkg-deb --root-owner-group -Zxz --build "$root" "$REL/$name.deb" >/dev/null
-  tar -czf "$REL/$name.tar.gz" -C "$dir/.." --transform "s|^$(basename "$dir")|PhoneToDesktop|" "$(basename "$dir")"
+  tar -czf "$REL/$name.tar.gz" -C "$dir/.." --transform "s|^$(basename "$dir")|p2d|" "$(basename "$dir")"
   echo "✓ $name.deb / .tar.gz"
 }
 

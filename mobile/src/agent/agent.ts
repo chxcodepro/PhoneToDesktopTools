@@ -94,7 +94,7 @@ export function buildSystemPrompt(
         '- 同一轮里调用不同电脑的工具会同时执行：几台电脑做同样的事时，在同一轮里把每台的调用一起发出；同一台电脑上的操作按顺序执行。',
         '- 用户没说在哪台、也不能从上下文判断时，先用 ask_user 问清楚，不要猜。',
         '- 工具结果开头的【电脑名】表示结果来自哪台电脑；汇报时分别说明每台电脑的情况。',
-        '- 在两台电脑之间传文件用 pc_copy_file（经手机中转，保存到目标电脑的「下载/PhoneToDesktop」目录，需要时再用命令移动）。',
+        '- 在两台电脑之间传文件用 pc_copy_file（经手机中转，保存到目标电脑的「下载/p2d」目录，需要时再用命令移动）。',
         '工作方式：',
       );
     } else {
@@ -183,7 +183,7 @@ function repairGuide(oses: string[]): string[] {
   const common = [
     '',
     '电脑可能完全没有网络（网卡驱动坏了、没有可用 WiFi、USB 网络共享也用不了），但手机有网。修复规则：',
-    '- 不要让电脑自己联网下载。查资料用 web_search / web_fetch，查驱动用 driver_search，下载用 download_to_pc（手机下载后经连接通道传到电脑的「下载/PhoneToDesktop」目录）。',
+    '- 不要让电脑自己联网下载。查资料用 web_search / web_fetch，查驱动用 driver_search，下载用 download_to_pc（手机下载后经连接通道传到电脑的「下载/p2d」目录）。',
     '- 只从官方来源下载：微软（microsoft.com、windowsupdate.com、aka.ms）、硬件厂商官网、系统官方软件源。不要从第三方「DLL 下载站」下载单个 DLL。',
     '- 网站有人机验证（Cloudflare 等）时不要尝试绕过：先换其他官方来源；只能从那里下载时，用 ask_user 请用户在手机浏览器手动下载，再在对话里点「＋ → 文件」把文件发过来（会自动传到电脑）。',
     '- Windows 安装前看 download_to_pc 返回的数字签名，应为 Valid 且签名者可信；哈希不一致或签名异常时不要安装。',
