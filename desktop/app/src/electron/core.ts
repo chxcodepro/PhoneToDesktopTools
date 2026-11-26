@@ -27,6 +27,22 @@ export function coreLogPath(): string {
   return path.join(app.getPath('userData'), 'core.log');
 }
 
+// 把 Core 的输出也转到主进程的标准输出（开发时在终端里看）。
+// 标准输出可能已经断开（被别的程序拉起后对方退出、从命令行启动后关了窗口）：Windows 上往断开的管道写会直接抛 EPIPE，
+// 没人接住就弹「A JavaScript error occurred in the main process」。写失败一次就不再转，日志文件照常写
+let stdoutOk = true;
+process.stdout.on?.('error', () => {
+  stdoutOk = false;
+});
+function echo(s: string): void {
+  if (!stdoutOk) return;
+  try {
+    process.stdout.write(s);
+  } catch {
+    stdoutOk = false;
+  }
+}
+
 function openLog(): fs.WriteStream | null {
   try {
     const p = coreLogPath();
@@ -96,7 +112,7 @@ export class CoreProcess {
     const onData = (b: Buffer) => {
       const s = b.toString('utf8');
       tail = (tail + s).slice(-2000);
-      process.stdout.write(`[core] ${s}`);
+      echo(`[core] ${s}`);
       this.log ??= openLog();
       this.log?.write(s);
     };

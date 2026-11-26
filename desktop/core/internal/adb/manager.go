@@ -500,6 +500,38 @@ func (m *Manager) setup(ctx context.Context, serial string) {
 	}
 	markReady()
 	log.Printf("设备 %s：已启动手机端，等待连接", serial)
+	go m.relaunchIfUnused(ctx, serial, id, token)
+}
+
+// relaunchIfUnused 拉起手机端后 8 秒还没用新令牌连上就再拉起一次（最多两次）。
+// 刚装 / 更新过的 App 第一次被拉起时，偶尔没收到链接里的新令牌，用旧令牌连接被拒绝后就停在「令牌无效」。
+func (m *Manager) relaunchIfUnused(ctx context.Context, serial, id, token string) {
+	u, ok := m.tokens.(interface{ Used(token string) bool })
+	if !ok {
+		return
+	}
+	for i := 0; i < 2; i++ {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(8 * time.Second):
+		}
+		if u.Used(token) {
+			return
+		}
+		m.mu.Lock()
+		ph, okp := m.phones[id]
+		d, okd := m.devices[serial]
+		still := okp && ph.token == token && okd && d.State == stDevice
+		m.mu.Unlock()
+		if !still {
+			return
+		}
+		log.Printf("设备 %s：手机端没有用新令牌连上，重新拉起", serial)
+		if err := m.launchApp(ctx, serial, token); err != nil {
+			return
+		}
+	}
 }
 
 // launchApp 通过显式 Deep Link 把令牌交给 App 并启动它。

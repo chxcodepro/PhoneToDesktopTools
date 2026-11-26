@@ -11,6 +11,7 @@ import (
 type TokenStore struct {
 	mu       sync.Mutex
 	bySerial map[string]string // 序列号 → 令牌
+	used     map[string]bool   // 已经用来连接过的令牌
 	devToken string            // 开发调试用的固定令牌
 }
 
@@ -18,7 +19,7 @@ type TokenStore struct {
 const DevSerial = "dev"
 
 func NewTokenStore(devToken string) *TokenStore {
-	return &TokenStore{bySerial: map[string]string{}, devToken: devToken}
+	return &TokenStore{bySerial: map[string]string{}, used: map[string]bool{}, devToken: devToken}
 }
 
 // Issue 为设备生成新令牌（旧令牌作废）。
@@ -29,6 +30,7 @@ func (t *TokenStore) Issue(serial string) string {
 	}
 	tok := hex.EncodeToString(b)
 	t.mu.Lock()
+	delete(t.used, t.bySerial[serial]) // 旧令牌作废
 	t.bySerial[serial] = tok
 	t.mu.Unlock()
 	return tok
@@ -37,6 +39,7 @@ func (t *TokenStore) Issue(serial string) string {
 // Revoke 作废设备的令牌。
 func (t *TokenStore) Revoke(serial string) {
 	t.mu.Lock()
+	delete(t.used, t.bySerial[serial])
 	delete(t.bySerial, serial)
 	t.mu.Unlock()
 }
@@ -45,6 +48,7 @@ func (t *TokenStore) Revoke(serial string) {
 func (t *TokenStore) RevokeAll() {
 	t.mu.Lock()
 	t.bySerial = map[string]string{}
+	t.used = map[string]bool{}
 	t.mu.Unlock()
 }
 
@@ -60,8 +64,16 @@ func (t *TokenStore) Lookup(tok string) (string, bool) {
 	defer t.mu.Unlock()
 	for serial, v := range t.bySerial {
 		if subtle.ConstantTimeCompare([]byte(tok), []byte(v)) == 1 {
+			t.used[tok] = true
 			return serial, true
 		}
 	}
 	return "", false
+}
+
+// Used 这个令牌是否已经用来连接过（拉起手机端后判断它有没有收到新令牌）。
+func (t *TokenStore) Used(tok string) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.used[tok]
 }
