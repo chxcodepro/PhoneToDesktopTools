@@ -95,6 +95,14 @@ const files = {
   'build/icons/tray-idle.png': draw(32, SLATE),
   'build/icons/tray-connecting.png': draw(32, AMBER),
   'build/icons/tray-controlled.png': draw(32, RED),
+  // Mac：应用图标至少要 512（打包时生成 .icns）；菜单栏图标 16 点，@2x 给 Retina 屏
+  'build/icon-mac.png': draw(1024, BLUE),
+  'build/icons/mac-tray-idle.png': draw(16, SLATE),
+  'build/icons/mac-tray-idle@2x.png': draw(32, SLATE),
+  'build/icons/mac-tray-connecting.png': draw(16, AMBER),
+  'build/icons/mac-tray-connecting@2x.png': draw(32, AMBER),
+  'build/icons/mac-tray-controlled.png': draw(16, RED),
+  'build/icons/mac-tray-controlled@2x.png': draw(32, RED),
 };
 for (const [rel, data] of Object.entries(files)) {
   const p = join(root, rel);

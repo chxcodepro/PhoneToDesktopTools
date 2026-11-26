@@ -106,6 +106,7 @@ export function appVersion(): string {
 
 /** 手机型号和系统版本，如「OnePlus PJZ110，Android 15（API 35）」 */
 export function deviceLabel(): string {
+  if (Platform.OS === 'ios') return `iPhone，iOS ${String(Platform.Version)}`;
   if (Platform.OS !== 'android') return `${Platform.OS} ${String(Platform.Version)}`;
   const c = Platform.constants as { Brand?: string; Model?: string; Release?: string };
   return `${c.Brand ?? ''} ${c.Model ?? ''}，Android ${c.Release ?? '?'}（API ${String(Platform.Version)}）`.trim();
@@ -114,7 +115,7 @@ export function deviceLabel(): string {
 /** 导出的日志正文 */
 export function buildLogText(extra: string[] = []): string {
   const head = [
-    `p2d 手机端日志（导出时间 ${new Date().toLocaleString()}）`,
+    `P2D 手机端日志（导出时间 ${new Date().toLocaleString()}）`,
     `版本：${appVersion()}　手机：${deviceLabel()}`,
     ...extra,
   ];
@@ -137,7 +138,7 @@ function stamp(d = new Date()): string {
 /** 把日志写到缓存目录的一个新文件，返回它（之后分享或传到电脑） */
 export function writeLogFile(extra: string[] = []): File {
   flush();
-  const f = new File(Paths.cache, `p2d-手机端日志-${stamp()}.txt`);
+  const f = new File(Paths.cache, `P2D-手机端日志-${stamp()}.txt`);
   if (f.exists) f.delete();
   f.create();
   f.writeSync(buildLogText(extra));

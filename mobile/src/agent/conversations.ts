@@ -508,7 +508,7 @@ function pcCopyTool(names: string[]): ToolInfo {
   return {
     name: 'pc_copy_file',
     description:
-      '把一台电脑上的文件传到另一台电脑（经手机中转，不需要两台电脑互通网络），保存到目标电脑的「下载/p2d」目录，返回保存路径。只能传单个文件，文件夹请先压缩；最大 1 GB。',
+      '把一台电脑上的文件传到另一台电脑（经手机中转，不需要两台电脑互通网络），保存到目标电脑的「下载/P2D」目录，返回保存路径。只能传单个文件，文件夹请先压缩；最大 1 GB。',
     inputSchema: {
       type: 'object',
       properties: {

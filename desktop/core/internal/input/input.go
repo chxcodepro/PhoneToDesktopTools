@@ -1,4 +1,4 @@
-// Package input 模拟鼠标和键盘。Windows 用 SendInput，Linux 用 X11 XTest 扩展。
+// Package input 模拟鼠标和键盘。Windows 用 SendInput，Linux 用 X11 XTest 扩展，Mac 用 CoreGraphics 事件。
 package input
 
 import (

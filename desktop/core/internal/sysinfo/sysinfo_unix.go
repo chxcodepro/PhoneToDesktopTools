@@ -10,30 +10,6 @@ import (
 	"strings"
 )
 
-// OSVersion 读取 /etc/os-release，例如 "Kylin V10 SP1"。
-func OSVersion() string {
-	f, err := os.Open("/etc/os-release")
-	if err != nil {
-		return "Linux"
-	}
-	defer f.Close()
-	vals := map[string]string{}
-	sc := bufio.NewScanner(f)
-	for sc.Scan() {
-		k, v, ok := strings.Cut(sc.Text(), "=")
-		if ok {
-			vals[k] = strings.Trim(v, `"'`)
-		}
-	}
-	if v := vals["PRETTY_NAME"]; v != "" {
-		return v
-	}
-	if v := vals["NAME"] + " " + vals["VERSION"]; strings.TrimSpace(v) != "" {
-		return strings.TrimSpace(v)
-	}
-	return "Linux"
-}
-
 // DesktopDir 按 XDG 用户目录配置获取桌面（中文系统通常是 ~/桌面）。
 func DesktopDir() string {
 	home, _ := os.UserHomeDir()
@@ -64,6 +40,3 @@ func DesktopDir() string {
 
 // IsAdmin 当前进程是否以 root 身份运行。
 func IsAdmin() bool { return os.Geteuid() == 0 }
-
-// OSName 简短的系统名，如 "Kylin V10 SP1"、"UOS 20"（手机端按它显示系统图标）。
-func OSName() string { return OSVersion() }

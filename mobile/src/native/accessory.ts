@@ -1,6 +1,7 @@
-// 免调试连接（modules/p2d-accessory，Android 配件模式）：
-// 电脑端（Linux）把没开 USB 调试的手机切换成配件，手机上点「用 p2d 打开」后，原生模块经数据线和电脑握手，
-// 拿到连接参数（令牌等）后拼成 p2d://connect?… 交给这里，之后和 adb 插线拉起 App 走同一套连接逻辑。
+// 数据线连接（modules/p2d-accessory）：
+// - 安卓免调试连接：电脑端（Linux）把没开 USB 调试的手机切换成配件，手机上点「用 P2D 打开」后，原生模块经数据线和电脑握手；
+// - iPhone：App 在本机监听一个端口，电脑端经 usbmuxd（数据线）连上来后握手（iOS 没有 adb，数据线只能这样连）。
+// 两种情况原生模块都是拿到连接参数（令牌等）后拼成 p2d://connect?… 交给这里，之后和 adb 插线拉起 App 走同一套连接逻辑。
 
 import { requireOptionalNativeModule } from 'expo';
 import { Platform } from 'react-native';
@@ -12,7 +13,7 @@ interface P2dAccessoryModule {
   addListener(event: 'onConnect', cb: (e: { url: string }) => void): { remove(): void };
 }
 
-const native = Platform.OS === 'android' ? requireOptionalNativeModule<P2dAccessoryModule>('P2dAccessory') : null;
+const native = Platform.OS === 'android' || Platform.OS === 'ios' ? requireOptionalNativeModule<P2dAccessoryModule>('P2dAccessory') : null;
 
 let started = false;
 

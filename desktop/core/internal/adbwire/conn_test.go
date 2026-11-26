@@ -257,7 +257,7 @@ func TestHandshakeNewKeyThenShellInstallReverse(t *testing.T) {
 	if len(states) != 1 || states[0] != StateUnauthorized {
 		t.Fatalf("应先等用户允许：%v", states)
 	}
-	if !strings.HasSuffix(strings.TrimRight(<-d.gotKey, "\x00"), " p2d@test") {
+	if !strings.HasSuffix(strings.TrimRight(<-d.gotKey, "\x00"), " P2D@test") {
 		t.Fatal("公钥后面应带电脑名")
 	}
 	if c.Model() != "PJZ110" {

@@ -48,7 +48,8 @@ export class OverlayManager {
         },
       });
       w.setAlwaysOnTop(true, 'screen-saver');
-      w.setVisibleOnAllWorkspaces(true);
+      // Mac：所有桌面（空间）和全屏应用上都显示
+      w.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
       w.setIgnoreMouseEvents(true, { forward: true });
       w.setBounds(d.bounds);
       // 只有主显示器显示悬浮条，其他显示器只画红框

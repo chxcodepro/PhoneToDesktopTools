@@ -1,7 +1,8 @@
 // 开机自动启动（带 --hidden：开机后只在托盘，不弹主窗口）。
-// - Windows：注册表 HKCU\...\Run（用 reg.exe 写，路径带引号），登记安装目录里的 p2d.exe（改名前的版本是 PhoneToDesktop.exe）。
+// - Windows：注册表 HKCU\...\Run（用 reg.exe 写，路径带引号），登记安装目录里的 P2D.exe（改名前的版本是 PhoneToDesktop.exe）。
 //   旧的便携版每次运行都解压到临时目录，要登记 exe 本身的位置（PORTABLE_EXECUTABLE_FILE），换成安装版后启动一次就会改过来。
 // - Linux（麒麟）：~/.config/autostart/p2d.desktop（XDG 自动启动，UKUI 支持）。
+// - Mac：系统的登录项（app.setLoginItemSettings，开机打开时隐藏窗口）。
 // 改名前用的是 Run 项「PhoneToDesktop」和 phonetodesktop.desktop，登记时顺手删掉，免得开机启动两次或指向已删除的程序。
 // 用户的选择存在 userData/settings.json；第一次运行默认开启（被控电脑开机就该能连）。
 // 每次启动都按选择重新登记一次：从便携版换成安装版、安装位置变了、deb 升级后路径都能跟上。
@@ -55,6 +56,10 @@ function reg(args: string[]): void {
 }
 
 function apply(on: boolean): void {
+  if (process.platform === 'darwin') {
+    app.setLoginItemSettings({ openAtLogin: on, openAsHidden: true });
+    return;
+  }
   if (process.platform === 'win32') {
     try {
       reg(['delete', RUN_KEY, '/v', OLD_RUN_VALUE, '/f']);
@@ -81,7 +86,7 @@ function apply(on: boolean): void {
   const content = [
     '[Desktop Entry]',
     'Type=Application',
-    'Name=p2d',
+    'Name=P2D',
     'Comment=用手机控制这台电脑',
     `Exec="${launcher()}" ${HIDDEN_ARG}`,
     'Icon=p2d',
@@ -97,7 +102,7 @@ let state: AutostartState = { supported: false, enabled: false };
 
 /** 启动时调用：按保存的选择（第一次运行默认开启）登记开机启动 */
 export function initAutostart(): AutostartState {
-  const supported = app.isPackaged && (process.platform === 'win32' || process.platform === 'linux');
+  const supported = app.isPackaged && ['win32', 'linux', 'darwin'].includes(process.platform);
   if (!supported) return (state = { supported: false, enabled: false });
   const saved = readSettings();
   const enabled = saved.autostart ?? true;

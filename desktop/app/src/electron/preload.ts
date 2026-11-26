@@ -25,6 +25,7 @@ const api: P2DApi = {
   about: () => ipcRenderer.invoke('p2d:about') as Promise<AboutInfo>,
   openRepo: () => ipcRenderer.send('p2d:openRepo'),
   exportLogs: () => ipcRenderer.invoke('p2d:exportLogs') as Promise<{ ok: boolean; path?: string; message?: string }>,
+  openMacPrivacy: (kind) => ipcRenderer.send('p2d:openMacPrivacy', kind),
 };
 
 contextBridge.exposeInMainWorld('p2d', api);

@@ -1,6 +1,9 @@
 {
-  "platforms": ["android"],
+  "platforms": ["android", "apple"],
   "android": {
     "modules": ["expo.modules.p2daccessory.P2dAccessoryModule"]
+  },
+  "apple": {
+    "modules": ["P2dAccessoryModule"]
   }
 }

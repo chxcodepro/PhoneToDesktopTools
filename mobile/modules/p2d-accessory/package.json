@@ -2,5 +2,5 @@
   "name": "p2d-accessory",
   "version": "0.1.0",
   "private": true,
-  "description": "免调试连接：电脑端（Linux）把手机切换到 Android 配件模式（AOA）后，经数据线收发数据，手机不用开 USB 调试"
+  "description": "数据线连接：安卓免调试连接（电脑端把手机切换到 Android 配件模式 AOA）；iPhone 经电脑的 usbmuxd 连到 App 监听的端口。两者在管道上跑同一套多路复用协议"
 }

@@ -28,6 +28,12 @@ TARGETS=(
   linux/loong64   # 麒麟 loongarch64（龙芯 3A5000/3A6000，旧世界）
 )
 # 不支持：龙芯 3A4000（mips64el，没有可用的 Electron 22）、申威（sw64，Go 官方不支持）
+#
+# Mac：截图、键鼠、USB 要调用系统框架（cgo），只能在 Mac 上用 Xcode 的 clang 编译，所以在 Mac 上运行本脚本时
+# 只编 Mac 的两个版本（Intel、Apple 芯片），其他平台在 Linux / Windows 上交叉编译。最低支持 macOS 10.13（Go 1.20 的下限）。
+if [ "$(uname -s)" = Darwin ]; then
+  TARGETS=(darwin/amd64 darwin/arm64)
+fi
 
 cd "$ROOT/desktop/core"
 export CGO_ENABLED=0 GOTOOLCHAIN=local
@@ -45,7 +51,12 @@ for t in "${TARGETS[@]}"; do
     go="$GO_LOONG_OW"
   fi
   mkdir -p "$out"
-  GOOS="$os" GOARCH="$arch" "$go" build -trimpath \
+  cgo=0; cc=""
+  if [ "$os" = darwin ]; then
+    cgo=1
+    case "$arch" in amd64) cc="clang -arch x86_64" ;; arm64) cc="clang -arch arm64" ;; esac
+  fi
+  CGO_ENABLED="$cgo" CC="$cc" MACOSX_DEPLOYMENT_TARGET=10.13 GOOS="$os" GOARCH="$arch" "$go" build -trimpath \
     -ldflags "-s -w -X p2d/core/internal/server.Version=$VERSION" \
     -o "$out/p2d-core$ext" ./cmd/p2d-core
   echo "✓ $t → dist/core/$os-$arch/p2d-core$ext"

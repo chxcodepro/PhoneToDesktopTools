@@ -35,7 +35,7 @@ shell:am start -a android.intent.action.VIEW \
 
 1. 电脑发现有 MTP（06/01/01）或 ADB（FF/42/01）接口的设备，发 `GET_PROTOCOL`（厂商请求 51）探测，支持的显示为「可以免调试连接」（开了 USB 调试的手机走上面的 USB 调试连接）。
 2. 用户在电脑端点「免调试连接」（`POST /api/aoa/connect?id=<序列号>`），电脑记住这台手机（`aoa.json`，以后插上自动做这一步），发 6 个识别字符串（请求 52：厂商 `p2d`、型号 `P2D`、说明、版本 `1`、下载页地址、电脑标识）和启动请求（53）。
-3. 手机断开重连成 `18D1:2D00`（配件模式），系统按 `res/xml/p2d_accessory_filter.xml` 弹出「用 p2d 打开」，用户确认后 App 打开配件，两边用接口 0 的一对 bulk 端点收发字节。
+3. 手机断开重连成 `18D1:2D00`（配件模式），系统按 `res/xml/p2d_accessory_filter.xml` 弹出「用 P2D 打开」，用户确认后 App 打开配件，两边用接口 0 的一对 bulk 端点收发字节。
 4. 管道上是多路复用帧（大端）：`0xA5 | 类型(1) | 流编号(4) | 长度(2) | 内容`，内容最长 8192 字节。
 
 | 类型 | 方向 | 内容 |
@@ -59,6 +59,17 @@ WiFi 连接不走 adb，而是手机直接连电脑的局域网 IP（详见第 9
 （之前的「adb 网络调试 + 自动 adb connect」方案已移除：它会让手机在局域网开着 5555 端口，且只能由电脑去连手机。）
 
 开发调试时，Core 可以用 `--dev-token <值>` 指定一个固定令牌。
+
+### 1.4 iPhone 数据线（经 usbmuxd）
+
+iOS 没有 adb，也没有给 App 用的 USB 接口，电脑和 iPhone 之间经数据线通信只能走苹果的 usbmux 协议（`desktop/core/internal/usbmux`）：
+
+1. 电脑端连系统的 usbmuxd（Mac 和 Linux 是 `/var/run/usbmuxd`，Windows 是 `127.0.0.1:27015`，要装「Apple 设备」或 iTunes），每 2 秒发一次 `ListDevices`，找出经 USB 插着的 iPhone（`ConnectionType` 为 `USB`）。usbmuxd 不可用、但系统里插着苹果的 USB 设备（厂商 ID `05AC`）时，状态接口的 `iphone.problem` 给出安装提示。
+2. 对每台 iPhone 发 `Connect`（端口 39274，按大端放进整数），连到 iPhone 本机回环地址上 P2D App 监听的端口；App 没打开或在后台被挂起时 usbmuxd 返回「拒绝连接」，2 秒后重试。
+3. 连上后这条连接就是「管道」，上面跑和 1.2 完全相同的帧格式、握手（HELLO / CONFIG / PONG）、流和流量控制（`desktop/core/internal/iphone` 复用 `internal/aoa` 的链路；手机端 `mobile/modules/p2d-accessory/ios/UsbmuxLink.swift`）。App 在本机另一个回环端口（优先 39273）接受 JS 的连接，每条连接对应一个流。
+4. 令牌按 `ios:<UDID>` 管理，设备列表里 `transport` 为 `usbmux`、`platform` 为 `ios`。拔线（usbmuxd 列表里消失或编号变化）时作废令牌、断开会话；电脑上点「断开」后，拔线前不再发连接参数。
+
+第一次在一台电脑上使用时，iPhone 上会弹出「要信任此电脑吗？」，点「信任」后才能连接。
 
 ## 2. MCP 消息
 
@@ -137,7 +148,7 @@ WiFi 连接不走 adb，而是手机直接连电脑的局域网 IP（详见第 9
 
 ## 6. 文件上传（自定义扩展）
 
-用户在 Agent 对话里添加的文件、用户要求存到电脑的图片（`save_attachment_to_pc` 工具；图片默认只发给模型看，不存到电脑），还有 Agent 用手机网络下载的驱动、安装包（`download_to_pc` 工具），由手机分块上传到电脑，保存在系统「下载」目录下的 `p2d` 文件夹（Windows：`%USERPROFILE%\Downloads\p2d`；Linux：`XDG_DOWNLOAD_DIR`，通常是 `~/下载/p2d`）。需要「读写文件」开关和「标准」以上权限。
+用户在 Agent 对话里添加的文件、用户要求存到电脑的图片（`save_attachment_to_pc` 工具；图片默认只发给模型看，不存到电脑），还有 Agent 用手机网络下载的驱动、安装包（`download_to_pc` 工具），由手机分块上传到电脑，保存在系统「下载」目录下的 `P2D` 文件夹（Windows：`%USERPROFILE%\Downloads\P2D`；Linux：`XDG_DOWNLOAD_DIR`，通常是 `~/下载/P2D`）。需要「读写文件」开关和「标准」以上权限。
 
 | 方法 | 参数 | 返回 |
 |---|---|---|
@@ -185,6 +196,7 @@ Core 在同一端口提供 HTTP 接口，只接受本机访问：
 - `GET /api/status`：电脑信息、能否经 USB 调试连接（`adbAvailable`，不能时 `adbError` 说明原因）、设备列表（序列号、型号、阶段）、当前会话；Windows 上有已插上但缺 USB 驱动的手机时带 `driverMissing: [{name, instanceId}]`；系统防火墙会挡住局域网直连端口时（银河麒麟）带 `lanBlocked: true`；`lan.tailscale` 是本机的 Tailscale 地址（100.64.0.0/10，装了 Tailscale 才有，它也在 `lan.addrs` 里，排在真实网卡后面）
 - `POST /api/disconnect`：断开所有手机。设备在拔线前不会自动重连。连着的会话以 WebSocket 关闭码 **4409**（原因「电脑端已断开连接」）关闭，手机收到后不再自动重连，显示「电脑端已断开」；局域网连接在手机手动点「连接」前也会被拒（手机同样按 4409 处理）。只有令牌无效（401 / 4401）才提示重新插拔数据线或重新配对
 - `POST /api/aoa/connect?id=<序列号>`（Linux）：免调试连接一台手机（见 1.2），返回 `{ok, message?}`。状态接口里免调试连接的设备 `transport` 为 `aoa`，`stage` 多一个 `available`（可以点「免调试连接」）；开启时带 `aoa: {enabled, problem?}`
+- iPhone 数据线（见 1.4）：状态接口带 `iphone: {enabled, problem?}`，设备 `transport` 为 `usbmux`、`platform` 为 `ios`；Core 的 `-no-iphone` 参数可以关掉
 - `POST /api/driver/install`（Windows）：以管理员身份（弹出 UAC）安装电脑端自带的 ADB 接口驱动（WinUSB，按兼容标识 `USB\Class_FF&SubClass_42&Prot_01` 匹配所有品牌手机），等安装结束返回 `{ok, message?}`。已装厂商驱动的手机不受影响
 - `POST /api/firewall/allow`（银河麒麟）：用 `pkexec` 弹出系统的密码框，执行 `kylin-firewall -A p2d -d inbound -m all -p tcp -L <局域网端口> -a allow`（规则已存在但被关掉时改为重新开启），公用、专用两种网络模式都放行，等结束返回 `{ok, message?}`
 

@@ -68,7 +68,7 @@ export default function AboutScreen() {
     <Screen title="关于">
       <View className="items-center gap-1.5 py-3">
         <Image source={require('../../../assets/images/icon.png')} style={{ width: 64, height: 64, borderRadius: 16 }} />
-        <Text className="text-base font-semibold">p2d</Text>
+        <Text className="text-base font-semibold">P2D</Text>
         <Text className="text-xs text-muted-foreground">{`版本 ${appVersion()} · ${deviceLabel()}`}</Text>
       </View>
 
@@ -94,7 +94,7 @@ export default function AboutScreen() {
           <View className="flex-1">
             <Text className={status === 'connected' ? 'text-sm' : 'text-sm text-muted-foreground'}>存到电脑</Text>
             <Text className="text-xs text-muted-foreground">
-              {status === 'connected' ? '保存到电脑的「下载/p2d」' : '连上电脑后可用'}
+              {status === 'connected' ? '保存到电脑的「下载/P2D」' : '连上电脑后可用'}
             </Text>
           </View>
           {busy === 'pc' ? <ActivityIndicator size="small" /> : <Icon as={FileDown} size={16} className="text-muted-foreground" />}

@@ -1,4 +1,4 @@
-// 用手机的网络下载文件，再经 USB 传到电脑的「下载/p2d」目录。
+// 用手机的网络下载文件，再经 USB 传到电脑的「下载/P2D」目录。
 // 电脑完全断网（网卡驱动坏了、没有可用 WiFi、USB 网络共享也用不了）时，驱动和安装包都靠这条路送过去。
 
 import { Directory, File, Paths } from 'expo-file-system';

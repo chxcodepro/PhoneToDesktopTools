@@ -47,6 +47,7 @@ export function compareVersions(a: string, b: string): number {
 export function assetSuffixes(platform: string, arch: string, appImage: boolean): string[] {
   // Windows 打包成安装程序（更早的版本是便携版 -portable.exe，从便携版检查更新时找不到对应文件，会打开发布页）
   if (platform === 'win32') return [arch === 'ia32' ? '-win-ia32-setup.exe' : '-win-x64-setup.exe'];
+  if (platform === 'darwin') return [arch === 'arm64' ? '-mac-arm64.dmg' : '-mac-x64.dmg'];
   if (platform !== 'linux') return [];
   if (appImage) return arch === 'arm64' ? ['-linux-arm64.AppImage'] : ['-linux-x86_64.AppImage', '-linux-x64.AppImage'];
   const deb: Record<string, string> = { x64: 'amd64', arm64: 'arm64', loong64: 'loongarch64' };
@@ -161,6 +162,7 @@ export function startAutoCheck(changed: () => void): void {
 /** 平台说明：下载后怎么装 */
 export function installHint(): string {
   if (process.platform === 'win32') return '下载完成后运行新的安装程序，它会关闭正在运行的旧版本并直接覆盖安装，配对记录和设置都保留';
+  if (process.platform === 'darwin') return '下载完成后退出本程序，打开 .dmg 把 P2D 拖到「应用程序」里替换旧版本，配对记录和设置都保留';
   if (process.env.APPIMAGE) return '下载完成后退出本程序，给新文件加上执行权限后运行';
   return '下载完成后双击 .deb 安装（或运行 sudo dpkg -i 文件名），会直接覆盖旧版本，然后重新打开本程序';
 }

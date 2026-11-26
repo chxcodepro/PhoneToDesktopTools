@@ -26,7 +26,7 @@ const keyBits = 2048
 // Keys 电脑端的 ADB 密钥，第一次用到时才读取或生成（生成要零点几秒）
 type Keys struct {
 	stateDir string
-	comment  string // 公钥后面的说明，手机上的授权列表里显示，如 p2d@电脑名
+	comment  string // 公钥后面的说明，手机上的授权列表里显示，如 P2D@电脑名
 
 	once sync.Once
 	key  *rsa.PrivateKey
@@ -38,7 +38,7 @@ func NewKeys(stateDir, name string) *Keys {
 	if name == "" {
 		name = "pc"
 	}
-	return &Keys{stateDir: stateDir, comment: "p2d@" + name}
+	return &Keys{stateDir: stateDir, comment: "P2D@" + name}
 }
 
 // androidDir adb 存放密钥的目录：ANDROID_USER_HOME，或用户目录下的 .android

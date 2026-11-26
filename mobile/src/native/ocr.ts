@@ -1,4 +1,4 @@
-// 手机端离线文字识别（modules/p2d-ocr，Android ML Kit 中文模型）。iOS 暂未实现，ocrAvailable 为 false。
+// 手机端离线文字识别（modules/p2d-ocr：Android 用 ML Kit 中文模型，iOS 用系统自带的 Vision）。
 
 import { requireOptionalNativeModule } from 'expo';
 

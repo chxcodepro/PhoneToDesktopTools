@@ -39,12 +39,20 @@ type AccessorySource interface {
 	SuppressAll()            // 用户点「断开」后，拔线前不再连接
 }
 
+// IPhoneSource iPhone 数据线连接（经 usbmuxd，由 internal/iphone 实现）
+type IPhoneSource interface {
+	Devices() any    // 设备列表，字段和 adb 设备相同
+	Problem() string // 不能经数据线连接 iPhone 的原因（如没装 usbmuxd）
+	SuppressAll()    // 用户点「断开」后，拔线前不再连接
+}
+
 // Server MCP 服务。
 type Server struct {
 	reg       *tools.Registry
 	Tokens    *TokenStore
 	Devices   DeviceSource
 	Accessory AccessorySource // 免调试连接，不支持的系统为 nil
+	IPhones   IPhoneSource    // iPhone 数据线连接，未启用时为 nil
 	LAN       *LANConfig      // 局域网直连，未开启时为 nil
 	Driver    *ElevatedAction // 手机 USB 驱动检测与安装（仅 Windows），不支持时为 nil
 	Firewall  *ElevatedAction // 防火墙放行局域网直连端口（银河麒麟），不支持时为 nil
@@ -224,6 +232,9 @@ func (s *Server) DisconnectAll() {
 	if s.Accessory != nil {
 		s.Accessory.SuppressAll()
 	}
+	if s.IPhones != nil {
+		s.IPhones.SuppressAll()
+	}
 	s.Tokens.RevokeAll()
 	s.lanSuppressed.Store(true)
 	s.mu.Lock()
@@ -265,7 +276,15 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		st["aoa"] = aoa
 		devices = appendItems(devices, s.Accessory.Devices())
 	}
-	if s.Devices != nil || s.Accessory != nil {
+	if s.IPhones != nil {
+		ip := map[string]any{"enabled": true}
+		if p := s.IPhones.Problem(); p != "" {
+			ip["problem"] = p
+		}
+		st["iphone"] = ip
+		devices = appendItems(devices, s.IPhones.Devices())
+	}
+	if s.Devices != nil || s.Accessory != nil || s.IPhones != nil {
 		st["devices"] = devices
 	}
 	if m := s.Driver.pending(); m != nil {

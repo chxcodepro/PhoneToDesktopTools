@@ -61,7 +61,7 @@ var goneAfter = 8 * time.Second
 const (
 	msgAvailable = "没有开 USB 调试，可以免调试连接"
 	msgSwitching = "正在切换到免调试连接…"
-	msgOpenApp   = "请在手机上打开 p2d：弹出「用 p2d 打开」时点确定（勾上「默认」以后不再询问）。手机上还没装 App 的，按提示下载安装后重新插拔数据线"
+	msgOpenApp   = "请在手机上打开 P2D：弹出「用 P2D 打开」时点确定（勾上「默认」以后不再询问）。手机上还没装 App 的，按提示下载安装后重新插拔数据线"
 	msgNoPerm    = "没有权限访问这台手机的 USB 设备：请用 deb 安装包重新安装电脑端（会添加 USB 权限规则），然后重新插拔数据线"
 	msgOffSwitch = "已断开，重新插拔数据线可再次连接"
 

@@ -22,16 +22,16 @@ import (
 const shellMaxOutput = 100 * 1024
 
 func registerShell(r *Registry) {
-	shellName := "bash"
+	shellName := posixShellName()
 	if runtime.GOOS == "windows" {
 		shellName = "cmd.exe"
 	}
 	r.Add(&Tool{
 		Name: "shell_exec",
 		Description: "在电脑上执行命令并返回退出码和输出（当前系统使用 " + shellName + "）。" +
-			"适合查询信息、运行脚本、启动程序。不要执行需要交互输入的命令；启动 GUI 程序时，Windows 用 `start \"\" 程序`，Linux 在命令末尾加 `&`。" +
+			"适合查询信息、运行脚本、启动程序。不要执行需要交互输入的命令；启动 GUI 程序时，Windows 用 `start \"\" 程序`，Mac 用 `open -a 程序名`，Linux 在命令末尾加 `&`。" +
 			"需要管理员 / root 权限的命令（启停系统服务、安装驱动、写系统目录、重置网络等）设置 admin 为 true：" +
-			"电脑上会弹出系统授权框（Windows UAC，Linux 为 pkexec 密码框），需要用户在电脑上确认。",
+			"电脑上会弹出系统授权框（Windows UAC，Mac 为系统密码框，Linux 为 pkexec 密码框），需要用户在电脑上确认。",
 		InputSchema: object(map[string]prop{
 			"command":     str("要执行的命令"),
 			"cwd":         str("工作目录，默认为用户主目录"),
@@ -95,10 +95,7 @@ func shellCommand(command string) *exec.Cmd {
 		setRawCmdLine(cmd, `cmd.exe /S /C "`+command+`"`)
 		return cmd
 	}
-	if p, err := exec.LookPath("bash"); err == nil {
-		return exec.Command(p, "-c", command)
-	}
-	return exec.Command("/bin/sh", "-c", command)
+	return posixShell(command)
 }
 
 func shellExec(ctx context.Context, raw json.RawMessage) (*Result, error) {

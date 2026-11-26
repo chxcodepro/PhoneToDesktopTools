@@ -8,7 +8,7 @@ import android.os.Build
 import android.os.Bundle
 
 /**
- * 用户在系统弹窗里点了「用 p2d 打开」：打开配件（此时 App 已获得访问权限），拉起主界面后立即关闭。
+ * 用户在系统弹窗里点了「用 P2D 打开」：打开配件（此时 App 已获得访问权限），拉起主界面后立即关闭。
  * 透明主题，用户看不到这个页面。
  */
 class UsbAccessoryActivity : Activity() {

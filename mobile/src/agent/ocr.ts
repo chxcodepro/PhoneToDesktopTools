@@ -1,5 +1,5 @@
 // 文字识别结果的整理：模型看不到图片时，把截图里的文字按阅读顺序排好，并换算成可以直接点击的屏幕坐标。
-// 识别本身在手机上离线完成（src/native/ocr.ts → modules/p2d-ocr，Android ML Kit 中文模型）。
+// 识别本身在手机上离线完成（src/native/ocr.ts → modules/p2d-ocr，Android ML Kit 中文模型，iOS 系统自带的 Vision）。
 
 export interface OcrLine {
   text: string;

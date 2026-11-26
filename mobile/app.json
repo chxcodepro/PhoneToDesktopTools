@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "p2d",
+    "name": "P2D",
     "slug": "p2d",
     "version": "0.1.0",
     "orientation": "default",
@@ -13,7 +13,9 @@
       "infoPlist": {
         "NSAppTransportSecurity": {
           "NSAllowsLocalNetworking": true
-        }
+        },
+        "NSLocalNetworkUsageDescription": "P2D 需要访问局域网，用来查找和连接同一 WiFi 下的电脑",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
@@ -53,15 +55,15 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "允许 p2d 访问相册，用于把图片发给 Agent",
-          "cameraPermission": "允许 p2d 使用相机，用于拍照发给 Agent",
+          "photosPermission": "允许 P2D 访问相册，用于把图片发给 Agent",
+          "cameraPermission": "允许 P2D 使用相机，用于拍照发给 Agent",
           "microphonePermission": false
         }
       ],
       [
         "expo-camera",
         {
-          "cameraPermission": "允许 p2d 使用相机，用于扫码配对电脑和拍照发给 Agent",
+          "cameraPermission": "允许 P2D 使用相机，用于扫码配对电脑和拍照发给 Agent",
           "recordAudioAndroid": false,
           "barcodeScannerEnabled": true
         }

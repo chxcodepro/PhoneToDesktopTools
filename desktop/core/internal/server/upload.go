@@ -1,7 +1,7 @@
 package server
 
 // 手机向电脑上传文件（用户在 Agent 对话里添加的附件，或 Agent 用手机网络下载的驱动 / 安装包）：
-//   p2d/upload.begin  { name, size }      → { id, path }   在「下载/p2d」下创建文件
+//   p2d/upload.begin  { name, size }      → { id, path }   在「下载/P2D」下创建文件
 //   p2d/upload.chunk  { id, data(base64) } → { written }   按顺序追加（dispatch 在读循环中同步执行，天然有序）
 //   p2d/upload.end    { id, verify? }      → { path, size, sha256, sha1, signature? }
 //                                            校验大小后完成；verify 为 true 时在 Windows 上检查数字签名
@@ -45,7 +45,8 @@ type uploadState struct {
 	files map[string]*upload
 }
 
-// UploadDir 上传文件的保存目录：系统「下载」目录下的 p2d（改名前的版本存在「下载/PhoneToDesktop」）。可用环境变量 P2D_UPLOAD_DIR 覆盖。
+// UploadDir 上传文件的保存目录：系统「下载」目录下的 P2D（改名前的版本存在「下载/PhoneToDesktop」，
+// 名字改成大写前是「下载/p2d」，Linux 区分大小写，第一次用时把它改名过来）。可用环境变量 P2D_UPLOAD_DIR 覆盖。
 func UploadDir() string {
 	if d := os.Getenv("P2D_UPLOAD_DIR"); d != "" {
 		return d
@@ -54,7 +55,12 @@ func UploadDir() string {
 	if err != nil {
 		home = os.TempDir()
 	}
-	return filepath.Join(downloadsDir(home), "p2d")
+	dl := downloadsDir(home)
+	dir := filepath.Join(dl, "P2D")
+	if _, err := os.Stat(dir); os.IsNotExist(err) {
+		_ = os.Rename(filepath.Join(dl, "p2d"), dir) // 旧目录不存在时什么也不做
+	}
+	return dir
 }
 
 func downloadsDir(home string) string {

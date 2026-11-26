@@ -79,6 +79,7 @@ export function App() {
       <TitleBar />
       <div className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto p-5">
         <UpdateBanner u={s.update} manual={manualCheck} onClose={() => setManualCheck(false)} />
+        {aboutView || pairingView ? null : <MacPermissions p={s.macPermissions} />}
         {body}
       </div>
       <footer className="flex h-10 shrink-0 items-center justify-between border-t border-border px-3.5 text-xs text-muted-foreground">
@@ -120,7 +121,7 @@ function TitleBar() {
         <div className="flex h-5 w-5 items-center justify-center rounded-md bg-primary text-white">
           <Smartphone className="h-3 w-3" strokeWidth={2.5} />
         </div>
-        <span className="text-[13px] font-semibold">p2d</span>
+        <span className="text-[13px] font-semibold">P2D</span>
       </div>
       <div className="no-drag flex h-full">
         <button
@@ -254,7 +255,7 @@ function About({ s, onCheck, onClose }: { s: AppStatus; onCheck: () => void; onC
         <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-white">
           <Smartphone className="h-5 w-5" strokeWidth={2.25} />
         </div>
-        <div className="text-base font-semibold">p2d 电脑端</div>
+        <div className="text-base font-semibold">P2D 电脑端</div>
         <div className="text-xs text-muted-foreground">
           {info ? `v${info.version} · ${platformLabel(s.status?.os, s.status?.arch)}` : ' '}
         </div>
@@ -431,7 +432,20 @@ function Waiting({ s, onPair }: { s: AppStatus; onPair: () => void }) {
           </>
         ) : null}
         {sep}
-        <Row icon={warn} label="iPhone 驱动" right={<Badge variant="muted">暂不支持</Badge>} />
+        {s.status?.iphone?.enabled ? (
+          <>
+            <Row
+              icon={s.status.iphone.problem ? warn : ok}
+              label="iPhone 数据线"
+              right={s.status.iphone.problem ? <Badge variant="warning">未就绪</Badge> : <Badge variant="success">就绪</Badge>}
+            />
+            {s.status.iphone.problem ? (
+              <div className="line-clamp-4 px-3 pb-2.5 pl-9 text-xs text-warning-foreground">{s.status.iphone.problem}</div>
+            ) : null}
+          </>
+        ) : (
+          <Row icon={warn} label="iPhone 数据线" right={<Badge variant="muted">未开启</Badge>} />
+        )}
         {sep}
         {lan?.enabled && s.status?.lanBlocked ? (
           <LanBlocked addr={lan.addrs?.[0]} />
@@ -488,6 +502,53 @@ function Waiting({ s, onPair }: { s: AppStatus; onPair: () => void }) {
   );
 }
 
+/** iPhone 数据线：电脑没法给 iPhone 装 App、也没法拉起它，要用户自己打开 App 并保持在前台 */
+function ConnectingIPhone({ device }: { device: CoreDevice }) {
+  const stage = device.stage;
+  const opened = stage === 'ready';
+  return (
+    <>
+      <Hero animated />
+      <div className="text-center text-lg font-bold">正在连接 {device.model || 'iPhone'}</div>
+      <Card className="mt-auto">
+        <Row icon={ok} label="检测到 iPhone" />
+        {sep}
+        <Row icon={opened ? ok : stage === 'starting' ? <Spinner /> : pending} label="在 iPhone 上打开 P2D" />
+        {stage === 'starting' && device.message ? (
+          <div className="px-3 pb-2.5 pl-9 text-xs text-muted-foreground">{device.message}</div>
+        ) : null}
+        {sep}
+        <Row icon={opened ? <Spinner /> : pending} label="启动并连接" muted={!opened} />
+      </Card>
+      {stage === 'error' && device.message && <div className="text-center text-xs text-destructive">{device.message}</div>}
+    </>
+  );
+}
+
+/** Mac：没给「辅助功能」或「屏幕录制」权限时，手机上点不了、看不到画面 */
+function MacPermissions({ p }: { p?: AppStatus['macPermissions'] }) {
+  if (!p || (p.accessibility && p.screen)) return null;
+  const item = (label: string, desc: string, kind: 'accessibility' | 'screen') => (
+    <div className="flex items-center gap-2 px-3 py-2">
+      <span className="shrink-0">{warn}</span>
+      <div className="min-w-0 flex-1">
+        <div className="text-xs font-medium">{label}</div>
+        <div className="text-[11px] text-muted-foreground">{desc}</div>
+      </div>
+      <Button size="sm" variant="outline" onClick={() => window.p2d.openMacPrivacy(kind)}>
+        去允许
+      </Button>
+    </div>
+  );
+  return (
+    <Card>
+      <div className="px-3 pt-2.5 text-xs text-muted-foreground">需要在「系统设置 → 隐私与安全性」里允许 P2D，允许后重新打开 P2D：</div>
+      {p.accessibility ? null : item('辅助功能', '手机控制鼠标、键盘', 'accessibility')}
+      {p.screen ? null : item('屏幕录制', '截图、远程桌面看画面', 'screen')}
+    </Card>
+  );
+}
+
 /** 免调试连接：电脑没法给手机装 App、也没法拉起它，要用户在手机上点确认打开 */
 function ConnectingAoa({ device }: { device: CoreDevice }) {
   const stage = device.stage;
@@ -513,6 +574,7 @@ function ConnectingAoa({ device }: { device: CoreDevice }) {
 
 function Connecting({ device }: { device: CoreDevice }) {
   if (device.transport === 'aoa') return <ConnectingAoa device={device} />;
+  if (device.transport === 'usbmux') return <ConnectingIPhone device={device} />;
   const name = device.model || device.serial;
   const stage = device.stage;
   const installDone = stage === 'starting' || stage === 'ready';
@@ -663,7 +725,7 @@ function Pairing({ lan, onClose }: { lan: CoreLan; onClose: () => void }) {
   }
   return (
     <div className="flex flex-1 flex-col items-center gap-2.5 text-center">
-      <div className="text-sm font-semibold">用 p2d 手机端扫码配对</div>
+      <div className="text-sm font-semibold">用 P2D 手机端扫码配对</div>
       <div className="flex h-[150px] w-[150px] items-center justify-center rounded-lg border border-border bg-white p-1.5">
         {qr ? <img src={qr} alt="配对二维码" className="h-full w-full" /> : <Spinner />}
       </div>

@@ -1,5 +1,5 @@
-// p2d 电脑端主进程：启动 Core、轮询状态、主窗口、托盘、被控红框、断开热键。
-import { app, BrowserWindow, globalShortcut, ipcMain, Menu, nativeImage, session, shell, Tray } from 'electron';
+// P2D 电脑端主进程：启动 Core、轮询状态、主窗口、托盘、被控红框、断开热键。
+import { app, BrowserWindow, globalShortcut, ipcMain, Menu, nativeImage, session, shell, systemPreferences, Tray } from 'electron';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -37,6 +37,8 @@ function migrateUserData(): void {
   const appData = app.getPath('appData');
   const oldDir = path.join(appData, 'PhoneToDesktop');
   const newDir = path.join(appData, 'p2d');
+  // 程序显示名改成了大写的 P2D，Electron 默认按显示名取数据目录（Linux 区分大小写），这里固定用小写的 p2d，和 Core 一致
+  app.setPath('userData', newDir);
   if (!fs.existsSync(oldDir)) return;
   try {
     if (fs.existsSync(newDir) && fs.readdirSync(newDir).length === 0) fs.rmdirSync(newDir);
@@ -75,7 +77,7 @@ function createMainWindow(): void {
     fullscreenable: false,
     frame: false,
     show: false,
-    title: 'p2d',
+    title: 'P2D',
     backgroundColor: '#ffffff',
     icon: iconPath('app.png'),
     webPreferences: {
@@ -90,7 +92,7 @@ function createMainWindow(): void {
   mainWindow.setMenu(null);
   void mainWindow.loadFile(path.join(rendererDir, 'index.html'));
   mainWindow.once('ready-to-show', () => {
-    if (!process.argv.includes('--hidden')) mainWindow?.show();
+    if (!startHidden()) mainWindow?.show();
   });
   // 关闭按钮只隐藏到托盘
   mainWindow.on('close', (e) => {
@@ -99,6 +101,26 @@ function createMainWindow(): void {
       mainWindow?.hide();
     }
   });
+}
+
+/** 开机自启时只在托盘：Windows / Linux 带 --hidden 参数，Mac 由登录项打开 */
+function startHidden(): boolean {
+  if (process.argv.includes('--hidden')) return true;
+  return process.platform === 'darwin' && app.getLoginItemSettings().wasOpenedAtLogin;
+}
+
+/** 托盘图标：Mac 菜单栏用 16 点的小图（带 @2x） */
+function trayIcon(name: string): string {
+  return iconPath(process.platform === 'darwin' ? `mac-${name}` : name);
+}
+
+/** Mac：键鼠控制要「辅助功能」权限，截图要「屏幕录制」权限（记在 P2D 名下，Core 是它启动的子进程） */
+function macPermissions(): AppStatus['macPermissions'] {
+  if (process.platform !== 'darwin') return undefined;
+  return {
+    accessibility: systemPreferences.isTrustedAccessibilityClient(false),
+    screen: systemPreferences.getMediaAccessStatus('screen') === 'granted',
+  };
 }
 
 function showMainWindow(): void {
@@ -118,11 +140,11 @@ async function doDisconnect(): Promise<void> {
 }
 
 function trayState(s: AppStatus): { icon: string; tip: string } {
-  if (!s.coreOnline) return { icon: 'tray-idle.png', tip: 'p2d：服务未启动' };
-  if (s.controllerName) return { icon: 'tray-controlled.png', tip: `p2d：${s.controllerName} 正在控制此电脑` };
+  if (!s.coreOnline) return { icon: 'tray-idle.png', tip: 'P2D：服务未启动' };
+  if (s.controllerName) return { icon: 'tray-controlled.png', tip: `P2D：${s.controllerName} 正在控制此电脑` };
   const busy = s.status?.devices?.some((d) => ['installing', 'starting', 'ready', 'unauthorized'].includes(d.stage));
-  if (busy) return { icon: 'tray-connecting.png', tip: 'p2d：正在连接手机' };
-  return { icon: 'tray-idle.png', tip: 'p2d：等待手机连接' };
+  if (busy) return { icon: 'tray-connecting.png', tip: 'P2D：正在连接手机' };
+  return { icon: 'tray-idle.png', tip: 'P2D：等待手机连接' };
 }
 
 // 状态每秒轮询一次，只在图标、提示文字真的变化时才更新托盘：
@@ -133,7 +155,7 @@ function updateTray(s: AppStatus): void {
   if (!tray) return;
   const { icon, tip } = trayState(s);
   if (icon !== lastTrayIcon) {
-    tray.setImage(nativeImage.createFromPath(iconPath(icon)));
+    tray.setImage(nativeImage.createFromPath(trayIcon(icon)));
     lastTrayIcon = icon;
   }
   if (tip !== lastTrayTip) {
@@ -175,8 +197,8 @@ function toggleAutostart(on: boolean): void {
 }
 
 function createTray(): void {
-  tray = new Tray(nativeImage.createFromPath(iconPath('tray-idle.png')));
-  tray.setToolTip('p2d');
+  tray = new Tray(nativeImage.createFromPath(trayIcon('tray-idle.png')));
+  tray.setToolTip('P2D');
   tray.setContextMenu(trayMenu());
   tray.on('click', () => showMainWindow());
 }
@@ -200,9 +222,17 @@ async function poll(): Promise<void> {
       hotkey,
       autostart: getAutostart(),
       update: getUpdate(),
+      macPermissions: macPermissions(),
     };
   } catch {
-    next = { coreOnline: false, coreError: core.offlineReason() || undefined, hotkey, autostart: getAutostart(), update: getUpdate() };
+    next = {
+      coreOnline: false,
+      coreError: core.offlineReason() || undefined,
+      hotkey,
+      autostart: getAutostart(),
+      update: getUpdate(),
+      macPermissions: macPermissions(),
+    };
     core.ensureRunning();
   }
   current = next;
@@ -240,6 +270,16 @@ function registerIpc(): void {
   ipcMain.handle('p2d:about', () => aboutInfo());
   ipcMain.on('p2d:openRepo', () => void shell.openExternal(repoUrl()));
   ipcMain.handle('p2d:exportLogs', () => exportLogs(mainWindow, current));
+  ipcMain.on('p2d:openMacPrivacy', (_e, kind: unknown) => {
+    if (process.platform !== 'darwin') return;
+    if (kind === 'accessibility') {
+      // 弹出系统提示，并把 P2D 加进「辅助功能」列表（用户只需打开开关）
+      systemPreferences.isTrustedAccessibilityClient(true);
+      void shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility');
+    } else if (kind === 'screen') {
+      void shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture');
+    }
+  });
   ipcMain.on('p2d:minimize', () => mainWindow?.minimize());
   ipcMain.on('p2d:hide', () => mainWindow?.hide());
   ipcMain.on('p2d:overlayInteractive', (e, interactive: unknown) => {
@@ -305,6 +345,9 @@ app.on('will-quit', (e) => {
     void core.stop().finally(() => app.quit());
   }
 });
+
+// Mac：点程序坞里的图标时打开主窗口
+app.on('activate', () => showMainWindow());
 
 // 所有窗口关闭时不退出（常驻托盘）
 app.on('window-all-closed', () => {

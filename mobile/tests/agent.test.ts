@@ -543,4 +543,12 @@ describe('agent 多台电脑', () => {
     assert.match(p, /命令：使用 bash 语法/);
     assert.doesNotMatch(p, /cmd 语法/);
   });
+
+  it('Mac：用 zsh、open -a、Command 快捷键，排查办法用 macOS 的命令', () => {
+    const p = buildSystemPrompt({ tools: fakeTools(), supportsTools: true, supportsVision: true, computer: { host: 'MBP', os: 'darwin' } });
+    assert.match(p, /（MBP，macOS）/);
+    assert.match(p, /命令：使用 zsh 语法.*open -a/);
+    assert.match(p, /networksetup/);
+    assert.doesNotMatch(p, /cmd 语法|pnputil/);
+  });
 });

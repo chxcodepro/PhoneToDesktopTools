@@ -1,8 +1,8 @@
-// 「关于」页面：当前版本、检查更新。有新版本时用浏览器下载 APK 安装。
+// 「关于」页面：当前版本、检查更新。有新版本时用浏览器下载 APK 安装（iPhone 版只提示有新版本，安装方式见发布页）。
 import Constants from 'expo-constants';
 import { Info } from 'lucide-react-native';
 import { useState } from 'react';
-import { ActivityIndicator, Linking, View } from 'react-native';
+import { ActivityIndicator, Linking, Platform, View } from 'react-native';
 
 import { Button } from '@/components/ui/button';
 import { Card, Separator } from '@/components/ui/card';
@@ -45,10 +45,12 @@ export function AppUpdate() {
               <>
                 <Text className="text-sm">发现新版本 {result.latest}</Text>
                 <Text className="text-xs text-muted-foreground">
-                  下载后点开安装包覆盖安装，配对记录和设置都会保留。插数据线连接已更新的电脑时，也会自动更新。
+                  {Platform.OS === 'ios'
+                    ? 'iPhone 版不能在这里直接安装：用 TestFlight 安装的会自动收到更新，自己签名安装的请按发布页的说明重新安装（配对记录和设置会保留）。'
+                    : '下载后点开安装包覆盖安装，配对记录和设置都会保留。插数据线连接已更新的电脑时，也会自动更新。'}
                 </Text>
-                <Button size="sm" className="self-start" onPress={() => void Linking.openURL(result.url)}>
-                  <Text>下载新版本</Text>
+                <Button size="sm" className="self-start" onPress={() => void Linking.openURL(Platform.OS === 'ios' ? (result.page ?? result.url) : result.url)}>
+                  <Text>{Platform.OS === 'ios' ? '查看发布页' : '下载新版本'}</Text>
                 </Button>
               </>
             ) : null}

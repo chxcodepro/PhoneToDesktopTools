@@ -17,8 +17,10 @@ export interface CoreDevice {
   serial: string;
   /** 手机硬件序列号，USB 和 WiFi 通道相同；会话的 serial 就是它 */
   id?: string;
-  /** aoa：免调试连接（Android 配件模式，不需要 USB 调试，仅 Linux） */
-  transport?: 'usb' | 'wifi' | 'aoa';
+  /** aoa：免调试连接（Android 配件模式，不需要 USB 调试，仅 Linux）；usbmux：iPhone 数据线（经系统的 usbmuxd） */
+  transport?: 'usb' | 'wifi' | 'aoa' | 'usbmux';
+  /** ios：iPhone / iPad */
+  platform?: 'ios';
   model: string;
   state: string;
   stage: DeviceStage;
@@ -86,6 +88,8 @@ export interface CoreStatus {
   adbError?: string;
   /** 免调试连接（Linux）：开启时有；problem 是读不到 USB 设备的原因 */
   aoa?: { enabled: boolean; problem?: string };
+  /** iPhone 数据线连接：开启时有；problem 是不能连接的原因（如 Windows 没装「Apple 设备」、Linux 没装 usbmuxd） */
+  iphone?: { enabled: boolean; problem?: string };
   /** 已插上但还没装 USB 驱动的手机（Windows） */
   driverMissing?: { name: string; instanceId: string }[];
   /** 系统防火墙会挡住手机通过 WiFi 连接（银河麒麟） */
@@ -108,6 +112,8 @@ export interface AppStatus {
   /** 开机自动启动：是否支持（开发模式不支持）、是否开启 */
   autostart?: { supported: boolean; enabled: boolean };
   update?: UpdateInfo;
+  /** Mac：P2D 有没有「辅助功能」（键鼠控制）和「屏幕录制」（截图、远程桌面）权限；其他系统没有这项 */
+  macPermissions?: { accessibility: boolean; screen: boolean };
 }
 
 /** 检查更新的结果 */
@@ -169,6 +175,8 @@ export interface P2DApi {
   openRepo(): void;
   /** 选择保存位置后导出日志；用户取消时 ok=false 且没有 message */
   exportLogs(): Promise<{ ok: boolean; path?: string; message?: string }>;
+  /** Mac：打开「系统设置 → 隐私与安全性」里对应的权限页面 */
+  openMacPrivacy(kind: 'accessibility' | 'screen'): void;
 }
 
 /** 会话所在手机当前在线的通道（同一台手机可能同时有 USB 和 WiFi 两条，USB 优先） */

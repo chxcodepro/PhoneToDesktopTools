@@ -1,4 +1,4 @@
-// Package screen 截取屏幕。Windows 使用 GDI（兼容 Win7），Linux 使用 X11（纯 Go，无 cgo）。
+// Package screen 截取屏幕。Windows 使用 GDI（兼容 Win7），Linux 使用 X11（纯 Go，无 cgo），Mac 使用 CoreGraphics（cgo）。
 package screen
 
 import "image"

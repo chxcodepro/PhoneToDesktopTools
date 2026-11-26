@@ -97,7 +97,9 @@ GitHub 上在仓库「Settings → Secrets and variables → Actions」里添加
 
 - **ADB 直连**：Windows 10 + 一加 13 实测通过（TESTING.md 4.1）；Linux（usbfs）、Win7、32 位还没在真机上测。
 - **真机验证**：已在小米 9（Android 15）、一加 PJZ110（Android 17）+ Windows 10 上跑通自动安装、自动连接、自动重连、远程桌面、WiFi 直连，以及用 DeepSeek 驱动 Agent 操作电脑。
-- **OCR（iOS）**：Android 已用 ML Kit 中文模型离线识别（`modules/p2d-ocr`）；iOS 还没实现（可用 Vision 的 `VNRecognizeTextRequest`），目前 iPhone 上看不到图片的模型拿不到截图文字。
+- **Mac、iPhone**：代码已完成，只在 CI 的 macOS 机器上编译过，没有真机测试。最没把握的是 cgo 调用系统框架的部分：截图（`internal/screen/screen_darwin.go`，图像上下颠倒的话看那里的坐标翻转）、键鼠（`internal/input/input_darwin.go`）、IOKit USB（`internal/usbio/usbio_darwin.go`）；iPhone 端的 Swift 代码（`modules/p2d-accessory/ios`、`modules/p2d-ocr/ios`）同样只编译过。
+- **苹果签名**：没有开发者账号。Mac 版只做本地签名（ad-hoc），用户第一次打开要手动放行；iPhone 版是未签名的 ipa。有账号后：Mac 配置 Developer ID 证书并公证（electron-builder 的 `mac.identity`、`notarize`），iPhone 改成签名导出或用 EAS / TestFlight 发布。
+- **Mac 截图帧率**：`CGDisplayCreateImageForRect` 不可用时退回 `screencapture` 命令，每帧一两百毫秒；以后可改用 ScreenCaptureKit（macOS 12.3 起）。
 - **麒麟**：x86_64 虚拟机上全部功能实测通过（TESTING.md 2.4）；arm64、龙芯没有真机，未实测。
 
 ## 麒麟各 CPU
@@ -154,3 +156,10 @@ npm run dist:win64                  # 打包 Windows x64 安装程序，输出�
   - `P2D_PORT`：改用其他端口（同时传给 Core），避免与正在运行的 Core 冲突
   - `P2D_CORE_PATH`：指定 Core 可执行文件
   - `P2D_DEBUG_CAPTURE`：每 2 秒把主窗口画面写入该目录下的 `main.png`（仅开发模式）
+
+## 苹果设备（Mac、iPhone）
+
+- **Mac 版 Core**：截图（CoreGraphics）、键鼠（CGEvent，需要「辅助功能」权限）、经 USB 直连安卓手机（IOKit）用 cgo 调用系统框架，要在 Mac 上编译：在 Mac 上运行 `bash scripts/build-core.sh` 只编 `darwin/amd64`、`darwin/arm64` 两个版本（用 Xcode 的 clang，`MACOSX_DEPLOYMENT_TARGET=10.13`）。Windows / Linux 上用 `CGO_ENABLED=0 GOOS=darwin go vet ./...` 只能检查 Go 部分（cgo 文件有 `darwin && !cgo` 的退路实现）。
+- **Mac 版界面**：`cd desktop/app && npm run dist:mac`，输出 `release/P2D-<版本>-mac-{x64,arm64}.dmg`。权限（辅助功能、屏幕录制）记在 P2D.app 名下，Core 是它启动的子进程；界面上的提示由 `systemPreferences` 检查。
+- **iPhone 数据线连接**：iOS 没有给 App 用的 USB 接口，电脑端经系统的 usbmuxd（`internal/usbmux`）把连接接到 iPhone 上 App 监听的 39274 端口（只在 iPhone 本机回环地址），上面跑和安卓免调试连接相同的多路复用协议（`internal/iphone` 复用 `internal/aoa` 的链路；手机端 `modules/p2d-accessory/ios/UsbmuxLink.swift`），JS 侧和安卓共用一套逻辑（`src/native/accessory.ts`）。协议见 PROTOCOL.md 1.4。
+- **iPhone 版 App**：CI 的 ios 任务在 macOS 机器上 `expo prebuild --platform ios` 后用 xcodebuild 编译（不签名），打成 `P2D-<版本>-ios-unsigned.ipa`。本地编译需要 Mac 和 Xcode：`cd mobile && npx expo prebuild --platform ios && npx expo run:ios`。iOS 上的文字识别用系统的 Vision（`modules/p2d-ocr/ios`），没有前台服务（`p2d-keepalive` 只有安卓版），切到后台会断开。

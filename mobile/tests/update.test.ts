@@ -31,7 +31,7 @@ const release = {
 
 describe('checkLatest', () => {
   it('有新版本：给出 APK 地址', async () => {
-    assert.deepEqual(await checkLatest('o/r', '0.1.0-ci.5', reply(200, release)), { state: 'available', latest: '0.2.0', url: 'https://x/apk' });
+    assert.deepEqual(await checkLatest('o/r', '0.1.0-ci.5', reply(200, release)), { state: 'available', latest: '0.2.0', url: 'https://x/apk', page: 'https://github.com/o/r/releases/tag/v0.2.0' });
   });
   it('已是最新', async () => {
     assert.deepEqual(await checkLatest('o/r', '0.2.0', reply(200, release)), { state: 'latest', latest: '0.2.0' });

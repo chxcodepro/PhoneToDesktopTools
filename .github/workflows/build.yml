@@ -1,5 +1,6 @@
-# 构建全部可执行文件：电脑端核心（5 个平台）、手机端 APK、电脑端（Windows x64/ia32 安装程序；Linux x64/arm64 的 AppImage，
-# 以及 x64/arm64/龙芯的 deb 和 tar.gz）。
+# 构建全部可执行文件：电脑端核心（7 个平台）、手机端 APK 和 iOS App（未签名）、电脑端（Windows x64/ia32 安装程序；
+# Linux x64/arm64 的 AppImage，以及 x64/arm64/龙芯的 deb 和 tar.gz；Mac Intel / Apple 芯片的 dmg）。
+# Mac 版 Core 要调用系统框架（cgo），在 macOS 机器上编译；没有苹果开发者账号，Mac 版只做本地签名（ad-hoc），iOS 版不签名。
 # - 每次推送 / PR：测试并构建，产物在 Actions 页面的 Artifacts 里下载（保留 14 天）。
 # - 推送 v 开头的标签（如 v0.1.0）：另外创建 GitHub Release 并上传产物。
 # 电脑端自己经 USB 连接手机（desktop/core/internal/adbwire），不带 adb；手机端安装包由 apk 任务构建后放进电脑端安装包。
@@ -51,6 +52,7 @@ jobs:
         run: |
           go vet ./...
           GOOS=windows go vet ./...   # 同时编译检查 Windows 专用代码和测试
+          CGO_ENABLED=0 GOOS=darwin go vet ./...   # Mac 的 Go 代码（cgo 部分在 core-mac 任务里编译）
           go test ./...
       - name: 交叉编译
         # 龙芯版要用龙芯官方的旧世界 Go 编译（麒麟 V10 的龙芯版是旧世界），见 scripts/build-core.sh 开头
@@ -62,6 +64,82 @@ jobs:
         with:
           name: core
           path: dist/core/
+          retention-days: 14
+
+  core-mac:
+    needs: version
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: desktop/core/go.sum
+      - name: 测试（在 Mac 上编译 cgo 代码并运行测试）
+        working-directory: desktop/core
+        env:
+          CGO_ENABLED: '1'
+          MACOSX_DEPLOYMENT_TARGET: '10.13'
+        run: |
+          go vet ./...
+          go test ./...
+      - name: 编译 Intel 和 Apple 芯片两个版本
+        run: |
+          GO=go bash scripts/build-core.sh "${{ needs.version.outputs.version }}"
+          file dist/core/darwin-amd64/p2d-core dist/core/darwin-arm64/p2d-core
+          dist/core/darwin-arm64/p2d-core -version
+      - uses: actions/upload-artifact@v4
+        with:
+          name: core-mac
+          path: dist/core/
+          retention-days: 14
+
+  ios:
+    needs: version
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - run: npm ci
+      - name: 写入版本号和更新地址
+        env:
+          P2D_VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          node -e '
+            const fs = require("fs");
+            const j = JSON.parse(fs.readFileSync("app.json", "utf8"));
+            j.expo.version = process.env.P2D_VERSION.replace(/-.*$/, "");
+            j.expo.ios.buildNumber = String(process.env.GITHUB_RUN_NUMBER);
+            j.expo.extra = { ...j.expo.extra, updateRepo: process.env.GITHUB_REPOSITORY };
+            fs.writeFileSync("app.json", JSON.stringify(j, null, 2));
+          '
+      - name: 生成原生工程
+        run: npx expo prebuild --platform ios
+      - name: 编译（不签名）
+        # 没有苹果开发者账号：编出未签名的 .app 打成 ipa，可以用自己的 Apple ID 经 Sideloadly / AltStore 等工具签名安装（见 docs/INSTALL.md）。
+        # 有账号后改成签名导出，或用 EAS / TestFlight 发布。
+        working-directory: mobile/ios
+        run: |
+          ws=$(ls -d *.xcworkspace | head -1)
+          scheme="${ws%.xcworkspace}"
+          xcodebuild -workspace "$ws" -scheme "$scheme" -configuration Release -sdk iphoneos \
+            -destination 'generic/platform=iOS' -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build | tail -50
+          app=$(ls -d build/Build/Products/Release-iphoneos/*.app | head -1)
+          mkdir -p Payload && cp -R "$app" Payload/
+          zip -qry ../p2d-unsigned.ipa Payload
+          ls -la ../p2d-unsigned.ipa
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios
+          path: mobile/p2d-unsigned.ipa
           retention-days: 14
 
   apk:
@@ -142,7 +220,7 @@ jobs:
           retention-days: 14
 
   desktop:
-    needs: [version, core, apk]
+    needs: [version, core, core-mac, apk]
     strategy:
       fail-fast: false
       matrix:
@@ -151,6 +229,8 @@ jobs:
             target: win
           - os: ubuntu-latest
             target: linux
+          - os: macos-14
+            target: mac
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -164,8 +244,12 @@ jobs:
           cache-dependency-path: desktop/app/package-lock.json
       - uses: actions/download-artifact@v4
         with:
-          name: core
+          pattern: core*
+          merge-multiple: true
           path: dist/core
+      - name: 恢复可执行权限
+        # 上传 / 下载 artifact 会丢掉文件的可执行权限
+        run: chmod +x dist/core/*/p2d-core 2>/dev/null || true
       - uses: actions/download-artifact@v4
         with:
           name: apk
@@ -195,12 +279,13 @@ jobs:
             desktop/app/release/*.AppImage
             desktop/app/release/*.deb
             desktop/app/release/*.tar.gz
+            desktop/app/release/*.dmg
           if-no-files-found: error
           retention-days: 14
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [core, apk, desktop]
+    needs: [core, core-mac, apk, ios, desktop]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -212,10 +297,11 @@ jobs:
         run: |
           mkdir release
           cp out/desktop-*/* release/
-          cp out/apk/p2d.apk "release/p2d-${GITHUB_REF_NAME#v}-android.apk"
-          for d in out/core/*/; do
+          cp out/apk/p2d.apk "release/P2D-${GITHUB_REF_NAME#v}-android.apk"
+          cp out/ios/p2d-unsigned.ipa "release/P2D-${GITHUB_REF_NAME#v}-ios-unsigned.ipa"
+          for d in out/core/*/ out/core-mac/*/; do
             n=$(basename "$d")
-            tar -czf "release/p2d-core-${GITHUB_REF_NAME#v}-$n.tar.gz" -C "$d" .
+            tar -czf "release/P2D-core-${GITHUB_REF_NAME#v}-$n.tar.gz" -C "$d" .
           done
           ls -la release
       - name: 创建 Release

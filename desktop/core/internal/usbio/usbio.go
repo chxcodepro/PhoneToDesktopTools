@@ -1,4 +1,5 @@
-// Package usbio 直接读写 USB 设备的 bulk 端点，不依赖 libusb：Linux 用内核的 usbfs，Windows 用系统自带的 WinUSB。
+// Package usbio 直接读写 USB 设备的 bulk 端点，不依赖 libusb：Linux 用内核的 usbfs，Windows 用系统自带的 WinUSB，
+// macOS 用 IOKit（只做了 ADB，要用 cgo 编译）。
 // 免调试连接（internal/aoa）和 ADB（internal/adbwire）都用它。
 package usbio
 
@@ -99,7 +100,7 @@ func (d Device) ADBEndpoints() (iface, in, out, maxPacket int, ok bool) {
 
 // Pipe 一对 bulk 端点。Read 一次读一个 USB 传输（最多 len(p) 字节）；Read 和 Write 可以在不同的协程里同时调用。
 type Pipe interface {
-	// Read 读一次。Linux 一段时间（1 秒）没有数据返回 ErrTimeout，调用方接着读即可；Windows 一直等到有数据或 Close。
+	// Read 读一次。Linux 一段时间（1 秒）没有数据返回 ErrTimeout，调用方接着读即可；Windows、macOS 一直等到有数据或 Close。
 	Read(p []byte) (int, error)
 	Write(p []byte) error
 	// Close 关闭端点，正在进行的 Read / Write 随后返回错误
@@ -119,7 +120,7 @@ var (
 
 // ADBDevice 开了 USB 调试的手机的 ADB 接口
 type ADBDevice struct {
-	// Key 区分插着的设备：Linux 是插口和设备号（重新插拔会变），Windows 是设备接口路径
+	// Key 区分插着的设备：Linux 是插口和设备号（重新插拔会变），Windows 是设备接口路径，macOS 是接口的注册表 ID（重新插拔会变）
 	Key string
 	// Serial USB 序列号，和 adb devices 列出的相同；设备没有序列号时为空
 	Serial   string
@@ -128,7 +129,7 @@ type ADBDevice struct {
 	// Driver Windows 上 ADB 接口的驱动服务名，正常是 WinUSB
 	Driver string
 
-	// Linux：设备节点和端点；Windows：设备接口路径
+	// Linux：设备节点和端点；Windows：设备接口路径；macOS：接口的注册表 ID（十进制）
 	node                      string
 	iface, in, out, maxPacket int
 }

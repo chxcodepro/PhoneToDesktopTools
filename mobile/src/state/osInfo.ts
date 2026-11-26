@@ -1,7 +1,19 @@
-// 按电脑端告知的系统名（osName，如 Windows 11、Kylin V10 SP1）区分系统系列，用来显示系统图标。
+// 按电脑端告知的系统名（osName，如 Windows 11、Kylin V10 SP1、macOS 14）区分系统系列，用来显示系统图标。
 // 旧版电脑端没有 osName 时只知道 windows / linux。
 
-export type OsFamily = 'win11' | 'win10' | 'win8' | 'win7' | 'winxp' | 'windows' | 'kylin' | 'uos' | 'ubuntu' | 'linux' | 'unknown';
+export type OsFamily =
+  | 'win11'
+  | 'win10'
+  | 'win8'
+  | 'win7'
+  | 'winxp'
+  | 'windows'
+  | 'kylin'
+  | 'uos'
+  | 'ubuntu'
+  | 'linux'
+  | 'macos'
+  | 'unknown';
 
 /** 系统系列和简短名称（显示在图标下面） */
 export function osInfo(os: string | undefined, osName?: string): { family: OsFamily; label: string } {
@@ -15,6 +27,7 @@ export function osInfo(os: string | undefined, osName?: string): { family: OsFam
     if (n.includes('xp')) return { family: 'winxp', label: 'WinXP' };
     return { family: 'windows', label: 'Windows' };
   }
+  if (n.includes('macos') || n.includes('mac os') || os === 'darwin') return { family: 'macos', label: 'macOS' };
   if (/kylin|麒麟/.test(n)) return { family: 'kylin', label: '银河麒麟' };
   if (/uos|统信|deepin/.test(n)) return { family: 'uos', label: n.includes('deepin') ? 'Deepin' : '统信 UOS' };
   if (n.includes('ubuntu')) return { family: 'ubuntu', label: 'Ubuntu' };

@@ -12,6 +12,8 @@ const map = [
   ['linux-amd64', 'linux-x64', 'p2d-core'],
   ['linux-arm64', 'linux-arm64', 'p2d-core'],
   ['linux-loong64', 'linux-loong64', 'p2d-core'],
+  ['darwin-amd64', 'mac-x64', 'p2d-core'],
+  ['darwin-arm64', 'mac-arm64', 'p2d-core'],
 ];
 // 手机端安装包，放在 desktop/vendor/ 下（见 desktop/vendor/README.md）。电脑端自己经 USB 连接手机，不再带 adb。
 const vendor = join(repo, 'desktop', 'vendor');

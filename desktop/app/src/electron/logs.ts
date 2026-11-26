@@ -27,7 +27,7 @@ function stamp(d = new Date()): string {
 export function buildLogText(status: AppStatus): string {
   const a = aboutInfo();
   const lines = [
-    `p2d 电脑端日志（导出时间 ${new Date().toLocaleString()}）`,
+    `P2D 电脑端日志（导出时间 ${new Date().toLocaleString()}）`,
     `版本：${a.version}　系统：${a.platform} ${a.osRelease}（${a.arch}）　Electron：${a.electron}`,
     `服务程序：${corePath()}${fs.existsSync(corePath()) ? '' : '（不存在）'}`,
     '',
@@ -50,7 +50,7 @@ export function buildLogText(status: AppStatus): string {
 
 /** 让用户选保存位置（默认桌面），写入后在文件夹中显示。用户取消时返回 ok=false 且没有 message */
 export async function exportLogs(win: BrowserWindow | null, status: AppStatus): Promise<{ ok: boolean; path?: string; message?: string }> {
-  const defaultPath = path.join(app.getPath('desktop'), `p2d-电脑端日志-${stamp()}.txt`);
+  const defaultPath = path.join(app.getPath('desktop'), `P2D-电脑端日志-${stamp()}.txt`);
   const opts = { title: '导出日志', defaultPath, filters: [{ name: '文本文件', extensions: ['txt'] }] };
   const r = win ? await dialog.showSaveDialog(win, opts) : await dialog.showSaveDialog(opts);
   if (r.canceled || !r.filePath) return { ok: false };

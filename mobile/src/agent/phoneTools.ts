@@ -254,7 +254,7 @@ export const PHONE_TOOLS: ToolInfo[] = [
   {
     name: 'save_attachment_to_pc',
     description:
-      '把用户在对话里发来的图片保存到电脑的「下载/p2d」目录，返回电脑上的路径。发来的图片默认只给你看、不会存到电脑；' +
+      '把用户在对话里发来的图片保存到电脑的「下载/P2D」目录，返回电脑上的路径。发来的图片默认只给你看、不会存到电脑；' +
       '只在用户要求把图片放到电脑上（保存、放到桌面、插进文档等）时调用，之后用电脑工具复制或移动到目标位置。',
     inputSchema: {
       type: 'object',
@@ -266,7 +266,7 @@ export const PHONE_TOOLS: ToolInfo[] = [
   {
     name: 'download_to_pc',
     description:
-      '用手机的网络下载文件，经连接通道（数据线或 WiFi）传到电脑的「下载/p2d」目录（电脑本身不需要联网）。返回电脑上的保存路径、SHA-256，Windows 上还会返回数字签名状态。' +
+      '用手机的网络下载文件，经连接通道（数据线或 WiFi）传到电脑的「下载/P2D」目录（电脑本身不需要联网）。返回电脑上的保存路径、SHA-256，Windows 上还会返回数字签名状态。' +
       '只从官方来源下载（微软、硬件厂商官网、系统官方软件源）。最大 1 GB。',
     inputSchema: {
       type: 'object',

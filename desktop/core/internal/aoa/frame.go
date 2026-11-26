@@ -2,7 +2,7 @@
 //
 // 流程：
 //  1. 电脑发三个厂商控制请求（51 查协议版本、52 发识别字符串、53 启动），手机断开重连，变成 Google 的配件设备 18D1:2D00；
-//  2. 手机上弹出「用 p2d 打开」，App 打开配件后，双方通过一对 bulk 端点收发字节；
+//  2. 手机上弹出「用 P2D 打开」，App 打开配件后，双方通过一对 bulk 端点收发字节；
 //  3. 这条管道上跑一个很薄的多路复用协议（本文件）：手机本机监听一个回环端口，每条 TCP 连接对应一个流，
 //     电脑端把每个流接到本机的服务端口（和 adb reverse 隧道效果相同），所以手机端照旧用 ws://127.0.0.1:<端口>/mcp?token=… 连接。
 //
@@ -64,7 +64,7 @@ const (
 const (
 	accessoryManufacturer = "p2d"
 	accessoryModel        = "P2D"
-	accessoryDescription  = "p2d 电脑端"
+	accessoryDescription  = "P2D 电脑端"
 	accessoryVersion      = "1"
 	// 手机上没装 App 时，系统会提示用浏览器打开这个地址
 	accessoryURI = "https://github.com/chxcodepro/p2d/releases"

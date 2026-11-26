@@ -51,6 +51,8 @@ describe('系统图标', () => {
       ['linux', 'Ubuntu 22.04.4 LTS', 'ubuntu', 'Ubuntu'],
       ['linux', 'Debian GNU/Linux 12', 'linux', 'Debian'],
       ['linux', undefined, 'linux', 'Linux'],
+      ['darwin', 'macOS 14', 'macos', 'macOS'],
+      ['darwin', undefined, 'macos', 'macOS'],
     ];
     for (const [os, name, family, label] of cases) assert.deepEqual(osInfo(os, name), { family, label }, `${os} ${name}`);
   });

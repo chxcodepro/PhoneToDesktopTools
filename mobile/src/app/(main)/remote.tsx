@@ -1,4 +1,4 @@
-// 虚拟桌面页：实时画面 + 直接点击 / 触控板 + 键盘输入（不经过大模型，直接调用电脑工具），
+// 虚拟桌面页：实时画面 + 平板触控 / 触控板 + 键盘输入（不经过大模型，直接调用电脑工具），
 // 下方是 Agent 消息面板和发给 Agent 的输入框。
 // 竖屏：画面铺满宽度；横屏：画面全屏，按钮竖排在右侧，隐藏状态栏。
 
@@ -42,14 +42,17 @@ import { BackButton, goBack } from '@/components/back-button';
 import { NotConnectedCard } from '@/components/connection-status';
 import { FrameImage } from '@/components/frame-image';
 import { AgentPanel } from '@/components/remote/agent-panel';
-import { ActionMarker, CursorArrow, Crosshair, Loupe } from '@/components/remote/overlays';
+import { ActionMarker, CursorArrow } from '@/components/remote/overlays';
 import { Icon } from '@/components/ui/icon';
 import { Text } from '@/components/ui/text';
 import { cn } from '@/lib/utils';
 import { RemoteController, type Overlay } from '@/remote/controller';
-import { toView } from '@/remote/geometry';
+import { NO_ZOOM, toView } from '@/remote/geometry';
 import { useScreenStream } from '@/remote/useScreenStream';
+import { useConnection } from '@/state/connection';
+import { useDevices } from '@/state/devices';
 import { cycleView, useViewTargets, viewClient } from '@/state/multi';
+import { osInfo } from '@/state/osInfo';
 
 const COMBOS: { label: string; keys: string }[] = [
   { label: 'Enter', keys: 'enter' },
@@ -70,10 +73,35 @@ const COMBOS: { label: string; keys: string }[] = [
   { label: '刷新', keys: 'f5' },
 ];
 
+/** Mac 上的对应快捷键（cmd 即 Command 键） */
+const MAC_COMBOS: { label: string; keys: string }[] = [
+  { label: 'Return', keys: 'enter' },
+  { label: 'Esc', keys: 'esc' },
+  { label: '删除', keys: 'backspace' },
+  { label: 'Tab', keys: 'tab' },
+  { label: '复制', keys: 'cmd+c' },
+  { label: '粘贴', keys: 'cmd+v' },
+  { label: '剪切', keys: 'cmd+x' },
+  { label: '撤销', keys: 'cmd+z' },
+  { label: '全选', keys: 'cmd+a' },
+  { label: '保存', keys: 'cmd+s' },
+  { label: '切换应用', keys: 'cmd+tab' },
+  { label: '关闭窗口', keys: 'cmd+w' },
+  { label: '聚焦搜索', keys: 'cmd+space' },
+  { label: '调度中心', keys: 'ctrl+up' },
+  { label: '强制退出', keys: 'cmd+alt+esc' },
+  { label: '刷新', keys: 'cmd+r' },
+];
+
 export default function RemoteScreen() {
   const { view, targets } = useViewTargets();
   const status = view.status;
   const conv = useConversation();
+  // 正在看的电脑是不是 Mac：组合键面板换成 Command 键的版本
+  const conn = useConnection();
+  const { devices } = useDevices();
+  const viewDev = devices.find((d) => d.pcId === (view.pcId ?? conn.pcId));
+  const isMac = osInfo(viewDev?.os ?? (view.pcId ? undefined : conn.params?.os), viewDev?.osName).family === 'macos';
   const [display, setDisplay] = useState(0);
   const { frame, displays, error, fps } = useScreenStream(display);
   // 触控板默认关闭：画面上直接点击；打开后竖屏在下方显示触控板，横屏时画面本身变成触控板
@@ -85,7 +113,8 @@ export default function RemoteScreen() {
   const [combosOpen, setCombosOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [area, setArea] = useState({ w: 0, h: 0 });
-  const [overlay, setOverlay] = useState<Overlay>({ pointer: null, cursor: null });
+  const [overlay, setOverlay] = useState<Overlay>({ cursor: null, zoom: NO_ZOOM });
+  const [hintDone, setHintDone] = useState<string | null>(null);
   const [landscapeWanted, setLandscapeWanted] = useState(false);
   const pcInputRef = useRef<TextInputInstance>(null);
   const win = useWindowDimensions();
@@ -134,17 +163,22 @@ export default function RemoteScreen() {
   const aspect = frame ? frame.width / frame.height : 16 / 9;
   const fit =
     area.w && area.h ? (area.w / area.h > aspect ? { w: area.h * aspect, h: area.h } : { w: area.w, h: area.w / aspect }) : { w: 0, h: 0 };
-  // 画面上的手势：横屏且打开触控板时按触控板处理，其余情况直接点击
+  // 画面上的手势：横屏且打开触控板时按触控板处理，其余情况按平板触控处理（手指就是鼠标）
   const screenMode = landscape && trackpad ? 'trackpad' : 'touch';
+  // 刚看到画面、切换操作方式时，在画面上提示几秒怎么操作
+  const hintKey = frame && focused ? screenMode : null;
+  const hint = hintKey !== null && hintDone !== hintKey;
+  useEffect(() => {
+    if (!hintKey) return;
+    const t = setTimeout(() => setHintDone(hintKey), 5000);
+    return () => clearTimeout(t);
+  }, [hintKey]);
 
   // 手势控制器只创建一次；最新的画面、尺寸、模式在 effect 中同步给它
   const [ctrl] = useState(
     () =>
       new RemoteController(
-        (args) =>
-          void viewClient()
-            ?.callTool('input_mouse', args)
-            .catch(() => undefined),
+        (args) => viewClient()?.callTool('input_mouse', args) ?? Promise.resolve(),
         () => setRightNext(false),
         setOverlay,
       ),
@@ -187,14 +221,38 @@ export default function RemoteScreen() {
     <View onLayout={onArea} className="flex-1 items-center justify-center">
       {frame && fit.w ? (
         <View style={{ width: fit.w, height: fit.h }} className="overflow-hidden bg-black" {...ctrl.screenPan.panHandlers}>
-          <FrameImage uri={frame.uri} />
-          {marker ? <ActionMarker left={marker.left} top={marker.top} /> : null}
-          {overlay.cursor ? <CursorArrow left={overlay.cursor.left} top={overlay.cursor.top} /> : null}
-          {overlay.pointer ? (
-            <>
-              <Crosshair x={overlay.pointer.x} y={overlay.pointer.y} />
-              <Loupe frame={frame} viewW={fit.w} viewH={fit.h} x={overlay.pointer.x} y={overlay.pointer.y} />
-            </>
+          {/* 画面内容按捏合缩放；里面的元素都不接收触摸，手势坐标统一按外层容器计算 */}
+          <View
+            pointerEvents="none"
+            style={{
+              width: fit.w,
+              height: fit.h,
+              transformOrigin: 'top left',
+              transform: [{ translateX: overlay.zoom.ox }, { translateY: overlay.zoom.oy }, { scale: overlay.zoom.s }],
+            }}
+          >
+            <FrameImage uri={frame.uri} />
+            {marker ? <ActionMarker left={marker.left} top={marker.top} /> : null}
+            {overlay.cursor ? <CursorArrow left={overlay.cursor.left} top={overlay.cursor.top} /> : null}
+          </View>
+          {overlay.zoom.s > 1 ? (
+            <Pressable
+              onPress={() => ctrl.resetZoom()}
+              hitSlop={6}
+              className="absolute right-2 top-2 rounded bg-black/70 px-2 py-0.5"
+              accessibilityLabel="还原画面大小"
+            >
+              <Text className="text-[10px] text-white">{`${overlay.zoom.s.toFixed(1)}× 还原`}</Text>
+            </Pressable>
+          ) : null}
+          {hint ? (
+            <View pointerEvents="none" className="absolute left-2 right-2 top-8 items-center">
+              <Text className="rounded bg-black/70 px-2 py-1 text-center text-[10px] leading-4 text-white">
+                {screenMode === 'touch'
+                  ? '轻点 = 点击 · 点两下 = 双击 · 按住拖动 = 拖动 · 长按 = 右键\n双指上下滑 = 滚动 · 双指捏合 = 放大画面 · 双指轻点 = 右键'
+                  : '滑动移动鼠标 · 轻点 = 左键 · 长按 = 右键 · 双指上下滑 = 滚动 · 双指捏合 = 放大画面'}
+              </Text>
+            </View>
           ) : null}
           {rightNext ? (
             <View pointerEvents="none" className="absolute left-2 top-2 rounded bg-blue-600 px-2 py-0.5">
@@ -262,6 +320,7 @@ export default function RemoteScreen() {
         </View>
       ) : null}
       <CombosSheet
+        combos={isMac ? MAC_COMBOS : COMBOS}
         open={combosOpen}
         onClose={() => setCombosOpen(false)}
         onPick={(keys) => {
@@ -360,7 +419,7 @@ export default function RemoteScreen() {
 
       {/* Android 15 全面屏下系统不会自动缩小页面，由 keyboard-controller 让输入框跟随键盘 */}
       <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
-        {/* 画面：铺满宽度，直接点击 */}
+        {/* 画面：铺满宽度，平板触控 */}
         <View style={{ height: win.width / aspect }} className="bg-black">
           {screen}
         </View>
@@ -382,7 +441,7 @@ export default function RemoteScreen() {
               className="flex-1 items-center justify-center gap-1 rounded-2xl border border-dashed border-border bg-muted"
             >
               <Icon as={MousePointer2} size={20} className="text-muted-foreground" />
-              <Text className="text-[11px] text-muted-foreground">滑动移动鼠标 · 轻点左键 · 长按右键</Text>
+              <Text className="text-[11px] text-muted-foreground">滑动移动鼠标 · 轻点左键 · 长按右键 · 双指滑动滚动</Text>
             </View>
           ) : (
             <AgentPanel items={conv.items} running={conv.running} live={conv.live} />
@@ -433,7 +492,17 @@ function Header({ title, sub, right }: { title: string; sub: string; right?: Rea
   );
 }
 
-function CombosSheet({ open, onClose, onPick }: { open: boolean; onClose: () => void; onPick: (keys: string) => void }) {
+function CombosSheet({
+  combos,
+  open,
+  onClose,
+  onPick,
+}: {
+  combos: { label: string; keys: string }[];
+  open: boolean;
+  onClose: () => void;
+  onPick: (keys: string) => void;
+}) {
   return (
     <Modal visible={open} transparent animationType="slide" supportedOrientations={['portrait', 'landscape']} onRequestClose={onClose}>
       <Pressable className="flex-1 bg-black/50" onPress={onClose} />
@@ -445,7 +514,7 @@ function CombosSheet({ open, onClose, onPick }: { open: boolean; onClose: () => 
           </Pressable>
         </View>
         <View className="flex-row flex-wrap gap-2">
-          {COMBOS.map((c) => (
+          {combos.map((c) => (
             <Pressable
               key={c.keys}
               onPress={() => onPick(c.keys)}

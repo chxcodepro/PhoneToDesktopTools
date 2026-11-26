@@ -36,7 +36,7 @@ func sysInfo(ctx context.Context, raw json.RawMessage) (*Result, error) {
 		"user":       username,
 		"home":       home,
 		"desktop":    sysinfo.DesktopDir(),
-		"shell":      map[bool]string{true: "cmd.exe", false: "bash"}[runtime.GOOS == "windows"],
+		"shell":      map[bool]string{true: "cmd.exe", false: posixShellName()}[runtime.GOOS == "windows"],
 		// 是否已是管理员 / root；否则需要提权的命令要用 shell_exec 的 admin 参数，由用户在电脑上授权
 		"admin": sysinfo.IsAdmin(),
 	}

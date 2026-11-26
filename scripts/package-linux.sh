@@ -46,7 +46,7 @@ assemble_loong64() {
 # 一个架构的目录 → .deb + .tar.gz
 package() {
   local dir="$1" arch="$2" # arch 用 Debian 的架构名：amd64 / arm64 / loongarch64
-  local name="p2d-$VERSION-linux-$arch"
+  local name="P2D-$VERSION-linux-$arch"
   local root="$WORK/deb-$arch"
   [ -x "$dir/$EXE" ] || { echo "找不到 $dir/$EXE" >&2; exit 1; }
 
@@ -55,19 +55,19 @@ package() {
   cp "$APP/build/icon.png" "$root/usr/share/icons/hicolor/256x256/apps/$PKG.png"
   cat > "$root/usr/share/applications/$PKG.desktop" <<DESKTOP
 [Desktop Entry]
-Name=p2d
+Name=P2D
 Comment=用手机控制这台电脑
 Exec=$DEST/$EXE %U
 Icon=$PKG
 Terminal=false
 Type=Application
 Categories=Utility;
-StartupWMClass=p2d
+StartupWMClass=P2D
 DESKTOP
   # 免调试连接（AOA）：电脑端以普通用户身份运行，要能打开安卓手机的 USB 设备节点（/dev/bus/usb/…）。
   # uaccess 让当前登录桌面的用户获得访问权限（systemd-logind 设置 ACL），规则文件名要排在 73-seat-late 之前。
   cat > "$root/lib/udev/rules.d/70-p2d.rules" <<'UDEV'
-# p2d 免调试连接（Android 配件模式）：让登录桌面的用户能访问安卓手机的 USB 设备
+# P2D 免调试连接（Android 配件模式）：让登录桌面的用户能访问安卓手机的 USB 设备
 SUBSYSTEM!="usb", GOTO="p2d_end"
 ENV{DEVTYPE}!="usb_device", GOTO="p2d_end"
 ENV{ID_USB_INTERFACES}=="", IMPORT{builtin}="usb_id"
@@ -83,7 +83,7 @@ UDEV
 Package: $PKG
 Version: $VERSION
 Architecture: $arch
-Maintainer: p2d
+Maintainer: P2D
 Installed-Size: $(du -sk "$root" | cut -f1)
 Depends: libgtk-3-0, libnss3, libxss1, libxtst6, libasound2
 Conflicts: $OLD_PKG
@@ -91,7 +91,7 @@ Replaces: $OLD_PKG
 Provides: $OLD_PKG
 Section: utils
 Priority: optional
-Description: p2d 电脑端
+Description: P2D 电脑端
  用手机通过数据线或 WiFi 控制这台电脑。
 CONTROL
   # 安装后：Chromium 沙箱需要 setuid 的 chrome-sandbox（没有它 Electron 在部分系统上无法启动）；

@@ -12,7 +12,7 @@ export function formatDuration(totalSec: number): string {
   return `${pad(Math.floor(s / 3600))}:${pad(Math.floor((s % 3600) / 60))}:${pad(s % 60)}`;
 }
 
-const osName: Record<string, string> = { windows: 'Windows', linux: 'Linux' };
+const osName: Record<string, string> = { windows: 'Windows', linux: 'Linux', darwin: 'macOS' };
 const archName: Record<string, string> = { amd64: 'x64', '386': 'x86', arm64: 'arm64', loong64: 'loong64' };
 
 export function platformLabel(os?: string, arch?: string): string {

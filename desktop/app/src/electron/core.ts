@@ -9,7 +9,7 @@ import type { CoreStatus } from '../shared/types';
 // 与手机端约定的端口；P2D_PORT 仅供开发调试时使用其他端口
 export const CORE_PORT = Number(process.env.P2D_PORT) || 39271;
 
-const goOS: Record<string, string> = { win32: 'windows', linux: 'linux' };
+const goOS: Record<string, string> = { win32: 'windows', linux: 'linux', darwin: 'darwin' };
 const goArch: Record<string, string> = { x64: 'amd64', ia32: '386', arm64: 'arm64', loong64: 'loong64' };
 
 /** Core 可执行文件路径：打包后在 resources/core 下，开发时用仓库根目录 dist/core/<系统>-<架构>/ */
@@ -142,7 +142,7 @@ export class CoreProcess {
     if (this.child && Date.now() - this.startedAt > UNRESPONSIVE_MS) {
       return (
         `电脑端服务已经运行了 ${Math.round((Date.now() - this.startedAt) / 1000)} 秒，但连不上它（127.0.0.1:${CORE_PORT}）。` +
-        `可能被安全软件拦截了，请把 p2d 加入信任；运行日志在 ${coreLogPath()}`
+        `可能被安全软件拦截了，请把 P2D 加入信任；运行日志在 ${coreLogPath()}`
       );
     }
     return '';

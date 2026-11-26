@@ -73,6 +73,16 @@ export function OsIcon({ family, size = 40 }: { family: OsFamily; size?: number 
           <Circle cx={29.5} cy={33.5} r={3.6} fill="#FFFFFF" stroke="#E95420" strokeWidth={1.5} />
         </Svg>
       );
+    case 'macos':
+      // 不用苹果的商标图形：深色圆角方块里画一个 ⌘（Mac 键盘上的 Command 键符号）
+      return (
+        <Svg width={size} height={size} viewBox="0 0 48 48">
+          <Rect x={4} y={4} width={40} height={40} rx={10} fill="#1D1D1F" />
+          <SvgText x={24} y={32} fontSize={22} fill="#FFFFFF" textAnchor="middle">
+            ⌘
+          </SvgText>
+        </Svg>
+      );
     case 'linux':
       // 彩色企鹅 Tux（devicon，MIT 许可；原作 Larry Ewing，用 The GIMP 绘制）。原 SVG 有七百多个路径，预先渲染成 PNG
       return <Image source={TUX} style={{ width: size, height: size }} resizeMode="contain" />;

@@ -4,7 +4,7 @@
 import { router, useLocalSearchParams, useNavigation } from 'expo-router';
 import { Check, Monitor, Smartphone, Wifi, X } from 'lucide-react-native';
 import { useEffect, useMemo } from 'react';
-import { ActivityIndicator, View } from 'react-native';
+import { ActivityIndicator, Platform, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/ui/button';
@@ -15,6 +15,8 @@ import { cn } from '@/lib/utils';
 import { parseConnectQuery } from '@/protocol/deepLink';
 import { PC_CLOSED_TEXT } from '@/protocol/types';
 import { connectWith, initConnection, useConnection } from '@/state/connection';
+
+const IOS = Platform.OS === 'ios';
 
 type StepState = 'pending' | 'active' | 'done' | 'error';
 
@@ -81,7 +83,7 @@ export default function ConnectScreen() {
         <Card className="px-3">
           <Step state={hasLink ? 'done' : 'pending'} label="数据线已连接" />
           <Separator />
-          <Step state={hasLink ? 'done' : 'pending'} label="USB 调试已允许" />
+          <Step state={hasLink ? 'done' : 'pending'} label={IOS ? '已信任此电脑' : 'USB 调试已允许'} />
           <Separator />
           <Step state={lastStep} label={hasLink ? `连接 ${host}` : '自动连接'} />
         </Card>
@@ -94,7 +96,9 @@ export default function ConnectScreen() {
         ) : null}
         {!hasLink ? (
           <Text className="text-center text-sm text-muted-foreground">
-            用数据线连接电脑，并在手机上允许 USB 调试。连上一次后会自动配对，之后在同一 WiFi 下拔掉数据线也能继续用
+            {IOS
+              ? '用数据线连接电脑，iPhone 上弹出「要信任此电脑吗？」时点「信任」，并保持本 App 在前台（Windows 电脑要先装「Apple 设备」）。连上一次后会自动配对，之后在同一 WiFi 下拔掉数据线也能继续用'
+              : '用数据线连接电脑，并在手机上允许 USB 调试。连上一次后会自动配对，之后在同一 WiFi 下拔掉数据线也能继续用'}
           </Text>
         ) : null}
 

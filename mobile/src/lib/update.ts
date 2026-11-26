@@ -36,7 +36,7 @@ export function compareVersions(a: string, b: string): number {
 
 export type UpdateResult =
   | { state: 'latest'; latest: string }
-  | { state: 'available'; latest: string; url: string }
+  | { state: 'available'; latest: string; url: string; page?: string }
   | { state: 'error'; message: string };
 
 interface GhRelease {
@@ -70,7 +70,7 @@ export async function checkLatest(
     const apk = rel.assets?.find((a) => a.name.endsWith('-android.apk'));
     const url = apk?.browser_download_url ?? rel.html_url;
     if (!url) return { state: 'error', message: '没有找到安装包' };
-    return { state: 'available', latest, url };
+    return { state: 'available', latest, url, page: rel.html_url };
   } catch {
     return { state: 'error', message: '连不上更新服务器，请检查网络' };
   } finally {

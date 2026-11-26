@@ -18,3 +18,17 @@ func TestWindowsName(t *testing.T) {
 		}
 	}
 }
+
+func TestMacName(t *testing.T) {
+	for _, c := range []struct{ ver, full, short string }{
+		{"14.5", "macOS 14.5", "macOS 14"},
+		{"26.0.1", "macOS 26.0.1", "macOS 26"},
+		{"10.15.7", "macOS 10.15.7", "macOS 10.15"},
+		{"10.13", "macOS 10.13", "macOS 10.13"},
+		{"", "macOS", "macOS"},
+	} {
+		if full, short := macName(c.ver); full != c.full || short != c.short {
+			t.Errorf("%q = %s / %s，应为 %s / %s", c.ver, full, short, c.full, c.short)
+		}
+	}
+}

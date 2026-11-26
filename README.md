@@ -1,18 +1,20 @@
 <div align="center">
 
-# p2d
+# P2D
 
 （原名 PhoneToDesktop）
 
 用手机通过一根数据线控制电脑：手机上的 AI Agent 帮你执行命令、读写文件、看屏幕、操作鼠标键盘，也可以手动远程桌面。
 
-电脑不需要联网，支持 Windows 7 / 10 / 11 和银河麒麟。
+电脑不需要联网，支持 Windows 7 / 10 / 11、银河麒麟和 macOS；手机支持 Android 和 iPhone。
 
 [![Build](https://github.com/chxcodepro/p2d/actions/workflows/build.yml/badge.svg)](https://github.com/chxcodepro/p2d/actions/workflows/build.yml)
 [![Release](https://img.shields.io/github/v/release/chxcodepro/p2d?include_prereleases&label=Release)](https://github.com/chxcodepro/p2d/releases)
 ![Windows](https://img.shields.io/badge/Windows-7%20%7C%2010%20%7C%2011-0078D6?logo=windows)
 ![Kylin](https://img.shields.io/badge/%E9%93%B6%E6%B2%B3%E9%BA%92%E9%BA%9F-V10-C00000?logo=linux&logoColor=white)
+![macOS](https://img.shields.io/badge/macOS-10.13%2B-000000?logo=apple)
 ![Android](https://img.shields.io/badge/Android-7.0%2B-3DDC84?logo=android&logoColor=white)
+![iOS](https://img.shields.io/badge/iOS-16.4%2B-000000?logo=apple)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 [安装说明](docs/INSTALL.md) · [下载](https://github.com/chxcodepro/p2d/releases) · [开发说明](docs/DEV.md) · [通信协议](docs/PROTOCOL.md)
@@ -35,6 +37,7 @@
 ## 特性
 
 - **只用数据线**：手机插上电脑就自动连接，电脑不需要网络、WiFi、蓝牙。电脑端会自动给手机安装、更新 App。
+- **iPhone**：iPhone 上装好 App 后，插数据线（经系统的 usbmuxd：Mac 自带，Windows 装「Apple 设备」，麒麟装 usbmuxd）或 WiFi 连接电脑。
 - **免调试连接（麒麟）**：手机不开 USB 调试也能用数据线连接（Android 配件模式），第一次在电脑端点一下「免调试连接」，以后插上自动连。
 - **AI Agent**：手机负责调用大模型（自己的网络、自己的 API Key），电脑只负责执行，模型 Key 不会留在电脑上。
 - **电脑端能力**：执行命令（可申请管理员权限）、浏览 / 搜索 / 读写文件、读取 Word / Excel / PPT / PDF / WPS 文档、截屏、鼠标键盘（支持中文输入）、读取和操作界面控件（Windows）。
@@ -49,13 +52,15 @@
 
 | 端 | 系统 | 安装包 |
 |---|---|---|
-| 手机 | Android（arm64 / armv7） | `p2d-<版本>-android.apk` |
-| 电脑 | Windows 10 / 11、Windows 7 SP1（x64 / x86） | `p2d-<版本>-win-x64-setup.exe` / `-win-ia32-setup.exe`（安装程序） |
-| 电脑 | 银河麒麟 V10 arm64（飞腾、鲲鹏、海思麒麟） | `p2d-<版本>-linux-arm64.deb` |
-| 电脑 | 银河麒麟 V10 x86_64（兆芯、海光、Intel） | `p2d-<版本>-linux-amd64.deb` |
-| 电脑 | 银河麒麟 V10 龙芯 3A5000 / 3A6000 | `p2d-<版本>-linux-loongarch64.deb` |
+| 手机 | Android（arm64 / armv7） | `P2D-<版本>-android.apk` |
+| 电脑 | Windows 10 / 11、Windows 7 SP1（x64 / x86） | `P2D-<版本>-win-x64-setup.exe` / `-win-ia32-setup.exe`（安装程序） |
+| 电脑 | 银河麒麟 V10 arm64（飞腾、鲲鹏、海思麒麟） | `P2D-<版本>-linux-arm64.deb` |
+| 电脑 | 银河麒麟 V10 x86_64（兆芯、海光、Intel） | `P2D-<版本>-linux-amd64.deb` |
+| 电脑 | 银河麒麟 V10 龙芯 3A5000 / 3A6000 | `P2D-<版本>-linux-loongarch64.deb` |
+| 电脑 | macOS 10.13 及以上（Apple 芯片 / Intel） | `P2D-<版本>-mac-arm64.dmg` / `-mac-x64.dmg` |
+| 手机 | iPhone（iOS 16.4 及以上） | `P2D-<版本>-ios-unsigned.ipa`（未签名，要自己签名安装） |
 
-暂不支持：iPhone、龙芯 3A4000（mips64el）、申威（sw64）。
+暂不支持：龙芯 3A4000（mips64el）、申威（sw64）。Mac 版和 iPhone 版还没有真机测试，也没有苹果开发者签名，安装方法见 [安装说明](docs/INSTALL.md)。
 
 ## 快速开始
 
@@ -65,10 +70,10 @@
    - **银河麒麟**：
 
      ```bash
-     sudo dpkg -i p2d-<版本>-linux-arm64.deb
+     sudo dpkg -i P2D-<版本>-linux-arm64.deb
      ```
 
-     然后双击桌面上的「p2d」图标。
+     然后双击桌面上的「P2D」图标。
 3. 手机打开「开发者选项 → USB 调试」，用数据线连接电脑，在手机上点「允许 USB 调试」。
    麒麟电脑也可以不开 USB 调试：手机上先装好 App，插线后在电脑端窗口点「免调试连接」（见 [安装说明](docs/INSTALL.md)）。
 4. 电脑端会自动给手机安装 App 并连接，窗口显示「已连接」即可在手机上操作电脑。
@@ -85,7 +90,7 @@ flowchart LR
     Remote["远程桌面"] --> Client
   end
   LLM[("大模型 API")] <-. 手机自己的网络 .-> Agent
-  Client <== "USB：adb reverse 隧道<br/>WiFi：端到端加密" ==> Core
+  Client <== "USB：adb reverse 隧道 / iPhone 经 usbmuxd<br/>WiFi：端到端加密" ==> Core
   subgraph PC["电脑端"]
     GUI["界面 / 托盘<br/>Electron 22"] <-- 127.0.0.1 --> Core["Core 核心服务<br/>Go 1.20"]
     Core --> Tools["命令 · 文件 · 文档 · 截屏 · 键鼠 · 控件"]
@@ -120,10 +125,10 @@ APK 签名、麒麟各 CPU 的打包方式、调试方法等见 [开发说明](d
 ```
 .
 ├── desktop/
-│   ├── core/        # 电脑端核心服务（Go）：MCP 服务端、数据线自动连接（自己实现的 ADB 协议）、工具实现
+│   ├── core/        # 电脑端核心服务（Go）：MCP 服务端、数据线自动连接（自己实现的 ADB 协议、iPhone 经 usbmuxd）、工具实现
 │   ├── app/         # 电脑端界面（Electron + React）：窗口、托盘、被控红框
 │   └── vendor/      # 打包时内置的手机端 APK（构建产物）
-├── mobile/          # 手机端 App（Expo + expo-router + NativeWind）
+├── mobile/          # 手机端 App（Expo + expo-router + NativeWind，Android 和 iOS）
 ├── scripts/         # 构建、打包脚本
 ├── docs/            # 安装说明、开发说明、方案、协议、测试记录
 └── .github/         # CI：测试、构建、发布
@@ -144,7 +149,7 @@ APK 签名、麒麟各 CPU 的打包方式、调试方法等见 [开发说明](d
 欢迎提交 Issue 和 Pull Request。
 
 - 提交前请运行对应部分的测试：`desktop/core` 下 `go test ./...`，`mobile` 下 `npm test`，`desktop/app` 下 `npm run typecheck`。
-- 电脑端必须能在 Windows 7 和银河麒麟（含龙芯）上运行：不要升级 Go 1.20 和 Electron 22，引入的第三方组件需要所有平台都能用。
+- 电脑端必须能在 Windows 7 和银河麒麟（含龙芯）上运行：不要升级 Go 1.20 和 Electron 22，引入的第三方组件需要所有平台都能用。Mac 版的截图、键鼠、USB 用 cgo 调用系统框架，只能在 Mac 上编译（CI 的 core-mac 任务）。
 - 请不要提交签名证书、API Key 等敏感信息。
 
 ## 许可证

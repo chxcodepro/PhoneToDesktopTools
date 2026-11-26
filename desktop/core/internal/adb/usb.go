@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"log"
+	"runtime"
 	"time"
 
 	"p2d/core/internal/adbwire"
@@ -114,7 +115,11 @@ func (m *Manager) connectUSB(ctx context.Context, p *usbPhone) {
 		retry(3*time.Second, stBusy, msgBusy, err)
 		return
 	case errors.Is(err, usbio.ErrPermission):
-		retry(3*time.Second, stError, msgNoPerm, err)
+		msg := msgNoPerm
+		if runtime.GOOS != "linux" { // 只有 Linux 靠 deb 带的 udev 规则授权
+			msg = "没有权限访问这台手机的 USB 设备，请重新插拔数据线后再试"
+		}
+		retry(3*time.Second, stError, msg, err)
 		return
 	case err != nil:
 		retry(3*time.Second, stError, "无法打开手机的 USB 调试接口："+err.Error(), err)

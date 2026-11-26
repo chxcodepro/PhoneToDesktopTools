@@ -1,5 +1,5 @@
-// p2d-core：p2d 电脑端核心服务（被控端）。
-// 监听 127.0.0.1，经 adb 隧道或免调试连接（AOA，Linux）为手机 Agent 提供 MCP 工具；局域网直连另开端口。
+// p2d-core：P2D 电脑端核心服务（被控端）。
+// 监听 127.0.0.1，经 adb 隧道、免调试连接（AOA，Linux）或 iPhone 数据线（usbmuxd）为手机 Agent 提供 MCP 工具；局域网直连另开端口。
 package main
 
 import (
@@ -20,6 +20,7 @@ import (
 
 	"p2d/core/internal/adb"
 	"p2d/core/internal/aoa"
+	"p2d/core/internal/iphone"
 	"p2d/core/internal/lan"
 	"p2d/core/internal/lanfw"
 	"p2d/core/internal/portres"
@@ -73,6 +74,7 @@ func main() {
 	devToken := flag.String("dev-token", "", "开发调试用的固定令牌（正式使用请留空）")
 	noADB := flag.Bool("no-adb", false, "不连接开了 USB 调试的手机（仅调试）")
 	noAOA := flag.Bool("no-aoa", false, "不启用免调试连接（AOA 配件模式，仅 Linux）")
+	noIPhone := flag.Bool("no-iphone", false, "不启用 iPhone 数据线连接（经 usbmuxd）")
 	lanPort := flag.Int("lan-port", 39272, "局域网直连端口（手机输入电脑 IP 连接用），0 表示不开启")
 	showVersion := flag.Bool("version", false, "显示版本")
 	installDriver := flag.String("install-adb-driver", "", "（内部使用）以管理员身份安装手机 USB 驱动，结果写入指定文件")
@@ -144,6 +146,14 @@ func main() {
 		srv.Accessory = acc
 	}
 
+	// iPhone 数据线连接：经系统的 usbmuxd（Mac 自带；Windows 要装「Apple 设备」或 iTunes；Linux 要装 usbmuxd）
+	var iph *iphone.Manager
+	if !*noIPhone {
+		iph = iphone.New(iphone.Config{Port: *port, HostName: host, PCID: store.PCID()}, tokens)
+		iph.OnGone = func(id string) { srv.CloseSerial(id, "iPhone 已断开连接") }
+		srv.IPhones = iph
+	}
+
 	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", *port))
 	if err != nil {
 		if portres.Reserved(err) {
@@ -158,7 +168,7 @@ func main() {
 			log.Fatalf("服务异常退出：%v", err)
 		}
 	}()
-	log.Printf("p2d 电脑端 %s 已启动：%s（%s/%s）", server.Version, ln.Addr(), runtime.GOOS, runtime.GOARCH)
+	log.Printf("P2D 电脑端 %s 已启动：%s（%s/%s）", server.Version, ln.Addr(), runtime.GOOS, runtime.GOARCH)
 	if *devToken != "" {
 		log.Printf("开发令牌已启用：ws://127.0.0.1:%d/mcp?token=%s", *port, *devToken)
 	}
@@ -201,6 +211,9 @@ func main() {
 	if acc != nil {
 		go acc.Run(ctx)
 		log.Printf("免调试连接已开启：没开 USB 调试的手机也能用数据线连接")
+	}
+	if iph != nil {
+		go iph.Run(ctx)
 	}
 
 	sig := make(chan os.Signal, 1)

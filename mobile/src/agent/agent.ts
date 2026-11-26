@@ -70,7 +70,20 @@ export const SCREENSHOT_MARKER = '以下是工具返回的截图：';
 function osName(os?: string): string {
   if (os === 'windows') return 'Windows';
   if (os === 'linux') return 'Linux（银河麒麟等）';
+  if (os === 'darwin') return 'macOS';
   return os || '未知系统';
+}
+
+/** 系统大类：命令语法、排查办法按它区分（旧版或未知的按 Windows 处理） */
+type OsKind = 'win' | 'linux' | 'mac';
+const osKind = (os: string): OsKind => (os === 'linux' ? 'linux' : os === 'darwin' ? 'mac' : 'win');
+const KIND_NAME: Record<OsKind, string> = { win: 'Windows 电脑', linux: 'Linux 电脑', mac: 'Mac' };
+
+/** 按连着的电脑的系统挑出对应的说明：只有一种系统时直接用，几种系统时每种前面标上系统名 */
+function perKind(oses: string[], text: Record<OsKind, string[]>, prefix: string): string[] {
+  const kinds = [...new Set(oses.map(osKind))];
+  if (kinds.length === 1) return text[kinds[0]].map((t) => `${prefix}${t}`);
+  return kinds.flatMap((k) => text[k].map((t) => `${prefix}${KIND_NAME[k]}${t}`));
 }
 
 export function buildSystemPrompt(
@@ -94,7 +107,7 @@ export function buildSystemPrompt(
         '- 同一轮里调用不同电脑的工具会同时执行：几台电脑做同样的事时，在同一轮里把每台的调用一起发出；同一台电脑上的操作按顺序执行。',
         '- 用户没说在哪台、也不能从上下文判断时，先用 ask_user 问清楚，不要猜。',
         '- 工具结果开头的【电脑名】表示结果来自哪台电脑；汇报时分别说明每台电脑的情况。',
-        '- 在两台电脑之间传文件用 pc_copy_file（经手机中转，保存到目标电脑的「下载/p2d」目录，需要时再用命令移动）。',
+        '- 在两台电脑之间传文件用 pc_copy_file（经手机中转，保存到目标电脑的「下载/P2D」目录，需要时再用命令移动）。',
         '工作方式：',
       );
     } else {
@@ -111,10 +124,9 @@ export function buildSystemPrompt(
     const linuxCmd = '使用 bash 语法。需要 root 的命令设置 shell_exec 的 admin: true（不要写 sudo），电脑上会弹出密码框，提醒用户在电脑上输入密码。';
     const winCmd =
       '使用 cmd 语法（Win7 自带 PowerShell 2.0，功能有限）。需要管理员权限的命令设置 shell_exec 的 admin: true，电脑上会弹出 UAC 授权框，提醒用户在电脑上点「是」。';
-    const hasLinux = oses.includes('linux');
-    const hasWin = oses.some((o) => o !== 'linux');
-    if (hasLinux && hasWin) lines.push(`- 命令：Windows 电脑${winCmd}`, `- 命令：Linux 电脑${linuxCmd}`);
-    else lines.push(`- 命令：${hasLinux ? linuxCmd : winCmd}`);
+    const macCmd =
+      '使用 zsh 语法。需要管理员权限的命令设置 shell_exec 的 admin: true（不要写 sudo），电脑上会弹出密码框，提醒用户在电脑上输入密码。打开程序用 open -a "程序名"。Mac 没有控件树（ui_tree、ui_act、window_activate 不可用），界面操作用截图 + input_mouse；快捷键用 cmd（Command）而不是 ctrl，如 cmd+c、cmd+v、cmd+space（聚焦搜索）。';
+    lines.push(...perKind(oses, { win: [winCmd], linux: [linuxCmd], mac: [macCmd] }, '- 命令：'));
     lines.push(
       '- 打开或操作某个程序（如微信、QQ）时，直接用 window_activate：窗口最小化会还原，关到托盘里的会点托盘图标打开，没在运行会自动从开始菜单找到并启动，已经在运行的不会重复启动。不要先用 shell_exec 查进程、找安装位置或启动；只有 window_activate 说找不到这个程序时，才用 shell_exec 按完整路径启动。不要因为看不到窗口就再次启动，微信、QQ 等会多开，弹出新的登录窗口（提示「该账号已登录」）。',
       '- 操作界面优先用控件树：ui_tree 读出窗口里的按钮、输入框、菜单、列表项等（名称和屏幕坐标，没有文字的图标也有名称），ui_act 按名称直接点击、填写、展开，比按坐标点更准；读不到元素的程序（游戏、远程桌面、自绘界面）再用截图 + input_mouse。',
@@ -145,7 +157,7 @@ export function buildSystemPrompt(
       '你是运行在用户手机上的 AI 助手，可以通过 USB 数据线或局域网 WiFi 操作用户的电脑。',
       opts.tools
         ? '当前模型不支持工具调用，无法操作电脑，只能回答问题。'
-        : '电脑当前未连接，无法操作电脑。需要操作电脑时，请提醒用户用数据线连接电脑并允许 USB 调试。',
+        : '电脑当前未连接，无法操作电脑。需要操作电脑时，请提醒用户用数据线连接电脑（安卓手机要允许 USB 调试，iPhone 要点「信任」并保持 App 在前台），或在「设备」页通过 WiFi 连接配对过的电脑。',
     );
   }
   if (toolsOn) {
@@ -183,7 +195,7 @@ function repairGuide(oses: string[]): string[] {
   const common = [
     '',
     '电脑可能完全没有网络（网卡驱动坏了、没有可用 WiFi、USB 网络共享也用不了），但手机有网。修复规则：',
-    '- 不要让电脑自己联网下载。查资料用 web_search / web_fetch，查驱动用 driver_search，下载用 download_to_pc（手机下载后经连接通道传到电脑的「下载/p2d」目录）。',
+    '- 不要让电脑自己联网下载。查资料用 web_search / web_fetch，查驱动用 driver_search，下载用 download_to_pc（手机下载后经连接通道传到电脑的「下载/P2D」目录）。',
     '- 只从官方来源下载：微软（microsoft.com、windowsupdate.com、aka.ms）、硬件厂商官网、系统官方软件源。不要从第三方「DLL 下载站」下载单个 DLL。',
     '- 网站有人机验证（Cloudflare 等）时不要尝试绕过：先换其他官方来源；只能从那里下载时，用 ask_user 请用户在手机浏览器手动下载，再在对话里点「＋ → 文件」把文件发过来（会自动传到电脑）。',
     '- Windows 安装前看 download_to_pc 返回的数字签名，应为 Valid 且签名者可信；哈希不一致或签名异常时不要安装。',
@@ -200,10 +212,14 @@ function repairGuide(oses: string[]): string[] {
     '- 协议栈损坏：netsh winsock reset、netsh int ip reset（admin: true，需重启生效，重启前征得用户同意）。',
     '- 缺 DLL 先判断属于哪个运行库：vcruntime140*.dll、msvcp140*.dll、mfc140*.dll → VC++ 2015-2022 运行库（微软官方地址 https://aka.ms/vc14/vc_redist.x64.exe 或 https://aka.ms/vc14/vc_redist.x86.exe，按程序位数选；Win7 装不上时用 web_search 查仍支持 Win7 的版本）；msvcr120/msvcp120 → VC++ 2013；msvcr110 → VC++ 2012；api-ms-win-crt-*.dll（Win7）→ 补丁 KB2999226（用 driver_search 搜 KB 编号）；d3dx9_*、xinput1_3、d3dcompiler_43 → DirectX 9.0c 运行库（June 2010）；mscoree / .NET 报错 → .NET Framework 离线安装包。安装程序用静默参数（如 vc_redist /install /quiet /norestart）。',
   ];
-  const hasLinux = oses.includes('linux');
-  const hasWin = oses.some((o) => o !== 'linux');
-  if (hasLinux && hasWin) return [...common, '- Linux 电脑：', ...linux, '- Windows 电脑：', ...windows];
-  return [...common, ...(hasLinux ? linux : windows)];
+  const mac = [
+    '- 网络排查：networksetup -listallhardwareports、ifconfig、scutil --dns、networksetup -getinfo Wi-Fi、system_profiler SPNetworkDataType。',
+    '- 安装软件：从官网下载 .dmg / .pkg（download_to_pc），.dmg 用 hdiutil attach 挂载后把 .app 复制到 /Applications，.pkg 用 installer -pkg 文件 -target /（admin: true）。',
+  ];
+  const kinds = [...new Set(oses.map(osKind))];
+  const text: Record<OsKind, string[]> = { win: windows, linux, mac };
+  if (kinds.length === 1) return [...common, ...text[kinds[0]]];
+  return [...common, ...kinds.flatMap((k) => [`- ${KIND_NAME[k]}：`, ...text[k]])];
 }
 
 export function toToolSpecs(tools: ToolInfo[]): ToolSpec[] {
