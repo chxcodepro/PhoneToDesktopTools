@@ -92,7 +92,9 @@ jobs:
 
   ios:
     needs: version
-    runs-on: macos-15
+    # Expo SDK 58 的 expo-modules-jsi 要 Swift 6.3（Xcode 26.4 起）：macos-15 默认 Xcode 16.4（Swift 6.1），
+    # 编译时报「package 'apple' is using Swift tools version 6.2.0 but the installed version is 6.1.0」。macos-26 默认 Xcode 26.6
+    runs-on: macos-26
     defaults:
       run:
         working-directory: mobile
@@ -123,6 +125,7 @@ jobs:
         # 有账号后改成签名导出，或用 EAS / TestFlight 发布。
         working-directory: mobile/ios
         run: |
+          xcodebuild -version
           ws=$(ls -d *.xcworkspace | head -1)
           scheme="${ws%.xcworkspace}"
           # 完整输出写进 build.log（失败时上传）；不能接管道 | tail，否则编译失败也会被当成成功，打出空的 ipa
