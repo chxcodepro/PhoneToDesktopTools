@@ -54,6 +54,11 @@ jobs:
           GOOS=windows go vet ./...   # 同时编译检查 Windows 专用代码和测试
           CGO_ENABLED=0 GOOS=darwin go vet ./...   # Mac 的 Go 代码（cgo 部分在 core-mac 任务里编译）
           go test ./...
+      # 龙芯官方的 Go 工具链从国内服务器下载，GitHub 机房下载经常中途断开：缓存起来，只在脚本里的版本变了时才重新下载
+      - uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/go-loong-ow
+          key: go-loong-ow-${{ hashFiles('scripts/fetch-loong-go.sh') }}
       - name: 交叉编译
         # 龙芯版要用龙芯官方的旧世界 Go 编译（麒麟 V10 的龙芯版是旧世界），见 scripts/build-core.sh 开头
         run: |

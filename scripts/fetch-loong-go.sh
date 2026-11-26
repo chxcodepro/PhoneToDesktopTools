@@ -10,7 +10,14 @@ SHA=115c83d92a759b052ed1ac5f48a0a5b968ca40f65473752d0981280144766389
 
 if [ ! -x "$DIR/go/bin/go" ]; then
   mkdir -p "$DIR"
-  curl -fsSL --retry 3 -o "$DIR/go.tgz" "$URL" >&2
+  # 服务器在国内，从国外下载经常中途断开：断了就从断点接着下，最多试 10 次
+  ok=
+  for i in 1 2 3 4 5 6 7 8 9 10; do
+    if curl -fsSL -C - --retry 3 --retry-all-errors -o "$DIR/go.tgz" "$URL" >&2; then ok=1; break; fi
+    echo "下载中断（第 $i 次），从断点继续…" >&2
+    sleep 3
+  done
+  [ -n "$ok" ] || { echo "下载龙芯 Go 失败：$URL" >&2; exit 1; }
   echo "$SHA  $DIR/go.tgz" | sha256sum -c - >&2
   tar -xzf "$DIR/go.tgz" -C "$DIR"
   rm "$DIR/go.tgz"
