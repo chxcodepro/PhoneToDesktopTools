@@ -7,6 +7,9 @@ import "testing"
 // 反复截图，检查偶发失败
 func TestCaptureRepeated(t *testing.T) {
 	Init()
+	if Locked() {
+		t.Skip("电脑锁着屏，截不到画面")
+	}
 	ds, err := Displays()
 	if err != nil {
 		t.Fatal(err)

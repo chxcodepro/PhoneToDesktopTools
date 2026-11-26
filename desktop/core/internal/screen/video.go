@@ -5,6 +5,9 @@ import "errors"
 // ErrCaptureLost 桌面复制暂时中断（锁屏、UAC 安全桌面、切换分辨率），稍后重试就行。
 var ErrCaptureLost = errors.New("桌面复制中断（切换了桌面、分辨率或进入了安全桌面）")
 
+// ErrLocked 电脑锁屏了（或正在显示 UAC 确认窗口）：普通程序截不到也操作不了，解锁后自动恢复。
+var ErrLocked = errors.New("电脑已锁屏（或正在显示管理员权限确认窗口），这时 Windows 不允许截屏和远程操作。请在电脑上解锁，解锁后画面会自动出现")
+
 // VideoConfig 硬件视频流的参数。
 type VideoConfig struct {
 	Width, Height int // 输出画面尺寸（偶数）

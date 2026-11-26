@@ -229,6 +229,9 @@ func Capture(r image.Rectangle) (*image.RGBA, error) {
 	ok, _, _ := procBitBlt.Call(hdcMem, 0, 0, uintptr(w), uintptr(h), hdcScreen,
 		uintptr(int32(r.Min.X)), uintptr(int32(r.Min.Y)), srcCopy|bltFlags())
 	if ok == 0 {
+		if Locked() {
+			return nil, ErrLocked
+		}
 		return nil, errors.New("BitBlt 失败（可能处于锁屏或安全桌面）")
 	}
 	procGdiFlush.Call()

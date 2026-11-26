@@ -135,7 +135,7 @@ func (s *Session) runVideo(ctx context.Context, cfg streamConfig, ready chan<- *
 	// 循环每毫秒转一次，按次数算的话一秒里只等十几毫秒就会被当成跟不上，码率很快掉到最低
 	baseRate := screen.DefaultBitrate(w, h, fps)
 	rate, blocked, lastAdjust := baseRate, 0, time.Now()
-	var lastFeed, lastChange, lastCursor, lastPerm, lastAck, lastBlocked time.Time
+	var lastFeed, lastChange, lastCursor, lastPerm, lastAck, lastBlocked, lockTold time.Time
 	lastAcked := s.stream.acked.Load()
 	refined := videoRefine
 	lastCX, lastCY := -1, -1
@@ -217,6 +217,11 @@ func (s *Session) runVideo(ctx context.Context, cfg streamConfig, ready chan<- *
 			fed, err := v.Feed(8 * time.Millisecond)
 			switch {
 			case errors.Is(err, screen.ErrCaptureLost):
+				// 推流中锁屏了：告诉手机在电脑上解锁（每 10 秒一次），解锁后桌面复制自己恢复
+				if screen.Locked() && time.Since(lockTold) >= 10*time.Second {
+					s.notify("p2d/screen.error", map[string]string{"message": screen.ErrLocked.Error()})
+					lockTold = time.Now()
+				}
 				sleepCtx(ctx, 200*time.Millisecond)
 			case err != nil:
 				log.Printf("[会话 %d] 截屏出错：%v", s.id, err)

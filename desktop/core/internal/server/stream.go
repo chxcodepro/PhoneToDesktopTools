@@ -114,15 +114,57 @@ func (s *Session) startStream(cfg streamConfig) (*streamStarted, error) {
 		s.stream.ackCh = make(chan struct{}, 1)
 	}
 	s.stream.mu.Unlock()
+	// 显示器闲置关了就唤醒；推流期间不让电脑息屏、睡眠（息屏后很多电脑会接着锁屏，锁屏后就截不到了）
+	screen.WakeDisplay()
+	release := screen.KeepAwake()
+	go func() {
+		<-ctx.Done()
+		release()
+	}()
 	started := &streamStarted{Displays: displays}
+	if cfg.Video != nil && cfg.Video.Codec == "h264" && screen.Locked() {
+		// 锁屏时硬件编码器也打不开桌面复制：先告诉手机在电脑上解锁，解锁后再按正常流程开始（能推视频就推视频）。
+		// 手机端收到视频帧时自己切到视频显示，不用重新请求
+		started.Tiles = cfg.Tiles
+		log.Printf("[会话 %d] 电脑已锁屏，等解锁后开始远程桌面推流", s.id)
+		go s.waitUnlock(ctx, cfg)
+		return started, nil
+	}
+	s.launchStream(ctx, cfg, started)
+	return started, nil
+}
+
+// waitUnlock 电脑锁屏时先等解锁（期间每 10 秒提醒一次手机），解锁后开始推流。
+func (s *Session) waitUnlock(ctx context.Context, cfg streamConfig) {
+	var told time.Time
+	for screen.Locked() {
+		if time.Since(told) >= 10*time.Second {
+			s.notify("p2d/screen.error", map[string]string{"message": screen.ErrLocked.Error()})
+			told = time.Now()
+		}
+		sleepCtx(ctx, 500*time.Millisecond)
+		if ctx.Err() != nil {
+			return
+		}
+	}
+	log.Printf("[会话 %d] 电脑已解锁", s.id)
+	screen.WakeDisplay()
+	s.launchStream(ctx, cfg, &streamStarted{})
+}
+
+// launchStream 按手机的能力开始推流：能推硬件视频就推视频，否则分块（或整帧）。started 记下实际用的方式。
+func (s *Session) launchStream(ctx context.Context, cfg streamConfig, started *streamStarted) {
 	if cfg.Video != nil && cfg.Video.Codec == "h264" {
 		if info := s.startVideo(ctx, cfg); info != nil {
 			started.Video = info
 			// 也回 tiles：手机端只认 tiles 判断电脑端是不是旧版，没有 tiles 会退回整帧推流重新开始
 			started.Tiles = cfg.Tiles
 			log.Printf("[会话 %d] 开始远程桌面推流（显示器 %d，%d fps，%dx%d，硬件视频 %s）", s.id, cfg.Display, cfg.FPS, info.Width, info.Height, info.Encoder)
-			return started, nil
+			return
 		}
+	}
+	if ctx.Err() != nil {
+		return
 	}
 	if cfg.FPS > 60 {
 		cfg.FPS = 60
@@ -138,7 +180,6 @@ func (s *Session) startStream(cfg streamConfig) (*streamStarted, error) {
 		go s.runStream(ctx, cfg)
 	}
 	started.Tiles = cfg.Tiles
-	return started, nil
 }
 
 func (s *Session) stopStream() {
