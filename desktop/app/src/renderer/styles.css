@@ -64,6 +64,13 @@
   .no-drag {
     -webkit-app-region: no-drag;
   }
+  /* 主窗口按内容自动调高，只有比屏幕还高时才能滚动，也不显示滚动条 */
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
   .wire {
     background: repeating-linear-gradient(90deg, hsl(var(--primary)) 0 6px, transparent 6px 10px);
     background-size: 20px 2px;

@@ -151,6 +151,8 @@ export interface P2DApi {
   disconnect(): Promise<void>;
   minimize(): void;
   hide(): void;
+  /** 主窗口按内容调高（页面内容的总高度，CSS 像素） */
+  fitHeight(height: number): void;
   setOverlayInteractive(interactive: boolean): void;
   /** 打开「配对新手机」窗口（3 分钟） */
   startPairing(): Promise<void>;

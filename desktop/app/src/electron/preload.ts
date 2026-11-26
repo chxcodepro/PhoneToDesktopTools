@@ -12,6 +12,7 @@ const api: P2DApi = {
   disconnect: () => ipcRenderer.invoke('p2d:disconnect') as Promise<void>,
   minimize: () => ipcRenderer.send('p2d:minimize'),
   hide: () => ipcRenderer.send('p2d:hide'),
+  fitHeight: (height) => ipcRenderer.send('p2d:fitHeight', Number(height)),
   setOverlayInteractive: (interactive) => ipcRenderer.send('p2d:overlayInteractive', !!interactive),
   startPairing: () => ipcRenderer.invoke('p2d:startPairing') as Promise<void>,
   cancelPairing: () => ipcRenderer.invoke('p2d:cancelPairing') as Promise<void>,

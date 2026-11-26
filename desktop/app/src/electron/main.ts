@@ -1,5 +1,5 @@
 // P2D 电脑端主进程：启动 Core、轮询状态、主窗口、托盘、被控红框、断开热键。
-import { app, BrowserWindow, globalShortcut, ipcMain, Menu, nativeImage, session, shell, systemPreferences, Tray } from 'electron';
+import { app, BrowserWindow, globalShortcut, ipcMain, Menu, nativeImage, screen, session, shell, systemPreferences, Tray } from 'electron';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -68,10 +68,25 @@ function iconPath(name: string): string {
   return path.join(base, name);
 }
 
+// 主窗口宽度固定；高度由页面按内容报上来（p2d:fitHeight），不出现滚动条，最高到屏幕可用高度
+const MAIN_WIDTH = 380;
+const MAIN_MIN_HEIGHT = 320;
+
+function fitMainHeight(want: number): void {
+  if (!mainWindow || mainWindow.isDestroyed() || !Number.isFinite(want) || want <= 0) return;
+  const b = mainWindow.getBounds();
+  const area = screen.getDisplayMatching(b).workArea;
+  const height = Math.max(MAIN_MIN_HEIGHT, Math.min(Math.ceil(want), area.height - 16));
+  if (Math.abs(height - b.height) < 2) return;
+  // 变高后下边超出屏幕时往上挪
+  const y = b.y + height > area.y + area.height ? Math.max(area.y, area.y + area.height - height) : b.y;
+  mainWindow.setBounds({ x: b.x, y, width: b.width, height });
+}
+
 function createMainWindow(): void {
   mainWindow = new BrowserWindow({
-    width: 340,
-    height: 440,
+    width: MAIN_WIDTH,
+    height: 520, // 页面加载后按内容调整
     resizable: false,
     maximizable: false,
     fullscreenable: false,
@@ -299,6 +314,9 @@ function registerIpc(): void {
   });
   ipcMain.on('p2d:minimize', () => mainWindow?.minimize());
   ipcMain.on('p2d:hide', () => mainWindow?.hide());
+  ipcMain.on('p2d:fitHeight', (e, h: unknown) => {
+    if (mainWindow && e.sender === mainWindow.webContents) fitMainHeight(Number(h));
+  });
   ipcMain.on('p2d:overlayInteractive', (e, interactive: unknown) => {
     const w = BrowserWindow.fromWebContents(e.sender);
     if (w && overlays?.owns(w)) w.setIgnoreMouseEvents(!interactive, { forward: true });

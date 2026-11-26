@@ -20,7 +20,7 @@ import {
   X,
 } from 'lucide-react';
 import QRCode from 'qrcode';
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Badge, Button, Card, Kbd, Spinner } from '@/components/ui';
 import { cn, formatDuration, platformLabel } from '@/lib/utils';
 import { deviceNameFor, type AboutInfo, type AppStatus, type CoreDevice, type CoreLan } from '../shared/types';
@@ -43,7 +43,33 @@ function useNow(): number {
   return now;
 }
 
-const CONNECTING_STAGES = ['unauthorized', 'installing', 'starting', 'ready', 'error'];
+/**
+ * 窗口按内容调高：内容区域的实际高度加上标题栏、底栏和内边距，报给主进程设窗口高度，
+ * 这样各个页面（有没有更新提示、连接前后、配对、关于）都正好放下，不出现滚动条
+ */
+function useFitHeight() {
+  const root = useRef<HTMLDivElement>(null);
+  const scroller = useRef<HTMLDivElement>(null);
+  const content = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const r = root.current;
+    const sc = scroller.current;
+    const c = content.current;
+    if (!r || !sc || !c) return;
+    const report = () => {
+      const cs = getComputedStyle(sc);
+      const pad = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
+      window.p2d.fitHeight(r.offsetHeight - sc.offsetHeight + pad + c.offsetHeight);
+    };
+    report();
+    const ro = new ResizeObserver(report);
+    ro.observe(c);
+    return () => ro.disconnect();
+  }, []);
+  return { root, scroller, content };
+}
+
+const CONNECTING_STAGES =['unauthorized', 'installing', 'starting', 'ready', 'error'];
 
 export function App() {
   const s = useAppStatus();
@@ -58,6 +84,7 @@ export function App() {
     setManualCheck(true);
     void window.p2d.checkUpdate();
   };
+  const fit = useFitHeight();
 
   let body: JSX.Element;
   if (aboutView) body = <About s={s} onCheck={checkNow} onClose={() => setAboutView(false)} />;
@@ -75,12 +102,14 @@ export function App() {
   else body = <Waiting s={s} onPair={() => setPairingView(true)} />;
 
   return (
-    <div className="flex h-full flex-col overflow-hidden border border-border bg-background">
+    <div ref={fit.root} className="flex h-full flex-col overflow-hidden border border-border bg-background">
       <TitleBar />
-      <div className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto p-5">
-        <UpdateBanner u={s.update} manual={manualCheck} onClose={() => setManualCheck(false)} />
-        {aboutView || pairingView ? null : <MacPermissions p={s.macPermissions} />}
-        {body}
+      <div ref={fit.scroller} className="no-scrollbar min-h-0 flex-1 overflow-y-auto p-5">
+        <div ref={fit.content} className="flex flex-col gap-3.5">
+          <UpdateBanner u={s.update} manual={manualCheck} onClose={() => setManualCheck(false)} />
+          {aboutView || pairingView ? null : <MacPermissions p={s.macPermissions} />}
+          {body}
+        </div>
       </div>
       <footer className="flex h-10 shrink-0 items-center justify-between border-t border-border px-3.5 text-xs text-muted-foreground">
         <span className="flex items-center gap-1.5">
