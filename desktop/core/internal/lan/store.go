@@ -171,8 +171,38 @@ func IsTailscale(ip string) bool {
 	return p != nil && p.To4() != nil && tailscaleNet.Contains(p)
 }
 
-// Addrs 本机局域网 IPv4 地址，真实网卡在前。
+// 网卡地址缓存：Windows 上枚举一次要 80～400 毫秒（每块网卡取地址都会把所有网卡重新查一遍，装了 VMware 等虚拟网卡更慢），
+// 状态接口每秒调一次，推流占着 CPU 时会超过电脑端界面的超时，界面就显示「连不上服务」。
+// 第一次同步取；之后超过 addrTTL 就返回旧值并在后台刷新
+const addrTTL = 5 * time.Second
+
+var addrCache struct {
+	sync.Mutex
+	list       []string
+	at         time.Time
+	refreshing bool
+}
+
+// Addrs 本机局域网 IPv4 地址，真实网卡在前（最多晚 addrTTL 反映网卡变化）。
 func Addrs() []string {
+	c := &addrCache
+	c.Lock()
+	defer c.Unlock()
+	if c.at.IsZero() {
+		c.list, c.at = scanAddrs(), time.Now()
+	} else if time.Since(c.at) > addrTTL && !c.refreshing {
+		c.refreshing = true
+		go func() {
+			l := scanAddrs()
+			c.Lock()
+			c.list, c.at, c.refreshing = l, time.Now(), false
+			c.Unlock()
+		}()
+	}
+	return append([]string(nil), c.list...)
+}
+
+func scanAddrs() []string {
 	type cand struct {
 		ip      string
 		virtual bool

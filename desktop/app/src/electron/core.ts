@@ -216,8 +216,9 @@ function request(method: 'GET' | 'POST', p: string, timeoutMs: number): Promise<
   });
 }
 
+/** 推流占着 CPU 时状态接口偶尔要 1 秒多，超时太短会误报「连不上」 */
 export async function fetchStatus(): Promise<CoreStatus> {
-  return JSON.parse(await request('GET', '/api/status', 800)) as CoreStatus;
+  return JSON.parse(await request('GET', '/api/status', 3000)) as CoreStatus;
 }
 
 export async function disconnect(): Promise<void> {

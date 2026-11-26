@@ -209,10 +209,25 @@ function broadcast(s: AppStatus): void {
   }
 }
 
+// 连续失败几次才算服务连不上：偶尔一次超时（推流占着 CPU）不让界面闪「正在启动服务」、提示条消失
+const OFFLINE_AFTER = 3;
+let failures = 0;
+let polling = false;
+
+/** 每秒的定时轮询：上一次还没返回就跳过 */
+function tick(): void {
+  if (polling) return;
+  polling = true;
+  void poll().finally(() => {
+    polling = false;
+  });
+}
+
 async function poll(): Promise<void> {
   let next: AppStatus;
   try {
     const status = await fetchStatus();
+    failures = 0;
     core.markOnline();
     const sess = status.sessions?.[0];
     next = {
@@ -225,6 +240,8 @@ async function poll(): Promise<void> {
       macPermissions: macPermissions(),
     };
   } catch {
+    failures++;
+    if (current?.coreOnline && failures < OFFLINE_AFTER && !core.stopped) return;
     next = {
       coreOnline: false,
       coreError: core.offlineReason() || undefined,
@@ -316,7 +333,7 @@ app.whenReady().then(() => {
     console.error(`热键 ${accel} 注册失败（可能已被其他程序占用），尝试下一个`);
   }
   void poll();
-  setInterval(() => void poll(), 1000);
+  setInterval(tick, 1000);
   startAutoCheck(() => broadcast({ ...current, update: getUpdate() }));
   startDebugCapture();
 });
