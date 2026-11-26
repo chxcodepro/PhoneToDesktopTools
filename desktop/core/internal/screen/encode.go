@@ -47,7 +47,14 @@ func EncodeIfChanged(img *image.RGBA, maxWidth, quality int, skipHash uint64) (*
 
 // Downscale 区域平均缩小，文字比最近邻清晰。按行分段在多个 CPU 核上并行计算。
 func Downscale(src *image.RGBA, w, h int) *image.RGBA {
-	dst := image.NewRGBA(image.Rect(0, 0, w, h))
+	return DownscaleInto(nil, src, w, h)
+}
+
+// DownscaleInto 同 Downscale，但尽量复用 dst 的内存（尺寸不对时重新分配），推流时每帧省掉一次十几 MB 的分配。
+func DownscaleInto(dst, src *image.RGBA, w, h int) *image.RGBA {
+	if dst == nil || dst.Bounds() != image.Rect(0, 0, w, h) {
+		dst = image.NewRGBA(image.Rect(0, 0, w, h))
+	}
 	workers := runtime.NumCPU()
 	if workers > 8 {
 		workers = 8

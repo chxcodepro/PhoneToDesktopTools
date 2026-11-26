@@ -51,7 +51,7 @@ import { ActionMarker, CursorArrow } from '@/components/remote/overlays';
 import { Icon } from '@/components/ui/icon';
 import { Text } from '@/components/ui/text';
 import { cn } from '@/lib/utils';
-import { ScreenCanvas } from '@/native/screenCanvas';
+import { ScreenCanvas, ScreenVideo } from '@/native/screenCanvas';
 import { RemoteController, type Overlay } from '@/remote/controller';
 import { NO_ZOOM, toView } from '@/remote/geometry';
 import { useScreenStream } from '@/remote/useScreenStream';
@@ -122,7 +122,14 @@ export default function RemoteScreen() {
     const scr = Dimensions.get('screen');
     return Math.round(Math.max(scr.width, scr.height) * PixelRatio.get());
   });
-  const { frame, displays, error, fps } = useScreenStream(display, { tiles: true, maxWidth: streamWidth, quality: 75, fps: 30 });
+  const { frame, displays, error, fps } = useScreenStream(display, {
+    tiles: true,
+    video: true,
+    videoFps: 60,
+    maxWidth: streamWidth,
+    quality: 75,
+    fps: 30,
+  });
   // 触控板默认关闭：画面上直接点击；打开后竖屏在下方显示触控板，横屏时画面本身变成触控板
   const [trackpad, setTrackpad] = useState(false);
   const [rightNext, setRightNext] = useState(false);
@@ -251,7 +258,9 @@ export default function RemoteScreen() {
               transform: [{ translateX: overlay.zoom.ox }, { translateY: overlay.zoom.oy }, { scale: overlay.zoom.s }],
             }}
           >
-            {frame.canvasId ? (
+            {frame.videoId ? (
+              <ScreenVideo videoId={frame.videoId} style={StyleSheet.absoluteFill} />
+            ) : frame.canvasId ? (
               <ScreenCanvas canvasId={frame.canvasId} style={StyleSheet.absoluteFill} />
             ) : (
               <FrameImage uri={frame.uri} />

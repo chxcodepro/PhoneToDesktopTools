@@ -15,7 +15,7 @@ import (
 )
 
 // 在真实桌面上打开黑屏几秒（屏幕会真的变黑）：P2D_BLANK_TEST=1 go test ./internal/blank/ -run Manual -v
-// 检查：黑屏窗口显示着、设置了截屏排除；黑屏期间截到的画面和打开前差不多（不是黑的）。
+// 检查：黑屏窗口显示着、设置了截屏排除；黑屏期间截到的画面（GDI 和 DXGI 桌面复制两种方式）和打开前差不多（不是黑的）。
 func TestManualBlank(t *testing.T) {
 	if os.Getenv("P2D_BLANK_TEST") == "" {
 		t.Skip("会让屏幕真的变黑，设置 P2D_BLANK_TEST=1 才运行")
@@ -30,6 +30,9 @@ func TestManualBlank(t *testing.T) {
 	}
 	r := ds[0].Bounds
 	before := brightness(t, r)
+	src := screen.OpenSource(ds[0]) // 推流用的截屏方式（Windows 8 起是 DXGI 桌面复制）
+	defer src.Close()
+	latest(src)
 
 	if err := Show(); err != nil {
 		t.Fatal(err)
@@ -45,11 +48,16 @@ func TestManualBlank(t *testing.T) {
 	}
 	vis, _, _ := visible.Call(h)
 	during := brightness(t, r)
+	duringSrc := -1.0
+	if img := latest(src); img != nil {
+		duringSrc = imgBrightness(img)
+	}
 	Hide()
 	time.Sleep(300 * time.Millisecond)
 	h2, _, _ := find.Call(uintptr(unsafe.Pointer(className)), 0)
 
-	t.Logf("黑屏窗口 %#x 可见 %v 截屏排除标志 %#x；平均亮度：打开前 %.1f，黑屏期间截图 %.1f；关闭后窗口 %#x", h, vis != 0, aff, before, during, h2)
+	t.Logf("黑屏窗口 %#x 可见 %v 截屏排除标志 %#x；平均亮度：打开前 %.1f，黑屏期间截图 %.1f，%s %.1f；关闭后窗口 %#x",
+		h, vis != 0, aff, before, during, src.Kind(), duringSrc, h2)
 	if h == 0 || vis == 0 {
 		t.Fatal("黑屏窗口没有显示")
 	}
@@ -59,10 +67,29 @@ func TestManualBlank(t *testing.T) {
 	if during < before*0.5 || during < 5 {
 		t.Fatalf("黑屏期间截到的画面变暗了（%.1f → %.1f），黑屏没有被排除在截屏外", before, during)
 	}
+	if duringSrc >= 0 && (duringSrc < before*0.5 || duringSrc < 5) {
+		t.Fatalf("黑屏期间%s截到的画面变暗了（%.1f → %.1f）", src.Kind(), before, duringSrc)
+	}
 	if h2 != 0 {
 		t.Fatal("关闭后黑屏窗口还在")
 	}
 	_ = windows.Handle(0)
+}
+
+// latest 取推流截屏方式最新的画面（最多等 1 秒），画面一直没变时返回最后一次拿到的。
+func latest(src screen.Source) *image.RGBA {
+	var last *image.RGBA
+	end := time.Now().Add(time.Second)
+	for time.Now().Before(end) {
+		img, err := src.Next(100 * time.Millisecond)
+		if err != nil {
+			return last
+		}
+		if img != nil {
+			last = img
+		}
+	}
+	return last
 }
 
 func brightness(t *testing.T, r image.Rectangle) float64 {
@@ -70,6 +97,10 @@ func brightness(t *testing.T, r image.Rectangle) float64 {
 	if err != nil {
 		t.Fatal(err)
 	}
+	return imgBrightness(img)
+}
+
+func imgBrightness(img *image.RGBA) float64 {
 	var sum, n float64
 	for y := 0; y < img.Rect.Dy(); y += 7 {
 		for x := 0; x < img.Rect.Dx(); x += 7 {

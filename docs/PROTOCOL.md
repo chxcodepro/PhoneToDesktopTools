@@ -136,11 +136,14 @@ iOS 没有 adb，也没有给 App 用的 USB 接口，电脑和 iPhone 之间经
 
 | 方向 | 方法 | 说明 |
 |---|---|---|
-| 手机 → 电脑 | `p2d/screen.start` | 参数 `{ display?, maxWidth?（默认 1280，整帧最大 2560，分块最大 3840）, quality?（默认 60）, fps?（默认 10，最大 30）, tiles? }`，返回 `{ displays, tiles }`。需要「查看屏幕」权限 |
+| 手机 → 电脑 | `p2d/screen.start` | 参数 `{ display?, maxWidth?（默认 1280，整帧最大 2560，分块最大 3840）, quality?（默认 60）, fps?（默认 10；整帧最大 30，分块最大 60，视频最大 120）, tiles?, video? }`，返回 `{ displays, tiles, video? }`。需要「查看屏幕」权限 |
 | 手机 → 电脑 | `p2d/screen.stop` | 停止推流 |
 | 电脑 → 手机 | `p2d/screen.frame`（通知） | `{ seq, data?, mimeType?, width, height, scale, x, y, cursorX?, cursorY?, display }` |
 | 电脑 → 手机 | `p2d/screen.tiles`（通知） | 分块推流（`tiles: true` 时），见 5.2 |
-| 手机 → 电脑 | `p2d/screen.ack`（通知） | `{ seq }`，分块帧画完了 |
+| 手机 → 电脑 | `p2d/screen.ack`（通知） | `{ seq }`，分块帧画完了 / 视频帧显示完了 |
+| 电脑 → 手机 | 二进制消息 `P2DV` | 硬件视频帧（`video` 时），见 5.3 |
+| 电脑 → 手机 | `p2d/screen.cursor`（通知） | `{ x, y }`，视频流画面没变时单独更新鼠标位置 |
+| 手机 → 电脑 | `p2d/screen.keyframe`（通知） | 视频解码器要关键帧 |
 | 电脑 → 手机 | `p2d/screen.error`（通知） | `{ message }`，如锁屏时无法截图 |
 | 电脑 → 手机 | `p2d/screen.stopped`（通知） | `{ reason }`，如权限被关闭 |
 
@@ -169,7 +172,23 @@ iOS 没有 adb，也没有给 App 用的 USB 接口，电脑和 iPhone 之间经
 - 通知 `p2d/screen.tiles`：`{ seq, full?, tiles: [{x, y, w, h, data}], width, height, scale, x, y, cursorX?, cursorY?, display, bytes, encoding }`。`x`、`y`、`w`、`h` 是编码后画面上的像素位置，`data` 是 JPEG base64；`full: true` 表示整屏（第一帧、切换显示器、分辨率变化）。画面和鼠标都没变时不发，每 2 秒发一次空帧（带鼠标位置）。
 - 手机端把块交给原生画布：后台线程并行解码，按到达顺序画到和画面一样大的位图上，再刷新显示它的视图；画面数据不进 React 状态，页面只在尺寸、鼠标位置变化时重新渲染。画完回 `p2d/screen.ack {seq}`。
 - 流控：电脑端最多 2 帧没确认，手机画得慢时电脑端少截几帧，不会越积越多、延迟越来越大；等确认最多 2 秒，超时照常发（防止确认丢失卡住推流）。
-- 每分钟在电脑端日志里记一次「有变化的帧数、平均每帧大小」。
+- 每分钟在电脑端日志里记一次「有变化的帧数、平均每帧大小」，以及截屏方式。
+- 截屏：Windows 8 起用 DXGI 桌面复制（`internal/screen/dxgi_windows.go`，画面在显卡里，系统只在变化时给新的一帧），截一帧约 3～5 毫秒；Win7、远程桌面会话等打不开时用 GDI（2560×1600 一帧要 20～30 毫秒）。截屏和编码、发送在两个 goroutine 里同时做，截屏那边只留最新一帧。
+- 推流期间用 `timeBeginPeriod(1)` 把系统计时器精度调到 1 毫秒（Go 1.20 在 Windows 上默认 15.6 毫秒，等 33 毫秒实际要 46 毫秒，30 帧/秒只能到 21 帧/秒），停止推流后恢复。
+
+### 5.3 硬件视频流
+
+JPEG 分块在整屏都变化时（视频、动态壁纸、拖动大窗口）每帧要几百 KB，60 帧/秒要 20 MB/秒以上。Windows 8 起、电脑有显卡硬件编码器、手机能硬件解码时改推 H.264 视频：
+
+- 手机端（有原生视频模块时）`p2d/screen.start` 再带 `video: { codec: "h264", maxWidth, maxHeight, maxFps }`（手机硬件解码器的上限），`fps` 填想要的帧率。
+- 电脑端（`internal/screen/h264_windows.go`、`internal/server/videostream.go`）：桌面复制拿到的画面留在显卡里，用 D3D11 视频处理器缩放并转成 NV12（BT.709、16～235），交给 Media Foundation 的硬件 H.264 编码器（NVIDIA NVENC、Intel Quick Sync、AMD），低延迟模式、不用 B 帧，关键帧只在开始和手机要的时候出。打开成功就回复 `video: { codec, width, height, encoder, bitrate }`；Win7、没有硬件编码器、打开失败（5 秒超时）时不带 `video`，按分块推流（`tiles: true`）继续。
+- 视频帧是二进制 WebSocket 消息（局域网直连时同样经过加密层，帧类型为二进制）：4 字节 `P2DV` + 4 字节小端 JSON 长度 + JSON `{ seq, key?, width, height, scale, x, y, display, cursorX?, cursorY? }` + H.264 数据（Annex B，带起始码；关键帧带 SPS/PPS）。
+- 手机端把数据交给原生解码器（Android：MediaCodec 硬件解码直接画到 TextureView，Android 11 起有低延迟模式时打开；iOS：AVSampleBufferDisplayLayer），显示完回 `p2d/screen.ack {seq}`。解码器还没建好、出错、显示视图重建后收到普通帧时，手机端发 `p2d/screen.keyframe`（最多每 0.5 秒一次）。
+- 流控：最多 3 帧没确认。手机跟不上时电脑端少编几帧（不能丢已经编好的帧，丢了后面的就解不出来）；确认 2 秒没动静当作已确认。
+- 码率：默认每像素每帧 0.12 比特（2376×1484、60 帧约 25 Mbps 上限，画面不动时几乎不占），每秒检查一次，经常因为等确认而不能编新画面就降 20%（最低 1.5 Mbps），顺畅时每秒升 10% 回到默认。
+- 画面停下来 0.3 秒后，把最后一帧再编 2 次，把运动时降下去的画质补回来。
+- 画面没变时，鼠标位置单独用 `p2d/screen.cursor { x, y }` 通知。
+- 每分钟在电脑端日志里记一次帧数、平均每帧大小、实际码率和当前码率上限。
 
 ## 6. 文件上传（自定义扩展）
 

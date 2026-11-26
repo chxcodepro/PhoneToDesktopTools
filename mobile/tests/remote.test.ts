@@ -108,6 +108,25 @@ describe('鼠标操作队列', () => {
     ]);
   });
 
+  it('来回滚动正好抵消时不发（电脑端不接受 dy=0）', async () => {
+    const sent: MouseArgs[] = [];
+    let release: () => void = () => undefined;
+    const q = new MouseQueue(
+      (a) =>
+        new Promise<void>((r) => {
+          sent.push(a);
+          release = r;
+        }),
+    );
+    q.push({ action: 'click', x: 1, y: 1 });
+    q.push({ action: 'scroll', dy: 2, x: 5, y: 5 });
+    q.push({ action: 'scroll', dy: -2, x: 5, y: 5 });
+    assert.equal(q.pending, 0);
+    release();
+    await new Promise((r) => setTimeout(r, 0));
+    assert.deepEqual(sent, [{ action: 'click', x: 1, y: 1 }]);
+  });
+
   it('某个操作失败不影响后面的', async () => {
     const sent: string[] = [];
     const q = new MouseQueue(async (a) => {

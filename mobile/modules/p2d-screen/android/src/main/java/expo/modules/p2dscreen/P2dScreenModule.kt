@@ -27,6 +27,21 @@ class P2dScreenModule : Module() {
 
     OnDestroy {
       CanvasRegistry.releaseAll()
+      VideoRegistry.releaseAll()
+    }
+
+    // 硬件解码 H.264 的上限（没有硬件解码器时为 null，推流用分块）
+    Function("videoCaps") {
+      VideoDecoder.caps()
+    }
+
+    // 送一帧 H.264（Annex B）给解码器，显示完（或丢弃）后返回 ok / dropped / needKey
+    AsyncFunction("videoFeed") { id: String, data: ByteArray, key: Boolean, width: Int, height: Int, promise: Promise ->
+      VideoRegistry.decoder(id).feed(data, key, width, height) { result -> promise.resolve(result) }
+    }
+
+    Function("videoRelease") { id: String ->
+      VideoRegistry.release(id)
     }
 
     AsyncFunction("draw") { id: String, width: Int, height: Int, full: Boolean, tiles: List<TileRecord>, promise: Promise ->
@@ -42,6 +57,13 @@ class P2dScreenModule : Module() {
     View(ScreenCanvasView::class) {
       Prop("canvasId") { view: ScreenCanvasView, id: String ->
         view.setCanvasId(id)
+      }
+    }
+
+    View(ScreenVideoView::class) {
+      Name("ScreenVideo")
+      Prop("videoId") { view: ScreenVideoView, id: String ->
+        view.setVideoId(id)
       }
     }
   }

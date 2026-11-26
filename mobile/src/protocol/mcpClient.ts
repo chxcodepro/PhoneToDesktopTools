@@ -27,6 +27,8 @@ export interface WebSocketLike {
   onclose: ((ev: { code?: number; reason?: string }) => void) | null;
   onerror: ((ev: { message?: string; error?: unknown }) => void) | null;
   onmessage: ((ev: { data: unknown }) => void) | null;
+  /** 二进制消息的类型（视频帧），设成 arraybuffer */
+  binaryType?: string;
 }
 
 export type WebSocketFactory = (url: string) => WebSocketLike;
@@ -84,6 +86,7 @@ export class McpClient {
   private pending = new Map<number, Pending>();
   private listeners = new Set<StatusListener>();
   private notificationHandlers = new Map<string, Set<(params: unknown) => void>>();
+  private binaryHandlers = new Set<(data: Uint8Array) => void>();
   private pingTimer: ReturnType<typeof setInterval> | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private missedPings = 0;
@@ -141,6 +144,14 @@ export class McpClient {
     set.add(handler);
     return () => {
       set!.delete(handler);
+    };
+  }
+
+  /** 订阅服务端发来的二进制消息（远程桌面视频帧），返回取消订阅函数 */
+  onBinary(handler: (data: Uint8Array) => void): () => void {
+    this.binaryHandlers.add(handler);
+    return () => {
+      this.binaryHandlers.delete(handler);
     };
   }
 
@@ -272,6 +283,11 @@ export class McpClient {
       return;
     }
     this.ws = ws;
+    try {
+      ws.binaryType = 'arraybuffer';
+    } catch {
+      // 有的实现不支持设置，二进制消息会是字符串，直接忽略
+    }
     let opened = false;
     let unauthorized = false;
 
@@ -283,8 +299,11 @@ export class McpClient {
 
     ws.onmessage = (ev) => {
       if (gen !== this.socketGeneration) return;
-      const text = typeof ev.data === 'string' ? ev.data : String(ev.data);
-      this.handleMessage(text);
+      const d = ev.data;
+      if (typeof d === 'string') this.handleMessage(d);
+      else if (d instanceof ArrayBuffer) this.handleBinary(new Uint8Array(d));
+      else if (ArrayBuffer.isView(d)) this.handleBinary(new Uint8Array(d.buffer, d.byteOffset, d.byteLength));
+      else this.handleMessage(String(d));
     };
 
     ws.onerror = (ev) => {
@@ -348,6 +367,16 @@ export class McpClient {
         this.ws?.close(4000, 'handshake failed');
       } catch {
         // 忽略
+      }
+    }
+  }
+
+  private handleBinary(data: Uint8Array): void {
+    for (const h of this.binaryHandlers) {
+      try {
+        h(data);
+      } catch (e) {
+        this.log(`处理二进制消息出错：${String(e)}`);
       }
     }
   }

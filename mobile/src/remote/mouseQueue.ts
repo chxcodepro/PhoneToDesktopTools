@@ -13,8 +13,10 @@ export class MouseQueue {
     const last = this.queue[this.queue.length - 1];
     if (args.action === 'move' && last?.action === 'move') this.queue[this.queue.length - 1] = args;
     else if (args.action === 'scroll' && last?.action === 'scroll' && last.x === args.x && last.y === args.y) {
-      // 同一位置的连续滚动合成一次（滑得快、网络慢时不会越积越多）
-      this.queue[this.queue.length - 1] = { ...last, dy: Number(last.dy) + Number(args.dy) };
+      // 同一位置的连续滚动合成一次（滑得快、网络慢时不会越积越多）；来回滑动正好抵消时整个去掉（电脑端不接受 dy=0）
+      const dy = Number(last.dy) + Number(args.dy);
+      if (dy) this.queue[this.queue.length - 1] = { ...last, dy };
+      else this.queue.pop();
     } else this.queue.push(args);
     void this.pump();
   }

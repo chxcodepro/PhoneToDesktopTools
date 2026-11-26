@@ -26,6 +26,15 @@ type streamConfig struct {
 	FPS      int `json:"fps"`
 	// Tiles 手机端能画分块画面（原生画布）。为 true 时推 p2d/screen.tiles，否则推整帧 p2d/screen.frame
 	Tiles bool `json:"tiles"`
+	// Video 手机端能硬件解码视频（见 videostream.go）。电脑端打开硬件编码器成功就推视频，否则退回分块
+	Video *videoRequest `json:"video,omitempty"`
+}
+
+// streamStarted p2d/screen.start 的结果
+type streamStarted struct {
+	Displays []screen.Display `json:"displays"`
+	Tiles    bool             `json:"tiles"`
+	Video    *videoInfo       `json:"video,omitempty"`
 }
 
 type frameParams struct {
@@ -49,6 +58,8 @@ type streamState struct {
 	seq   atomic.Int64
 	acked atomic.Int64
 	ackCh chan struct{}
+	// keyframe 手机要一个关键帧（视频流）
+	keyframe atomic.Bool
 }
 
 func (s *Session) notify(method string, params any) {
@@ -59,7 +70,7 @@ func (s *Session) notify(method string, params any) {
 	s.send(rpcMessage{Method: method, Params: b})
 }
 
-func (s *Session) startStream(cfg streamConfig) ([]screen.Display, error) {
+func (s *Session) startStream(cfg streamConfig) (*streamStarted, error) {
 	if cfg.MaxWidth <= 0 {
 		cfg.MaxWidth = 1280
 	}
@@ -77,8 +88,16 @@ func (s *Session) startStream(cfg streamConfig) ([]screen.Display, error) {
 	if cfg.FPS <= 0 {
 		cfg.FPS = 10
 	}
-	if cfg.FPS > 30 {
-		cfg.FPS = 30
+	// 整帧推流每帧都要编码整屏，最多 30 帧/秒；分块推流只编码变化的块，放到 60 帧/秒
+	maxFPS := 30
+	if cfg.Tiles {
+		maxFPS = 60
+	}
+	if cfg.Video != nil {
+		maxFPS = 120
+	}
+	if cfg.FPS > maxFPS {
+		cfg.FPS = maxFPS
 	}
 	displays, err := screen.Displays()
 	if err != nil {
@@ -95,6 +114,17 @@ func (s *Session) startStream(cfg streamConfig) ([]screen.Display, error) {
 		s.stream.ackCh = make(chan struct{}, 1)
 	}
 	s.stream.mu.Unlock()
+	started := &streamStarted{Displays: displays}
+	if cfg.Video != nil && cfg.Video.Codec == "h264" {
+		if info := s.startVideo(ctx, cfg); info != nil {
+			started.Video = info
+			log.Printf("[会话 %d] 开始远程桌面推流（显示器 %d，%d fps，%dx%d，硬件视频 %s）", s.id, cfg.Display, cfg.FPS, info.Width, info.Height, info.Encoder)
+			return started, nil
+		}
+	}
+	if cfg.FPS > 60 {
+		cfg.FPS = 60
+	}
 	mode := "整帧"
 	if cfg.Tiles {
 		mode = "分块"
@@ -105,7 +135,8 @@ func (s *Session) startStream(cfg streamConfig) ([]screen.Display, error) {
 	} else {
 		go s.runStream(ctx, cfg)
 	}
-	return displays, nil
+	started.Tiles = cfg.Tiles
+	return started, nil
 }
 
 func (s *Session) stopStream() {
@@ -120,6 +151,7 @@ func (s *Session) stopStream() {
 
 func (s *Session) runStream(ctx context.Context, cfg streamConfig) {
 	interval := time.Second / time.Duration(cfg.FPS)
+	defer screen.PreciseTimers()()
 	var seq int64
 	var lastHash uint64
 	lastCX, lastCY := -1, -1

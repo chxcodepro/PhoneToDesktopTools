@@ -119,6 +119,16 @@ func (s *Session) closeWith(code int, reason string) {
 	_ = s.conn.Close()
 }
 
+// sendBinary 发一条二进制消息（视频帧）。
+func (s *Session) sendBinary(b []byte) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	_ = s.conn.SetWriteDeadline(time.Now().Add(writeTimeout))
+	if err := s.conn.WriteMessage(websocket.BinaryMessage, b); err != nil {
+		s.cancel()
+	}
+}
+
 func (s *Session) send(m rpcMessage) {
 	m.JSONRPC = "2.0"
 	b, err := json.Marshal(m)
@@ -329,12 +339,15 @@ func (s *Session) dispatch(m rpcMessage) {
 			s.fail(m.ID, errInvalidRequest, why)
 			return
 		}
-		displays, err := s.startStream(cfg)
+		started, err := s.startStream(cfg)
 		if err != nil {
 			s.fail(m.ID, errInternal, err.Error())
 			return
 		}
-		s.reply(m.ID, map[string]any{"displays": displays, "tiles": cfg.Tiles})
+		s.reply(m.ID, started)
+	case "p2d/screen.keyframe":
+		// 手机端视频解码器要一个关键帧（刚打开画面、解码出错、画面被系统回收后重建）
+		s.stream.keyframe.Store(true)
 	case "p2d/screen.ack":
 		// 手机画完了一帧分块画面（通知，不回复）
 		var p struct {

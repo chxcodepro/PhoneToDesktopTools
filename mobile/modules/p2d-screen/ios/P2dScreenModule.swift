@@ -18,6 +18,21 @@ public final class P2dScreenModule: Module {
 
     OnDestroy {
       CanvasRegistry.shared.releaseAll()
+      VideoRegistry.shared.releaseAll()
+    }
+
+    Function("videoCaps") { () -> [String: Int]? in
+      VideoStreamIOS.caps()
+    }
+
+    AsyncFunction("videoFeed") { (id: String, data: Data, key: Bool, width: Int, height: Int, promise: Promise) in
+      VideoRegistry.shared.feed(id: id, data: data, key: key) { result in
+        promise.resolve(result)
+      }
+    }
+
+    Function("videoRelease") { (id: String) in
+      VideoRegistry.shared.release(id: id)
     }
 
     AsyncFunction("draw") { (id: String, width: Int, height: Int, full: Bool, tiles: [TileRecord], promise: Promise) in
@@ -37,6 +52,13 @@ public final class P2dScreenModule: Module {
     View(ScreenCanvasView.self) {
       Prop("canvasId") { (view: ScreenCanvasView, id: String) in
         view.setCanvasId(id)
+      }
+    }
+
+    View(ScreenVideoView.self) {
+      ViewName("ScreenVideo")
+      Prop("videoId") { (view: ScreenVideoView, id: String) in
+        view.setVideoId(id)
       }
     }
   }
