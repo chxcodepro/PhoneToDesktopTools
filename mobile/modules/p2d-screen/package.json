@@ -1,0 +1,6 @@
+{
+  "name": "p2d-screen",
+  "version": "0.1.0",
+  "private": true,
+  "description": "虚拟桌面原生画布：电脑端推来的分块画面直接在原生层解码、拼到画布上，不经过 React Native 的 Image"
+}

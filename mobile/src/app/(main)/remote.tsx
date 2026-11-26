@@ -26,8 +26,11 @@ import {
 import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Dimensions,
   Modal,
+  PixelRatio,
   Pressable,
+  StyleSheet,
   TextInput,
   Vibration,
   View,
@@ -48,6 +51,7 @@ import { ActionMarker, CursorArrow } from '@/components/remote/overlays';
 import { Icon } from '@/components/ui/icon';
 import { Text } from '@/components/ui/text';
 import { cn } from '@/lib/utils';
+import { ScreenCanvas } from '@/native/screenCanvas';
 import { RemoteController, type Overlay } from '@/remote/controller';
 import { NO_ZOOM, toView } from '@/remote/geometry';
 import { useScreenStream } from '@/remote/useScreenStream';
@@ -113,7 +117,12 @@ export default function RemoteScreen() {
     showToast(err ?? (next ? '电脑显示器已黑屏，手机上照常操作；断开后自动恢复' : '已恢复电脑显示'));
   };
   const [display, setDisplay] = useState(0);
-  const { frame, displays, error, fps } = useScreenStream(display);
+  // 分块推流按手机屏幕的物理像素请求原生分辨率（电脑端不会放大，屏幕比这小就按屏幕原样发）
+  const [streamWidth] = useState(() => {
+    const scr = Dimensions.get('screen');
+    return Math.round(Math.max(scr.width, scr.height) * PixelRatio.get());
+  });
+  const { frame, displays, error, fps } = useScreenStream(display, { tiles: true, maxWidth: streamWidth, quality: 75, fps: 30 });
   // 触控板默认关闭：画面上直接点击；打开后竖屏在下方显示触控板，横屏时画面本身变成触控板
   const [trackpad, setTrackpad] = useState(false);
   const [rightNext, setRightNext] = useState(false);
@@ -242,7 +251,11 @@ export default function RemoteScreen() {
               transform: [{ translateX: overlay.zoom.ox }, { translateY: overlay.zoom.oy }, { scale: overlay.zoom.s }],
             }}
           >
-            <FrameImage uri={frame.uri} />
+            {frame.canvasId ? (
+              <ScreenCanvas canvasId={frame.canvasId} style={StyleSheet.absoluteFill} />
+            ) : (
+              <FrameImage uri={frame.uri} />
+            )}
             {marker ? <ActionMarker left={marker.left} top={marker.top} /> : null}
             {overlay.cursor ? <CursorArrow left={overlay.cursor.left} top={overlay.cursor.top} /> : null}
           </View>

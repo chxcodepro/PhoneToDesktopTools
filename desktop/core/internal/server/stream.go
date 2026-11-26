@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"log"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"p2d/core/internal/perm"
@@ -16,12 +17,15 @@ import (
 //   p2d/screen.start {display, maxWidth, quality, fps} → 开始推送 p2d/screen.frame 通知
 //   p2d/screen.stop                                     → 停止
 // 画面没有变化时只推送鼠标位置（不带 data），节省 USB 带宽。
+// 手机端带 tiles:true 时改推分块增量画面（p2d/screen.tiles，见 tilestream.go）。
 
 type streamConfig struct {
 	Display  int `json:"display"`
 	MaxWidth int `json:"maxWidth"`
 	Quality  int `json:"quality"`
 	FPS      int `json:"fps"`
+	// Tiles 手机端能画分块画面（原生画布）。为 true 时推 p2d/screen.tiles，否则推整帧 p2d/screen.frame
+	Tiles bool `json:"tiles"`
 }
 
 type frameParams struct {
@@ -41,6 +45,10 @@ type frameParams struct {
 type streamState struct {
 	mu     sync.Mutex
 	cancel context.CancelFunc
+	// 分块推流的流控：seq 是本会话发出的最后一帧编号（跨多次推流递增），acked 是手机画完确认的最大编号
+	seq   atomic.Int64
+	acked atomic.Int64
+	ackCh chan struct{}
 }
 
 func (s *Session) notify(method string, params any) {
@@ -55,8 +63,13 @@ func (s *Session) startStream(cfg streamConfig) ([]screen.Display, error) {
 	if cfg.MaxWidth <= 0 {
 		cfg.MaxWidth = 1280
 	}
-	if cfg.MaxWidth > 2560 {
-		cfg.MaxWidth = 2560
+	// 整帧推流每帧都发整屏，限制在 2560；分块推流只发变化的块，可以到 4K
+	maxW := 2560
+	if cfg.Tiles {
+		maxW = 3840
+	}
+	if cfg.MaxWidth > maxW {
+		cfg.MaxWidth = maxW
 	}
 	if cfg.Quality <= 0 || cfg.Quality > 100 {
 		cfg.Quality = 60
@@ -78,9 +91,20 @@ func (s *Session) startStream(cfg streamConfig) ([]screen.Display, error) {
 	ctx, cancel := context.WithCancel(s.ctx)
 	s.stream.mu.Lock()
 	s.stream.cancel = cancel
+	if s.stream.ackCh == nil {
+		s.stream.ackCh = make(chan struct{}, 1)
+	}
 	s.stream.mu.Unlock()
-	log.Printf("[会话 %d] 开始远程桌面推流（显示器 %d，%d fps，宽 %d）", s.id, cfg.Display, cfg.FPS, cfg.MaxWidth)
-	go s.runStream(ctx, cfg)
+	mode := "整帧"
+	if cfg.Tiles {
+		mode = "分块"
+	}
+	log.Printf("[会话 %d] 开始远程桌面推流（显示器 %d，%d fps，宽 %d，%s）", s.id, cfg.Display, cfg.FPS, cfg.MaxWidth, mode)
+	if cfg.Tiles {
+		go s.runTiles(ctx, cfg)
+	} else {
+		go s.runStream(ctx, cfg)
+	}
 	return displays, nil
 }
 

@@ -334,7 +334,15 @@ func (s *Session) dispatch(m rpcMessage) {
 			s.fail(m.ID, errInternal, err.Error())
 			return
 		}
-		s.reply(m.ID, map[string]any{"displays": displays})
+		s.reply(m.ID, map[string]any{"displays": displays, "tiles": cfg.Tiles})
+	case "p2d/screen.ack":
+		// 手机画完了一帧分块画面（通知，不回复）
+		var p struct {
+			Seq int64 `json:"seq"`
+		}
+		if json.Unmarshal(m.Params, &p) == nil {
+			s.ackFrame(p.Seq)
+		}
 	case "p2d/file.read":
 		// 读磁盘放到协程里，不阻塞心跳等其他消息
 		go func() {

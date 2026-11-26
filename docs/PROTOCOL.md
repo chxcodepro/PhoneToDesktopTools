@@ -136,9 +136,11 @@ iOS 没有 adb，也没有给 App 用的 USB 接口，电脑和 iPhone 之间经
 
 | 方向 | 方法 | 说明 |
 |---|---|---|
-| 手机 → 电脑 | `p2d/screen.start` | 参数 `{ display?, maxWidth?（默认 1280）, quality?（默认 60）, fps?（默认 10，最大 20） }`，返回 `{ displays }`。需要「查看屏幕」权限 |
+| 手机 → 电脑 | `p2d/screen.start` | 参数 `{ display?, maxWidth?（默认 1280，整帧最大 2560，分块最大 3840）, quality?（默认 60）, fps?（默认 10，最大 30）, tiles? }`，返回 `{ displays, tiles }`。需要「查看屏幕」权限 |
 | 手机 → 电脑 | `p2d/screen.stop` | 停止推流 |
 | 电脑 → 手机 | `p2d/screen.frame`（通知） | `{ seq, data?, mimeType?, width, height, scale, x, y, cursorX?, cursorY?, display }` |
+| 电脑 → 手机 | `p2d/screen.tiles`（通知） | 分块推流（`tiles: true` 时），见 5.2 |
+| 手机 → 电脑 | `p2d/screen.ack`（通知） | `{ seq }`，分块帧画完了 |
 | 电脑 → 手机 | `p2d/screen.error`（通知） | `{ message }`，如锁屏时无法截图 |
 | 电脑 → 手机 | `p2d/screen.stopped`（通知） | `{ reason }`，如权限被关闭 |
 
@@ -157,6 +159,17 @@ iOS 没有 adb，也没有给 App 用的 USB 接口，电脑和 iPhone 之间经
 - 需要 Windows 10 2004（内部版本 19041）及以上：更早的系统上这个标志会退化成「截屏里也是黑的」，所以不支持。
 - 按会话计：任何一个会话要求黑屏就保持黑屏；会话断开时自动撤掉它的要求，都撤掉后恢复显示。状态接口里有 `blank: {supported, reason?, on?}`。
 - 手机端按电脑记住选择（`PcDevice.blank`），每次连上这台电脑时重新发 `p2d/blank.set {on:true}`。
+
+### 5.2 分块推流
+
+整帧推流每帧都把整屏缩小成一张 JPEG，转成 base64 放进 JSON，手机端再用 React Native 的 `Image` 解码：清晰度只有一半（2560 宽的屏幕缩到 1280），手机解码也跟不上。手机端有原生画布（`mobile/modules/p2d-screen`）时改用分块推流：
+
+- 手机端 `p2d/screen.start` 带 `tiles: true`，`maxWidth` 填手机屏幕的物理像素（如 3168）；电脑端不会放大，屏幕比这小就按原分辨率发。返回里 `tiles: true` 表示电脑端支持；旧版电脑端没有这个字段，手机端改用整帧参数（1280 宽）重新开始。
+- 电脑端（`desktop/core/internal/screen/tiles.go`）把画面切成 256×256 的块，和上次发出去的像素逐块比较，只把变化的块编码成 JPEG（多核并行），打字、滚动一小块区域时只发几块。
+- 通知 `p2d/screen.tiles`：`{ seq, full?, tiles: [{x, y, w, h, data}], width, height, scale, x, y, cursorX?, cursorY?, display, bytes, encoding }`。`x`、`y`、`w`、`h` 是编码后画面上的像素位置，`data` 是 JPEG base64；`full: true` 表示整屏（第一帧、切换显示器、分辨率变化）。画面和鼠标都没变时不发，每 2 秒发一次空帧（带鼠标位置）。
+- 手机端把块交给原生画布：后台线程并行解码，按到达顺序画到和画面一样大的位图上，再刷新显示它的视图；画面数据不进 React 状态，页面只在尺寸、鼠标位置变化时重新渲染。画完回 `p2d/screen.ack {seq}`。
+- 流控：电脑端最多 2 帧没确认，手机画得慢时电脑端少截几帧，不会越积越多、延迟越来越大；等确认最多 2 秒，超时照常发（防止确认丢失卡住推流）。
+- 每分钟在电脑端日志里记一次「有变化的帧数、平均每帧大小」。
 
 ## 6. 文件上传（自定义扩展）
 
