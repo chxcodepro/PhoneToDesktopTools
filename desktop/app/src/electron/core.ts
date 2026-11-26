@@ -10,7 +10,7 @@ import type { CoreStatus } from '../shared/types';
 export const CORE_PORT = Number(process.env.P2D_PORT) || 39271;
 
 const goOS: Record<string, string> = { win32: 'windows', linux: 'linux', darwin: 'darwin' };
-const goArch: Record<string, string> = { x64: 'amd64', ia32: '386', arm64: 'arm64', loong64: 'loong64' };
+const goArch: Record<string, string> = { x64: 'amd64', ia32: '386', arm64: 'arm64' };
 
 /** Core 可执行文件路径：打包后在 resources/core 下，开发时用仓库根目录 dist/core/<系统>-<架构>/ */
 export function corePath(): string {

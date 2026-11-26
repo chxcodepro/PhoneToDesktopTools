@@ -11,12 +11,11 @@
 | `P2D-<版本>-win-ia32-setup.exe` | 32 位 Windows（少见，64 位系统用上面那个） |
 | `P2D-<版本>-linux-arm64.deb` | 银河麒麟 arm64（飞腾、鲲鹏、海思麒麟） |
 | `P2D-<版本>-linux-amd64.deb` | 银河麒麟 x86_64（兆芯、海光、Intel） |
-| `P2D-<版本>-linux-loongarch64.deb` | 银河麒麟龙芯 3A5000 / 3A6000 |
 | `P2D-<版本>-mac-arm64.dmg` | Mac（Apple 芯片：M1 及以后） |
 | `P2D-<版本>-mac-x64.dmg` | Mac（Intel 芯片） |
 | `P2D-<版本>-ios-unsigned.ipa` | iPhone 手机端（未签名，要自己签名安装，见「iPhone」一节） |
 
-不确定麒麟电脑是哪种 CPU：打开终端运行 `uname -m`，`aarch64` 用 arm64 版，`x86_64` 用 amd64 版，`loongarch64` 用龙芯版。
+不确定麒麟电脑是哪种 CPU：打开终端运行 `uname -m`，`aarch64` 用 arm64 版，`x86_64` 用 amd64 版；`loongarch64`、`mips64` 是龙芯，不支持。
 
 ## 一、手机准备（每台手机做一次）
 
@@ -75,7 +74,7 @@ iPhone 不用开任何调试选项，见下面「iPhone」一节。
 说明：
 
 - 连着时手机处于「配件模式」，这期间不能用数据线传文件（MTP），拔掉数据线就恢复。
-- 手机开着 USB 调试时，仍然走 USB 调试连接（能自动装 App、更新 App），龙芯版也一样。
+- 手机开着 USB 调试时，仍然走 USB 调试连接（能自动装 App、更新 App）。
 - 电脑端以普通用户身份访问手机的 USB 设备，靠 deb 安装包放的 udev 规则（`/lib/udev/rules.d/70-p2d.rules`）授权。用 `.tar.gz` 解压运行的，窗口会提示「没有权限访问这台手机的 USB 设备」，改用 deb 安装即可。
 - 点了「免调试连接」手机却没反应：先解锁手机屏幕再点一次；仍不行可能是这款手机不支持配件模式，请开 USB 调试连接。
 - Windows 不支持免调试连接：手机没开 USB 调试时，Windows 的 MTP 驱动占着手机，电脑发不出切换请求（要替换手机驱动才行，会影响传文件）。Windows 上请开 USB 调试。
@@ -168,7 +167,7 @@ iPhone 上的 App 不能由电脑自动安装，要先自己装好：
 
 - 电脑上开着 Android Studio 等程序自己的 adb 时，手机被它占着，电脑端会经它连接，用法不变。被别的程序（如手机助手类软件）占着时，电脑端窗口会提示「手机的 USB 调试接口被其他程序占用」，关掉那个程序再插拔数据线。
 - 免调试连接只支持银河麒麟（Linux），Windows 和 Mac 上需要开 USB 调试。
-- 不支持：龙芯 3A4000（mips64el）、申威（sw64）。
+- 不支持：龙芯（loongarch64、mips64el）、申威（sw64）。
 - Mac 版、iPhone 版目前只在 GitHub 的 macOS 机器上编译通过，还没有在真机上测试过；Mac 版和 iPhone 版都没有苹果开发者签名。
 - iPhone 不能由电脑自动安装、更新 App，切到后台会断开（见「iPhone」一节）。
 - 手机 App 用正式证书签名。手机上如果装过测试版，需要先卸载，电脑端才能自动装上新版。

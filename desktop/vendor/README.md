@@ -9,4 +9,4 @@ desktop/vendor/
 ```
 
 电脑端不再带 adb：开了 USB 调试的手机由电脑端自己经 USB 连接（`desktop/core/internal/adbwire`，Windows 用系统自带的 WinUSB，
-Linux 用内核的 usbfs），所有平台（含 Win7、32 位、麒麟 arm64 和龙芯）都一样。以前随包带的 adb 33.0.3、Windows 通用 C 运行库和麒麟 arm64 的 adb 都已去掉。
+Linux 用内核的 usbfs），所有平台（含 Win7、32 位、麒麟 arm64）都一样。以前随包带的 adb 33.0.3、Windows 通用 C 运行库和麒麟 arm64 的 adb 都已去掉。

@@ -203,7 +203,7 @@ func TestManagerSkipsADBPhones(t *testing.T) {
 	if len(m.Snapshot()) != 0 {
 		t.Fatal("开了 USB 调试、有 adb 时应交给 adb")
 	}
-	// 没有 adb（龙芯）：开了调试的手机也能免调试连接
+	// 没有 adb：开了调试的手机也能免调试连接
 	adbOK = false
 	m.poll(context.Background())
 	if len(m.Snapshot()) != 1 {

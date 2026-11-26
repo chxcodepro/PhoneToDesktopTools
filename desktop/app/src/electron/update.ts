@@ -50,7 +50,7 @@ export function assetSuffixes(platform: string, arch: string, appImage: boolean)
   if (platform === 'darwin') return [arch === 'arm64' ? '-mac-arm64.dmg' : '-mac-x64.dmg'];
   if (platform !== 'linux') return [];
   if (appImage) return arch === 'arm64' ? ['-linux-arm64.AppImage'] : ['-linux-x86_64.AppImage', '-linux-x64.AppImage'];
-  const deb: Record<string, string> = { x64: 'amd64', arm64: 'arm64', loong64: 'loongarch64' };
+  const deb: Record<string, string> = { x64: 'amd64', arm64: 'arm64' };
   return deb[arch] ? [`-linux-${deb[arch]}.deb`] : [];
 }
 

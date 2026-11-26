@@ -56,11 +56,10 @@
 | 电脑 | Windows 10 / 11、Windows 7 SP1（x64 / x86） | `P2D-<版本>-win-x64-setup.exe` / `-win-ia32-setup.exe`（安装程序） |
 | 电脑 | 银河麒麟 V10 arm64（飞腾、鲲鹏、海思麒麟） | `P2D-<版本>-linux-arm64.deb` |
 | 电脑 | 银河麒麟 V10 x86_64（兆芯、海光、Intel） | `P2D-<版本>-linux-amd64.deb` |
-| 电脑 | 银河麒麟 V10 龙芯 3A5000 / 3A6000 | `P2D-<版本>-linux-loongarch64.deb` |
 | 电脑 | macOS 10.13 及以上（Apple 芯片 / Intel） | `P2D-<版本>-mac-arm64.dmg` / `-mac-x64.dmg` |
 | 手机 | iPhone（iOS 16.4 及以上） | `P2D-<版本>-ios-unsigned.ipa`（未签名，要自己签名安装） |
 
-暂不支持：龙芯 3A4000（mips64el）、申威（sw64）。Mac 版和 iPhone 版还没有真机测试，也没有苹果开发者签名，安装方法见 [安装说明](docs/INSTALL.md)。
+不支持：龙芯（loongarch64、mips64el）、申威（sw64）。Mac 版和 iPhone 版还没有真机测试，也没有苹果开发者签名，安装方法见 [安装说明](docs/INSTALL.md)。
 
 ## 快速开始
 
@@ -149,7 +148,7 @@ APK 签名、麒麟各 CPU 的打包方式、调试方法等见 [开发说明](d
 欢迎提交 Issue 和 Pull Request。
 
 - 提交前请运行对应部分的测试：`desktop/core` 下 `go test ./...`，`mobile` 下 `npm test`，`desktop/app` 下 `npm run typecheck`。
-- 电脑端必须能在 Windows 7 和银河麒麟（含龙芯）上运行：不要升级 Go 1.20 和 Electron 22，引入的第三方组件需要所有平台都能用。Mac 版的截图、键鼠、USB 用 cgo 调用系统框架，只能在 Mac 上编译（CI 的 core-mac 任务）。
+- 电脑端必须能在 Windows 7 和银河麒麟上运行：不要升级 Go 1.20 和 Electron 22，引入的第三方组件需要所有平台都能用。Mac 版的截图、键鼠、USB 用 cgo 调用系统框架，只能在 Mac 上编译（CI 的 core-mac 任务）。
 - 请不要提交签名证书、API Key 等敏感信息。
 
 ## 许可证

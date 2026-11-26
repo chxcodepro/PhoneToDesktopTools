@@ -15,7 +15,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// Supported 这个系统能不能直接访问 USB 设备。Linux 直接用内核的 usbfs，不需要 libusb，龙芯也能用。
+// Supported 这个系统能不能直接访问 USB 设备。Linux 直接用内核的 usbfs，不需要 libusb。
 const Supported = true
 
 const (

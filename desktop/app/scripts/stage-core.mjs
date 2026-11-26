@@ -11,7 +11,6 @@ const map = [
   ['windows-386', 'win-ia32', 'p2d-core.exe'],
   ['linux-amd64', 'linux-x64', 'p2d-core'],
   ['linux-arm64', 'linux-arm64', 'p2d-core'],
-  ['linux-loong64', 'linux-loong64', 'p2d-core'],
   ['darwin-amd64', 'mac-x64', 'p2d-core'],
   ['darwin-arm64', 'mac-arm64', 'p2d-core'],
 ];

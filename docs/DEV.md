@@ -82,10 +82,10 @@ GitHub 上在仓库「Settings → Secrets and variables → Actions」里添加
 
 | 产物（Actions 页面的 Artifacts） | 内容 |
 |---|---|
-| `core` | 电脑端核心，5 个平台（Windows x64 / x86，Linux x64 / arm64 / loong64） |
+| `core` | 电脑端核心，4 个平台（Windows x64 / x86，Linux x64 / arm64） |
 | `apk` | 手机端 APK（arm64-v8a + armeabi-v7a） |
 | `desktop-win` | 电脑端安装程序 `-setup.exe`（x64、ia32 各一个），已内置 APK |
-| `desktop-linux` | 电脑端 deb 和 tar.gz（x64、arm64、龙芯），AppImage（x64、arm64） |
+| `desktop-linux` | 电脑端 deb 和 tar.gz（x64、arm64），AppImage（x64、arm64） |
 
 - 每次推送和 PR 都会跑；产物保留 14 天。版本号为 `0.1.0-ci.<运行编号>`。
 - 推送 `v` 开头的标签（如 `git tag v0.1.0 && git push origin v0.1.0`）会另外创建 GitHub Release，附上以上所有文件，版本号取标签。**检查更新只认 Release**：平时推送的 `ci` 构建不会被检查到，要让用户收到更新就打标签。版本号要比上一个标签大（`0.1.0` 比 `0.1.0-ci.N` 新）。
@@ -100,7 +100,7 @@ GitHub 上在仓库「Settings → Secrets and variables → Actions」里添加
 - **Mac、iPhone**：代码已完成，只在 CI 的 macOS 机器上编译过，没有真机测试。最没把握的是 cgo 调用系统框架的部分：截图（`internal/screen/screen_darwin.go`，图像上下颠倒的话看那里的坐标翻转）、键鼠（`internal/input/input_darwin.go`）、IOKit USB（`internal/usbio/usbio_darwin.go`）；iPhone 端的 Swift 代码（`modules/p2d-accessory/ios`、`modules/p2d-ocr/ios`）同样只编译过。
 - **苹果签名**：没有开发者账号。Mac 版只做本地签名（ad-hoc），用户第一次打开要手动放行；iPhone 版是未签名的 ipa。有账号后：Mac 配置 Developer ID 证书并公证（electron-builder 的 `mac.identity`、`notarize`），iPhone 改成签名导出或用 EAS / TestFlight 发布。
 - **Mac 截图帧率**：`CGDisplayCreateImageForRect` 不可用时退回 `screencapture` 命令，每帧一两百毫秒；以后可改用 ScreenCaptureKit（macOS 12.3 起）。
-- **麒麟**：x86_64 虚拟机上全部功能实测通过（TESTING.md 2.4）；arm64、龙芯没有真机，未实测。
+- **麒麟**：x86_64 虚拟机上全部功能实测通过（TESTING.md 2.4）；arm64 没有真机，未实测。
 
 ## 麒麟各 CPU
 
@@ -108,14 +108,14 @@ GitHub 上在仓库「Settings → Secrets and variables → Actions」里添加
 |---|---|---|---|---|
 | 兆芯、海光、Intel | x86_64 | 上游 Go 1.20 | Electron 22（官方） | deb、AppImage |
 | 飞腾、鲲鹏、海思麒麟 | arm64 | 上游 Go 1.20 | Electron 22（官方） | deb、AppImage |
-| 龙芯 3A5000 / 3A6000 | loongarch64（旧世界） | 龙芯旧世界 Go 1.20.12 | 龙芯 Electron 22.3.27 | deb |
+| 龙芯 3A5000 / 3A6000 | loongarch64（旧世界） | 要用龙芯旧世界 Go | 要用龙芯 Electron | 不做（2026年11月决定） |
 | 龙芯 3A4000 | mips64el | — | 没有 Electron 22 | 不支持 |
 | 申威 | sw64 | 上游 Go 不支持 | 没有 | 不支持 |
 
 数据线连接（USB 调试和免调试连接）都由 Core 自己通过 usbfs 完成，各 CPU 相同，不需要 adb。
 
-- 麒麟 V10 的龙芯版是「旧世界」：信号处理的 `ucontext` 结构、信号集大小都和上游 Go 假设的「新世界」不同，上游 Go 编出的程序收到信号就会出错，所以必须用龙芯的旧世界 Go（`scripts/fetch-loong-go.sh`，只有 linux-amd64 版，所以龙芯版只在 GitHub 构建里编译）。
-- `scripts/package-linux.sh` 把 electron-builder 的 `linux-*-unpacked` 打成 deb 和 tar.gz；龙芯版在 x64 目录基础上换成龙芯 Electron 和龙芯核心。
+- 龙芯版不做：麒麟 V10 的龙芯版是「旧世界」ABI，上游 Go 编出的程序收到信号就会出错，必须用龙芯官方的旧世界 Go 和 Electron，而龙芯的下载服务器（ftp.loongnix.cn）不稳定，2026年11月起不再提供龙芯版。
+- `scripts/package-linux.sh` 把 electron-builder 的 `linux-*-unpacked` 打成 deb 和 tar.gz。
 - 麒麟 KySec 执行控制只放行 dpkg 安装的程序（「警告」模式会先询问），所以交付用 deb，不用 AppImage。安装步骤见 [INSTALL.md](INSTALL.md)。
 
 ## 手机端自动更新

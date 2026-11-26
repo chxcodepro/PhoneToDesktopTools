@@ -9,7 +9,7 @@ import (
 	"p2d/core/internal/usbio"
 )
 
-// Supported 这个系统能不能用免调试连接。Linux 直接用内核的 usbfs，不需要 libusb，龙芯也能用。
+// Supported 这个系统能不能用免调试连接。Linux 直接用内核的 usbfs，不需要 libusb。
 const Supported = true
 
 func newBackend() usbBackend { return sysfsBackend{root: usbio.SysfsRoot, dev: usbio.DevRoot} }
