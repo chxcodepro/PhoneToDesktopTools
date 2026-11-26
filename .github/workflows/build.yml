@@ -68,7 +68,7 @@ jobs:
 
   core-mac:
     needs: version
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -229,7 +229,7 @@ jobs:
             target: win
           - os: ubuntu-latest
             target: linux
-          - os: macos-14
+          - os: macos-15
             target: mac
     runs-on: ${{ matrix.os }}
     defaults:
