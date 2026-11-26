@@ -36,6 +36,7 @@ var (
 	procBitBlt               = gdi32.NewProc("BitBlt")
 	procDeleteObject         = gdi32.NewProc("DeleteObject")
 	procDeleteDC             = gdi32.NewProc("DeleteDC")
+	procDwmIsComposition     = syscall.NewLazyDLL("dwmapi.dll").NewProc("DwmIsCompositionEnabled") // Vista+
 	enumMonitorsCallbackOnce sync.Once
 	enumMonitorsCallback     uintptr
 	enumMu                   sync.Mutex
@@ -71,6 +72,20 @@ const (
 )
 
 var initOnce sync.Once
+
+// bltFlags BitBlt 的附加标志。CAPTUREBLT 能把分层窗口（半透明窗口、部分程序的菜单和提示）截进来，
+// 但每截一次系统都要隐藏再显示鼠标，远程桌面每秒截二十多次，电脑上的鼠标就一直闪。
+// 开着桌面合成（DWM：Win8 起一直开着，Win7 用 Aero 主题时开着）时，屏幕 DC 里已经是合成好的画面，
+// 分层窗口不加这个标志也截得到，所以只在 Win7 关掉 Aero（经典 / 基本主题）时才加。
+func bltFlags() uintptr {
+	if procDwmIsComposition.Find() == nil {
+		var on int32
+		if r, _, _ := procDwmIsComposition.Call(uintptr(unsafe.Pointer(&on))); r == 0 && on != 0 {
+			return 0
+		}
+	}
+	return captureBlt
+}
 
 // Init 声明进程感知 DPI，使截图、鼠标和界面元素的坐标都是物理像素（缩放 125%/150%/175% 时很重要）。
 // 优先「每个显示器单独感知」：多个显示器缩放不同、或改了缩放没有重新登录时，坐标也不会被系统换算错；
@@ -212,7 +227,7 @@ func Capture(r image.Rectangle) (*image.RGBA, error) {
 	defer procSelectObject.Call(hdcMem, old)
 
 	ok, _, _ := procBitBlt.Call(hdcMem, 0, 0, uintptr(w), uintptr(h), hdcScreen,
-		uintptr(int32(r.Min.X)), uintptr(int32(r.Min.Y)), srcCopy|captureBlt)
+		uintptr(int32(r.Min.X)), uintptr(int32(r.Min.Y)), srcCopy|bltFlags())
 	if ok == 0 {
 		return nil, errors.New("BitBlt 失败（可能处于锁屏或安全桌面）")
 	}

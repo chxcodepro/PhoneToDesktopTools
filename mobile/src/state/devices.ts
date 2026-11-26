@@ -35,6 +35,8 @@ export interface PcDevice {
   /** 是否有配对密钥（能 WiFi 直连） */
   paired: boolean;
   pairedAt?: number;
+  /** 连上这台电脑后让它的显示器黑屏（在虚拟桌面里开关，记住选择） */
+  blank?: boolean;
 }
 
 export interface DevicesState {

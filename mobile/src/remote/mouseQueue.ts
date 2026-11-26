@@ -1,5 +1,5 @@
 // 鼠标操作按顺序发给电脑：电脑端并行执行各个工具调用，按下 / 移动 / 松开如果乱序，拖动就会出错。
-// 上一个调用返回后才发下一个；排队中的连续移动只保留最后一个，网络慢时不会越积越多。
+// 上一个调用返回后才发下一个；排队中的连续移动只保留最后一个、连续滚动合成一次，网络慢时不会越积越多。
 
 export type MouseArgs = Record<string, unknown>;
 
@@ -12,7 +12,10 @@ export class MouseQueue {
   push(args: MouseArgs): void {
     const last = this.queue[this.queue.length - 1];
     if (args.action === 'move' && last?.action === 'move') this.queue[this.queue.length - 1] = args;
-    else this.queue.push(args);
+    else if (args.action === 'scroll' && last?.action === 'scroll' && last.x === args.x && last.y === args.y) {
+      // 同一位置的连续滚动合成一次（滑得快、网络慢时不会越积越多）
+      this.queue[this.queue.length - 1] = { ...last, dy: Number(last.dy) + Number(args.dy) };
+    } else this.queue.push(args);
     void this.pump();
   }
 

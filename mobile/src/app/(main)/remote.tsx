@@ -1,4 +1,4 @@
-// 虚拟桌面页：实时画面 + 平板触控 / 触控板 + 键盘输入（不经过大模型，直接调用电脑工具），
+// 虚拟桌面页：实时画面 + 触控 / 触控板 + 键盘输入（不经过大模型，直接调用电脑工具），
 // 下方是 Agent 消息面板和发给 Agent 的输入框。
 // 竖屏：画面铺满宽度；横屏：画面全屏，按钮竖排在右侧，隐藏状态栏。
 
@@ -15,6 +15,7 @@ import {
   Maximize,
   Minimize,
   Monitor,
+  MonitorOff,
   MonitorSmartphone,
   MousePointer2,
   MousePointerClick,
@@ -28,6 +29,7 @@ import {
   Modal,
   Pressable,
   TextInput,
+  Vibration,
   View,
   useWindowDimensions,
   type LayoutChangeEvent,
@@ -49,6 +51,7 @@ import { cn } from '@/lib/utils';
 import { RemoteController, type Overlay } from '@/remote/controller';
 import { NO_ZOOM, toView } from '@/remote/geometry';
 import { useScreenStream } from '@/remote/useScreenStream';
+import { setBlank } from '@/state/blank';
 import { useConnection } from '@/state/connection';
 import { useDevices } from '@/state/devices';
 import { cycleView, useViewTargets, viewClient } from '@/state/multi';
@@ -102,6 +105,13 @@ export default function RemoteScreen() {
   const { devices } = useDevices();
   const viewDev = devices.find((d) => d.pcId === (view.pcId ?? conn.pcId));
   const isMac = osInfo(viewDev?.os ?? (view.pcId ? undefined : conn.params?.os), viewDev?.osName).family === 'macos';
+  // 黑屏：这台电脑开过就记住，下次连上自动打开
+  const blankOn = !!viewDev?.blank;
+  const toggleBlank = async () => {
+    const next = !blankOn;
+    const err = await setBlank(viewClient(), view.pcId ?? conn.pcId, next);
+    showToast(err ?? (next ? '电脑显示器已黑屏，手机上照常操作；断开后自动恢复' : '已恢复电脑显示'));
+  };
   const [display, setDisplay] = useState(0);
   const { frame, displays, error, fps } = useScreenStream(display);
   // 触控板默认关闭：画面上直接点击；打开后竖屏在下方显示触控板，横屏时画面本身变成触控板
@@ -113,7 +123,7 @@ export default function RemoteScreen() {
   const [combosOpen, setCombosOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [area, setArea] = useState({ w: 0, h: 0 });
-  const [overlay, setOverlay] = useState<Overlay>({ cursor: null, zoom: NO_ZOOM });
+  const [overlay, setOverlay] = useState<Overlay>({ cursor: null, zoom: NO_ZOOM, press: null });
   const [hintDone, setHintDone] = useState<string | null>(null);
   const [landscapeWanted, setLandscapeWanted] = useState(false);
   const pcInputRef = useRef<TextInputInstance>(null);
@@ -163,7 +173,7 @@ export default function RemoteScreen() {
   const aspect = frame ? frame.width / frame.height : 16 / 9;
   const fit =
     area.w && area.h ? (area.w / area.h > aspect ? { w: area.h * aspect, h: area.h } : { w: area.w, h: area.w / aspect }) : { w: 0, h: 0 };
-  // 画面上的手势：横屏且打开触控板时按触控板处理，其余情况按平板触控处理（手指就是鼠标）
+  // 画面上的手势：横屏且打开触控板时按触控板处理，其余情况按触控模式处理（手指点哪里鼠标就到哪里）
   const screenMode = landscape && trackpad ? 'trackpad' : 'touch';
   // 刚看到画面、切换操作方式时，在画面上提示几秒怎么操作
   const hintKey = frame && focused ? screenMode : null;
@@ -181,6 +191,7 @@ export default function RemoteScreen() {
         (args) => viewClient()?.callTool('input_mouse', args) ?? Promise.resolve(),
         () => setRightNext(false),
         setOverlay,
+        () => Vibration.vibrate(15),
       ),
   );
   useEffect(() => {
@@ -235,6 +246,7 @@ export default function RemoteScreen() {
             {marker ? <ActionMarker left={marker.left} top={marker.top} /> : null}
             {overlay.cursor ? <CursorArrow left={overlay.cursor.left} top={overlay.cursor.top} /> : null}
           </View>
+          {overlay.press ? <PressRing x={overlay.press.x} y={overlay.press.y} drag={overlay.press.state === 'drag'} /> : null}
           {overlay.zoom.s > 1 ? (
             <Pressable
               onPress={() => ctrl.resetZoom()}
@@ -249,7 +261,7 @@ export default function RemoteScreen() {
             <View pointerEvents="none" className="absolute left-2 right-2 top-8 items-center">
               <Text className="rounded bg-black/70 px-2 py-1 text-center text-[10px] leading-4 text-white">
                 {screenMode === 'touch'
-                  ? '轻点 = 点击 · 点两下 = 双击 · 按住拖动 = 拖动 · 长按 = 右键\n双指上下滑 = 滚动 · 双指捏合 = 放大画面 · 双指轻点 = 右键'
+                  ? '轻点 = 点击 · 点两下 = 双击 · 滑动 = 滚动\n长按后拖动 = 选文字 / 拖窗口 · 长按松手 = 右键 · 双指捏合 = 放大'
                   : '滑动移动鼠标 · 轻点 = 左键 · 长按 = 右键 · 双指上下滑 = 滚动 · 双指捏合 = 放大画面'}
               </Text>
             </View>
@@ -341,6 +353,7 @@ export default function RemoteScreen() {
       <SideButton key="up" icon={ArrowUp} label="上滚" onPress={() => scroll(3)} />,
       <SideButton key="down" icon={ArrowDown} label="下滚" onPress={() => scroll(-3)} />,
       <SideButton key="combo" icon={Command} label="组合键" onPress={() => setCombosOpen(true)} />,
+      <SideButton key="blank" icon={MonitorOff} label="黑屏" active={blankOn} onPress={() => void toggleBlank()} />,
       ...(targets.length > 1
         ? [<SideButton key="pc" icon={MonitorSmartphone} label={view.name} onPress={() => cycleView(targets, view)} />]
         : []),
@@ -432,6 +445,7 @@ export default function RemoteScreen() {
             <ToolButton icon={ArrowUp} label="上滚" onPress={() => scroll(3)} />
             <ToolButton icon={ArrowDown} label="下滚" onPress={() => scroll(-3)} />
             <ToolButton icon={Command} label="组合键" onPress={() => setCombosOpen(true)} />
+            <ToolButton icon={MonitorOff} label="黑屏" active={blankOn} onPress={() => void toggleBlank()} />
           </View>
           {typing ? pcKeyboardBar : null}
 
@@ -476,6 +490,27 @@ export default function RemoteScreen() {
       </KeyboardAvoidingView>
       {common}
     </SafeAreaView>
+  );
+}
+
+/** 长按提示：长按后出现空心圆（可以拖动了），拖动中变成实心 */
+function PressRing({ x, y, drag }: { x: number; y: number; drag: boolean }) {
+  const r = 22;
+  return (
+    <View
+      pointerEvents="none"
+      style={{
+        position: 'absolute',
+        left: x - r,
+        top: y - r,
+        width: r * 2,
+        height: r * 2,
+        borderRadius: r,
+        borderWidth: 2,
+        borderColor: '#3b82f6',
+        backgroundColor: drag ? 'rgba(59,130,246,0.35)' : 'rgba(59,130,246,0.12)',
+      }}
+    />
   );
 }
 

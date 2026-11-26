@@ -20,6 +20,7 @@ import (
 
 	"p2d/core/internal/adb"
 	"p2d/core/internal/aoa"
+	"p2d/core/internal/blank"
 	"p2d/core/internal/iphone"
 	"p2d/core/internal/lan"
 	"p2d/core/internal/lanfw"
@@ -146,6 +147,9 @@ func main() {
 		srv.Accessory = acc
 	}
 
+	// 黑屏：手机要求时让显示器黑屏（Windows 10 2004 起；手机断开后自动恢复）
+	srv.Blank = blankScreen{}
+
 	// iPhone 数据线连接：经系统的 usbmuxd（Mac 自带；Windows 要装「Apple 设备」或 iTunes；Linux 要装 usbmuxd）
 	var iph *iphone.Manager
 	if !*noIPhone {
@@ -230,3 +234,10 @@ func main() {
 	defer c2()
 	_ = httpSrv.Shutdown(shutdownCtx)
 }
+
+// blankScreen 把 internal/blank 的函数接到服务端
+type blankScreen struct{}
+
+func (blankScreen) Supported() error { return blank.Supported() }
+func (blankScreen) Show() error      { return blank.Show() }
+func (blankScreen) Hide()            { blank.Hide() }

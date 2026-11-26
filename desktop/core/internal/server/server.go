@@ -3,6 +3,7 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"log"
 	"net"
 	"net/http"
@@ -46,6 +47,13 @@ type IPhoneSource interface {
 	SuppressAll()    // 用户点「断开」后，拔线前不再连接
 }
 
+// BlankScreen 黑屏（由 internal/blank 实现）：手机连着时让电脑显示器黑屏，手机上照常看得到画面
+type BlankScreen interface {
+	Supported() error // 不支持时返回原因
+	Show() error
+	Hide()
+}
+
 // Server MCP 服务。
 type Server struct {
 	reg       *tools.Registry
@@ -53,6 +61,11 @@ type Server struct {
 	Devices   DeviceSource
 	Accessory AccessorySource // 免调试连接，不支持的系统为 nil
 	IPhones   IPhoneSource    // iPhone 数据线连接，未启用时为 nil
+	Blank     BlankScreen     // 黑屏，为 nil 时不支持
+
+	blankMu   sync.Mutex
+	blankWant map[int64]bool // 要求黑屏的会话
+	blankOn   bool
 	LAN       *LANConfig      // 局域网直连，未开启时为 nil
 	Driver    *ElevatedAction // 手机 USB 驱动检测与安装（仅 Windows），不支持时为 nil
 	Firewall  *ElevatedAction // 防火墙放行局域网直连端口（银河麒麟），不支持时为 nil
@@ -154,8 +167,69 @@ func (s *Server) runSession(sess *Session, conn *websocket.Conn) {
 	}
 	s.mu.Unlock()
 	_ = conn.Close()
+	// 手机断开后不能让电脑一直黑着：撤掉这个会话的黑屏要求
+	_ = s.setBlank(id, false)
 	log.Printf("[会话 %d] 连接已断开", id)
 	s.changed()
+}
+
+// setBlank 记下某个会话要不要黑屏；有任何一个会话要求就黑屏，都不要求时恢复显示
+func (s *Server) setBlank(id int64, on bool) error {
+	s.blankMu.Lock()
+	defer s.blankMu.Unlock()
+	if s.Blank == nil {
+		if on {
+			return errors.New("这台电脑的电脑端不支持黑屏")
+		}
+		return nil
+	}
+	if on {
+		if err := s.Blank.Supported(); err != nil {
+			return err
+		}
+	}
+	if s.blankWant == nil {
+		s.blankWant = map[int64]bool{}
+	}
+	if on {
+		s.blankWant[id] = true
+	} else {
+		delete(s.blankWant, id)
+	}
+	want := len(s.blankWant) > 0
+	if want == s.blankOn {
+		return nil
+	}
+	if want {
+		if err := s.Blank.Show(); err != nil {
+			delete(s.blankWant, id)
+			return err
+		}
+		log.Printf("[会话 %d] 已打开黑屏", id)
+	} else {
+		s.Blank.Hide()
+		log.Printf("已关闭黑屏，恢复显示")
+	}
+	s.blankOn = want
+	s.changed()
+	return nil
+}
+
+// blankStatus 状态接口里的黑屏信息
+func (s *Server) blankStatus() map[string]any {
+	st := map[string]any{"supported": false}
+	if s.Blank == nil {
+		return st
+	}
+	if err := s.Blank.Supported(); err != nil {
+		st["reason"] = err.Error()
+		return st
+	}
+	s.blankMu.Lock()
+	defer s.blankMu.Unlock()
+	st["supported"] = true
+	st["on"] = s.blankOn
+	return st
 }
 
 func (s *Server) changed() {
@@ -259,6 +333,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		"uptime":   int(time.Since(s.started).Seconds()),
 		"sessions": s.Sessions(),
 		"lan":      s.lanStatus(),
+		"blank":    s.blankStatus(),
 	}
 	devices := []any{}
 	if s.Devices != nil {

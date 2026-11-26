@@ -83,6 +83,31 @@ describe('鼠标操作队列', () => {
     assert.deepEqual(sent[1], { action: 'move', x: 3, y: 3 });
   });
 
+  it('排队中同一位置的连续滚动合成一次', async () => {
+    const sent: MouseArgs[] = [];
+    let release: () => void = () => undefined;
+    const q = new MouseQueue(
+      (a) =>
+        new Promise<void>((r) => {
+          sent.push(a);
+          release = r;
+        }),
+    );
+    q.push({ action: 'click', x: 1, y: 1 });
+    q.push({ action: 'scroll', dy: 2, x: 5, y: 5 });
+    q.push({ action: 'scroll', dy: 3, x: 5, y: 5 });
+    q.push({ action: 'scroll', dy: -1, x: 9, y: 9 }); // 换了位置：不合并
+    assert.equal(q.pending, 2);
+    for (let i = 0; i < 3; i++) {
+      release();
+      await new Promise((r) => setTimeout(r, 0));
+    }
+    assert.deepEqual(sent.slice(1), [
+      { action: 'scroll', dy: 5, x: 5, y: 5 },
+      { action: 'scroll', dy: -1, x: 9, y: 9 },
+    ]);
+  });
+
   it('某个操作失败不影响后面的', async () => {
     const sent: string[] = [];
     const q = new MouseQueue(async (a) => {

@@ -403,6 +403,34 @@ func (s *Session) dispatch(m rpcMessage) {
 				s.reply(m.ID, res)
 			}
 		}()
+	case "p2d/blank.set":
+		// 黑屏：电脑显示器黑屏，手机上照常看得到画面、照常操作（断开时自动恢复）
+		var p struct {
+			On bool `json:"on"`
+		}
+		if len(m.Params) > 0 {
+			if err := json.Unmarshal(m.Params, &p); err != nil {
+				s.fail(m.ID, errInvalidParams, "黑屏参数格式错误")
+				return
+			}
+		}
+		if p.On {
+			if ok, why := s.Info().Permissions.Allow(perm.CatInput, perm.Write); !ok {
+				s.fail(m.ID, errInvalidRequest, why)
+				return
+			}
+		}
+		if s.server == nil {
+			s.fail(m.ID, errInternal, "这台电脑的电脑端不支持黑屏")
+			return
+		}
+		if err := s.server.setBlank(s.id, p.On); err != nil {
+			s.fail(m.ID, errInvalidRequest, err.Error())
+			return
+		}
+		if !notify {
+			s.reply(m.ID, map[string]any{"on": p.On})
+		}
 	case "p2d/screen.stop":
 		s.stopStream()
 		if !notify {
