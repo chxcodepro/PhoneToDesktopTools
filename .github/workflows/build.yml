@@ -125,10 +125,19 @@ jobs:
         run: |
           ws=$(ls -d *.xcworkspace | head -1)
           scheme="${ws%.xcworkspace}"
-          xcodebuild -workspace "$ws" -scheme "$scheme" -configuration Release -sdk iphoneos \
+          # 完整输出写进 build.log（失败时上传）；不能接管道 | tail，否则编译失败也会被当成成功，打出空的 ipa
+          if ! xcodebuild -workspace "$ws" -scheme "$scheme" -configuration Release -sdk iphoneos \
             -destination 'generic/platform=iOS' -derivedDataPath build \
-            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build | tail -50
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build > build.log 2>&1; then
+            echo "::group::出错的地方"
+            grep -nE "error:|: error|Error:|\*\* BUILD FAILED|Command PhaseScriptExecution failed" build.log | head -100
+            echo "::endgroup::"
+            tail -200 build.log
+            exit 1
+          fi
+          tail -20 build.log
           app=$(ls -d build/Build/Products/Release-iphoneos/*.app | head -1)
+          test -n "$app" && test -f "$app/Info.plist"
           mkdir -p Payload && cp -R "$app" Payload/
           zip -qry ../p2d-unsigned.ipa Payload
           ls -la ../p2d-unsigned.ipa
@@ -136,6 +145,12 @@ jobs:
         with:
           name: ios
           path: mobile/p2d-unsigned.ipa
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: ios-build-log
+          path: mobile/ios/build.log
           retention-days: 14
 
   apk:
