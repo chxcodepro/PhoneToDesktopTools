@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
+	"os"
+	"strconv"
 	"time"
 
 	"p2d/core/internal/perm"
@@ -107,6 +109,11 @@ func (s *Session) runVideo(ctx context.Context, cfg streamConfig, ready chan<- *
 	if cfg.Video.MaxFPS > 0 && fps > cfg.Video.MaxFPS {
 		fps = cfg.Video.MaxFPS
 	}
+	// 调试用：P2D_VIDEO_FPS 强制视频帧率（不看手机要的和解码器上限），用来试高帧率
+	if n, _ := strconv.Atoi(os.Getenv("P2D_VIDEO_FPS")); n > 0 && n <= 240 {
+		fps = n
+		log.Printf("[会话 %d] 视频帧率按 P2D_VIDEO_FPS 设为 %d", s.id, fps)
+	}
 	v, err := screen.OpenVideo(d, screen.VideoConfig{Width: w, Height: h, FPS: fps})
 	if err != nil {
 		log.Printf("[会话 %d] 不能用硬件视频流，改用分块推流：%v", s.id, err)
@@ -123,17 +130,18 @@ func (s *Session) runVideo(ctx context.Context, cfg streamConfig, ready chan<- *
 	scale := float64(w) / float64(d.Width)
 	interval := time.Second / time.Duration(fps)
 
-	// 码率自适应：每秒看一次有多少次想编新画面却因为手机没确认而等着（网络或手机跟不上），
-	// 经常等就降 20%，一直顺畅就慢慢升回默认码率
+	// 码率自适应：每秒看一次有多少个帧位（按帧率算）想编新画面却因为手机没确认而等着（网络或手机跟不上），
+	// 超过一半就降 20%，基本不等就慢慢升回默认码率。按帧位算而不是按循环次数算：
+	// 循环每毫秒转一次，按次数算的话一秒里只等十几毫秒就会被当成跟不上，码率很快掉到最低
 	baseRate := screen.DefaultBitrate(w, h, fps)
 	rate, blocked, lastAdjust := baseRate, 0, time.Now()
-	var lastFeed, lastChange, lastCursor, lastPerm, lastAck time.Time
+	var lastFeed, lastChange, lastCursor, lastPerm, lastAck, lastBlocked time.Time
 	lastAcked := s.stream.acked.Load()
 	refined := videoRefine
 	lastCX, lastCY := -1, -1
 	var stats struct {
-		frames, bytes int
-		since         time.Time
+		frames, bytes, blocked int
+		since                  time.Time
 	}
 	stats.since = time.Now()
 
@@ -183,12 +191,12 @@ func (s *Session) runVideo(ctx context.Context, cfg streamConfig, ready chan<- *
 		}
 		if now.Sub(lastAdjust) >= time.Second {
 			nr := rate
-			if blocked > fps/4 {
+			if blocked > fps/2 {
 				nr = rate * 4 / 5
 				if nr < videoMinRate {
 					nr = videoMinRate
 				}
-			} else if blocked == 0 && rate < baseRate {
+			} else if blocked <= fps/10 && rate < baseRate {
 				nr = rate * 11 / 10
 				if nr > baseRate {
 					nr = baseRate
@@ -200,8 +208,10 @@ func (s *Session) runVideo(ctx context.Context, cfg streamConfig, ready chan<- *
 			}
 			blocked, lastAdjust = 0, now
 		}
-		if v.CanFeed() && inflight >= videoInFlight && now.Sub(lastFeed) >= interval {
+		if v.CanFeed() && inflight >= videoInFlight && now.Sub(lastFeed) >= interval && now.Sub(lastBlocked) >= interval {
 			blocked++
+			stats.blocked++
+			lastBlocked = now
 		}
 		if v.CanFeed() && inflight < videoInFlight && now.Sub(lastFeed) >= interval {
 			fed, err := v.Feed(8 * time.Millisecond)
@@ -232,10 +242,10 @@ func (s *Session) runVideo(ctx context.Context, cfg streamConfig, ready chan<- *
 		}
 		if time.Since(stats.since) >= time.Minute {
 			if stats.frames > 0 {
-				log.Printf("[会话 %d] 远程桌面推流：最近 1 分钟 %d 帧，平均每帧 %d KB，%.1f Mbps，码率上限 %.1f Mbps（硬件视频 %s）",
-					s.id, stats.frames, stats.bytes/stats.frames/1024, float64(stats.bytes*8)/60/1e6, float64(rate)/1e6, v.Name())
+				log.Printf("[会话 %d] 远程桌面推流：最近 1 分钟 %d 帧，平均每帧 %d KB，%.1f Mbps，码率上限 %.1f Mbps，等手机确认 %d 帧位（硬件视频 %s）",
+					s.id, stats.frames, stats.bytes/stats.frames/1024, float64(stats.bytes*8)/60/1e6, float64(rate)/1e6, stats.blocked, v.Name())
 			}
-			stats.frames, stats.bytes, stats.since = 0, 0, time.Now()
+			stats.frames, stats.bytes, stats.blocked, stats.since = 0, 0, 0, time.Now()
 		}
 		sleepCtx(ctx, time.Millisecond)
 	}

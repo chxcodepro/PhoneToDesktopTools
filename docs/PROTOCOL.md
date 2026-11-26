@@ -180,15 +180,16 @@ iOS 没有 adb，也没有给 App 用的 USB 接口，电脑和 iPhone 之间经
 
 JPEG 分块在整屏都变化时（视频、动态壁纸、拖动大窗口）每帧要几百 KB，60 帧/秒要 20 MB/秒以上。Windows 8 起、电脑有显卡硬件编码器、手机能硬件解码时改推 H.264 视频：
 
-- 手机端（有原生视频模块时）`p2d/screen.start` 再带 `video: { codec: "h264", maxWidth, maxHeight, maxFps }`（手机硬件解码器的上限），`fps` 填想要的帧率。
+- 手机端（有原生视频模块时）`p2d/screen.start` 再带 `video: { codec: "h264", maxWidth, maxHeight, maxFps, refresh? }`（手机硬件解码器的上限、屏幕最高刷新率），`fps` 填想要的帧率：不超过 120、解码器上限和屏幕刷新率（120Hz 屏幕按 120 帧，60Hz 的按 60 帧）。
+- 电脑端回复视频时也带 `tiles: true`（手机端只看 `tiles` 判断电脑端是不是不支持分块的旧版）。调试时可用环境变量 `P2D_VIDEO_FPS` 强制电脑端的视频帧率。
 - 电脑端（`internal/screen/h264_windows.go`、`internal/server/videostream.go`）：桌面复制拿到的画面留在显卡里，用 D3D11 视频处理器缩放并转成 NV12（BT.709、16～235），交给 Media Foundation 的硬件 H.264 编码器（NVIDIA NVENC、Intel Quick Sync、AMD），低延迟模式、不用 B 帧，关键帧只在开始和手机要的时候出。打开成功就回复 `video: { codec, width, height, encoder, bitrate }`；Win7、没有硬件编码器、打开失败（5 秒超时）时不带 `video`，按分块推流（`tiles: true`）继续。
 - 视频帧是二进制 WebSocket 消息（局域网直连时同样经过加密层，帧类型为二进制）：4 字节 `P2DV` + 4 字节小端 JSON 长度 + JSON `{ seq, key?, width, height, scale, x, y, display, cursorX?, cursorY? }` + H.264 数据（Annex B，带起始码；关键帧带 SPS/PPS）。
 - 手机端把数据交给原生解码器（Android：MediaCodec 硬件解码直接画到 TextureView，Android 11 起有低延迟模式时打开；iOS：AVSampleBufferDisplayLayer），显示完回 `p2d/screen.ack {seq}`。解码器还没建好、出错、显示视图重建后收到普通帧时，手机端发 `p2d/screen.keyframe`（最多每 0.5 秒一次）。
 - 流控：最多 3 帧没确认。手机跟不上时电脑端少编几帧（不能丢已经编好的帧，丢了后面的就解不出来）；确认 2 秒没动静当作已确认。
-- 码率：默认每像素每帧 0.12 比特（2376×1484、60 帧约 25 Mbps 上限，画面不动时几乎不占），每秒检查一次，经常因为等确认而不能编新画面就降 20%（最低 1.5 Mbps），顺畅时每秒升 10% 回到默认。
+- 码率：默认每像素每帧 0.12 比特（2376×1484、60 帧约 25 Mbps 上限，120 帧到 40 Mbps 封顶，画面不动时几乎不占），每秒检查一次：按帧位算，一秒里超过一半的帧位因为等确认而不能编新画面就降 20%（最低 1.5 Mbps），等的不到十分之一就升 10% 回到默认。
 - 画面停下来 0.3 秒后，把最后一帧再编 2 次，把运动时降下去的画质补回来。
 - 画面没变时，鼠标位置单独用 `p2d/screen.cursor { x, y }` 通知。
-- 每分钟在电脑端日志里记一次帧数、平均每帧大小、实际码率和当前码率上限。
+- 每分钟在电脑端日志里记一次帧数、平均每帧大小、实际码率、当前码率上限和等手机确认的帧位数。
 
 ## 6. 文件上传（自定义扩展）
 

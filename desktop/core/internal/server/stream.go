@@ -118,6 +118,8 @@ func (s *Session) startStream(cfg streamConfig) (*streamStarted, error) {
 	if cfg.Video != nil && cfg.Video.Codec == "h264" {
 		if info := s.startVideo(ctx, cfg); info != nil {
 			started.Video = info
+			// 也回 tiles：手机端只认 tiles 判断电脑端是不是旧版，没有 tiles 会退回整帧推流重新开始
+			started.Tiles = cfg.Tiles
 			log.Printf("[会话 %d] 开始远程桌面推流（显示器 %d，%d fps，%dx%d，硬件视频 %s）", s.id, cfg.Display, cfg.FPS, info.Width, info.Height, info.Encoder)
 			return started, nil
 		}

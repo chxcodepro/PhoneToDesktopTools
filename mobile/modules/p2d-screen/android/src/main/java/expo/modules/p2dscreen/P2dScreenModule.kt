@@ -1,10 +1,14 @@
 package expo.modules.p2dscreen
 
+import android.content.Context
+import android.hardware.display.DisplayManager
+import android.view.Display
 import expo.modules.kotlin.Promise
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import expo.modules.kotlin.records.Field
 import expo.modules.kotlin.records.Record
+import kotlin.math.roundToInt
 
 /** 一块画面：编码后画面上的位置和尺寸，JPEG base64 */
 class TileRecord : Record {
@@ -30,9 +34,9 @@ class P2dScreenModule : Module() {
       VideoRegistry.releaseAll()
     }
 
-    // 硬件解码 H.264 的上限（没有硬件解码器时为 null，推流用分块）
+    // 硬件解码 H.264 的上限（没有硬件解码器时为 null，推流用分块），refresh 是屏幕最高刷新率
     Function("videoCaps") {
-      VideoDecoder.caps()
+      VideoDecoder.caps()?.let { it + ("refresh" to refreshRate()) }
     }
 
     // 送一帧 H.264（Annex B）给解码器，显示完（或丢弃）后返回 ok / dropped / needKey
@@ -66,5 +70,13 @@ class P2dScreenModule : Module() {
         view.setVideoId(id)
       }
     }
+  }
+
+  /** 屏幕支持的最高刷新率（120Hz 屏幕的手机视频流按 120 帧请求，60Hz 的按 60 帧） */
+  private fun refreshRate(): Int {
+    val ctx = appContext.reactContext ?: return 60
+    val dm = ctx.getSystemService(Context.DISPLAY_SERVICE) as? DisplayManager ?: return 60
+    val d = dm.getDisplay(Display.DEFAULT_DISPLAY) ?: return 60
+    return (d.supportedModes.maxOfOrNull { it.refreshRate } ?: d.refreshRate).roundToInt()
   }
 }

@@ -285,17 +285,18 @@ export function useScreenStream(display: number, opts: StreamOptions = {}): Stre
 
     const startParams: Record<string, unknown> = { display, maxWidth, quality, fps: targetFps, tiles: useTiles };
     if (caps) {
-      startParams.fps = Math.min(videoFps, caps.maxFps || videoFps);
+      // 不超过解码器上限和屏幕刷新率（60Hz 屏幕解 120 帧也只能显示 60 帧）
+      startParams.fps = Math.min(videoFps, caps.maxFps || videoFps, caps.refresh || 60);
       startParams.video = { codec: 'h264', ...caps };
     }
     client
       .request('p2d/screen.start', startParams)
       .then((res) => {
-        const r = res as { displays?: unknown[]; tiles?: boolean };
+        const r = res as { displays?: unknown[]; tiles?: boolean; video?: unknown };
         const n = r.displays?.length ?? 1;
         if (alive) setState((s) => ({ ...s, displays: n, error: null }));
-        // 旧版电脑端不认 tiles，会按这里请求的高分辨率推整帧：改用整帧推流的参数重新开始
-        if (alive && useTiles && !r.tiles) {
+        // 旧版电脑端不认 tiles，会按这里请求的高分辨率推整帧：改用整帧推流的参数重新开始（推视频的一定是新版）
+        if (alive && useTiles && !r.tiles && !r.video) {
           return client.request('p2d/screen.start', { display, ...LEGACY });
         }
         return undefined;

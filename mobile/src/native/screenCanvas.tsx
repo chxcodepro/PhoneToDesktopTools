@@ -18,6 +18,8 @@ export interface VideoCaps {
   maxWidth: number;
   maxHeight: number;
   maxFps: number;
+  /** 屏幕最高刷新率（旧安装包没有） */
+  refresh?: number;
 }
 
 /** 送一帧视频的结果：ok 已显示，dropped 丢弃，needKey 要电脑端发关键帧 */

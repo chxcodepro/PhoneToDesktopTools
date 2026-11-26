@@ -125,7 +125,7 @@ export default function RemoteScreen() {
   const { frame, displays, error, fps } = useScreenStream(display, {
     tiles: true,
     video: true,
-    videoFps: 60,
+    videoFps: 120,
     maxWidth: streamWidth,
     quality: 75,
     fps: 30,
