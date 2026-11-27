@@ -7,6 +7,10 @@ export default defineConfig({
   root: resolve(__dirname, 'src/renderer'),
   base: './',
   plugins: [react()],
+  // 直接给出编译选项，不让 esbuild 去找每个文件旁边的 tsconfig.json：共用的手机端代码旁边是 mobile/tsconfig.json，
+  // 它继承 expo/tsconfig.base，CI 打包电脑端时没装手机端依赖，会找不到而失败
+  // （要写成字符串：传对象时 Vite 仍会去读 tsconfig.json 再合并）
+  esbuild: { tsconfigRaw: JSON.stringify({ compilerOptions: { jsx: 'react-jsx', useDefineForClassFields: true } }) },
   resolve: {
     // @agent：和手机端共用的 Agent 代码（Agent 循环、模型接口、联网工具），不依赖 React Native
     alias: { '@agent': resolve(__dirname, '../../mobile/src/agent'), '@': resolve(__dirname, 'src/renderer') },
