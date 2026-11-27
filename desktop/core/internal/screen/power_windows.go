@@ -61,11 +61,19 @@ type wakeInput struct {
 }
 
 // WakeDisplay 显示器因为闲置关了时把它唤醒：鼠标相对移动 1 像素再移回来（鼠标位置不变）。
-// 锁屏时发不进去（也看不到锁屏画面），什么都不做。
+// 锁屏时自己发不进去，有锁屏助手时请它发，没有就什么都不做。
 func WakeDisplay() {
 	if Locked() {
+		if SecureWake != nil {
+			SecureWake()
+		}
 		return
 	}
+	NudgeMouse()
+}
+
+// NudgeMouse 鼠标相对移动 1 像素再移回来（锁屏助手在安全桌面上唤醒显示器用）。
+func NudgeMouse() {
 	in := [2]wakeInput{
 		{DwFlags: mouseeventfMove, Dx: 1},
 		{DwFlags: mouseeventfMove, Dx: -1},

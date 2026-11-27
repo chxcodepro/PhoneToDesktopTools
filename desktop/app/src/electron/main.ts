@@ -3,7 +3,18 @@ import { app, BrowserWindow, globalShortcut, ipcMain, Menu, nativeImage, screen,
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { allowFirewall, aoaConnect, cancelPairing, CoreProcess, disconnect, fetchStatus, installDriver, removePaired, startPairing } from './core';
+import {
+  allowFirewall,
+  aoaConnect,
+  cancelPairing,
+  CoreProcess,
+  disconnect,
+  fetchStatus,
+  installDriver,
+  removePaired,
+  setSecureDesktop,
+  startPairing,
+} from './core';
 import { getAutostart, initAutostart, setAutostart } from './autostart';
 import { checkUpdate, getUpdate, repoUrl, startAutoCheck } from './update';
 import { aboutInfo, exportLogs } from './logs';
@@ -288,6 +299,7 @@ function registerIpc(): void {
       .finally(() => void poll());
   ipcMain.handle('p2d:installDriver', () => fix(installDriver));
   ipcMain.handle('p2d:allowFirewall', () => fix(allowFirewall));
+  ipcMain.handle('p2d:setSecureDesktop', (_e, on: unknown) => fix(() => setSecureDesktop(on === true)));
   ipcMain.handle('p2d:aoaConnect', (_e, id: unknown) =>
     typeof id === 'string' ? fix(() => aoaConnect(id)) : { ok: false, message: '参数不对' },
   );

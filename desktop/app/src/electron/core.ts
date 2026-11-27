@@ -244,6 +244,12 @@ export async function allowFirewall(): Promise<{ ok: boolean; message?: string }
   return JSON.parse(await request('POST', '/api/firewall/allow', 11 * 60_000)) as { ok: boolean; message?: string };
 }
 
+/** 锁屏远程支持（Windows）：开启 / 关闭系统服务，电脑端弹出 UAC，等用户确认并完成 */
+export async function setSecureDesktop(on: boolean): Promise<{ ok: boolean; message?: string }> {
+  const path = on ? '/api/secure-desktop/enable' : '/api/secure-desktop/disable';
+  return JSON.parse(await request('POST', path, 3 * 60_000)) as { ok: boolean; message?: string };
+}
+
 /** 免调试连接（AOA，Linux）：让一台没开 USB 调试的手机切换到配件模式 */
 export async function aoaConnect(id: string): Promise<{ ok: boolean; message?: string }> {
   return JSON.parse(await request('POST', `/api/aoa/connect?id=${encodeURIComponent(id)}`, 5000)) as { ok: boolean; message?: string };

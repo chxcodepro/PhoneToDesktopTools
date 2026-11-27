@@ -200,6 +200,12 @@ func Capture(r image.Rectangle) (*image.RGBA, error) {
 	if w <= 0 || h <= 0 {
 		return nil, errors.New("截图区域为空")
 	}
+	// 锁屏时请锁屏助手（以 SYSTEM 身份运行，见 secdesk）代截；没装或连不上时照常截（会返回 ErrLocked）
+	if SecureCapture != nil && Locked() {
+		if img, err := SecureCapture(r); err == nil {
+			return img, nil
+		}
+	}
 	// GDI 调用固定在同一个系统线程上完成
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
@@ -250,6 +256,11 @@ var procGetCursorPos = user32.NewProc("GetCursorPos")
 
 // CursorPos 鼠标在虚拟桌面中的位置。
 func CursorPos() (x, y int, ok bool) {
+	if SecureCursor != nil && Locked() {
+		if x, y, ok := SecureCursor(); ok {
+			return x, y, true
+		}
+	}
 	var pt struct{ X, Y int32 }
 	r, _, _ := procGetCursorPos.Call(uintptr(unsafe.Pointer(&pt)))
 	return int(pt.X), int(pt.Y), r != 0

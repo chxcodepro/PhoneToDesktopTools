@@ -8,6 +8,7 @@ import {
   FileDown,
   Github,
   Info,
+  LockKeyhole,
   Minus,
   Monitor,
   OctagonX,
@@ -315,6 +316,12 @@ function About({ s, onCheck, onClose }: { s: AppStatus; onCheck: () => void; onC
           <div className={cn('break-all px-3 pb-2.5 text-[11px]', result.ok ? 'text-muted-foreground' : 'text-destructive')}>{result.text}</div>
         ) : null}
         {sep}
+        {s.status?.secureDesktop?.supported ? (
+          <>
+            <SecureDesktop d={s.status.secureDesktop} />
+            {sep}
+          </>
+        ) : null}
         <button className="block w-full text-left hover:bg-accent" title={info?.repoUrl} onClick={() => window.p2d.openRepo()}>
           <Row
             icon={<Github className="h-3.5 w-3.5 text-muted-foreground" />}
@@ -334,6 +341,33 @@ function About({ s, onCheck, onClose }: { s: AppStatus; onCheck: () => void; onC
       <Button variant="outline" className="mt-auto w-full" onClick={onClose}>
         返回
       </Button>
+    </div>
+  );
+}
+
+/** 锁屏远程支持（Windows）：开启后手机在电脑锁屏、登录界面和 UAC 确认窗口时也能看到画面、远程操作 */
+function SecureDesktop({ d }: { d: NonNullable<NonNullable<AppStatus['status']>['secureDesktop']> }) {
+  const on = d.installed;
+  const { busy, error, start } = useFix(() => window.p2d.setSecureDesktop(!on), on ? '关闭失败' : '开启失败');
+  let note = '开启后，电脑锁屏时也能在手机上看到锁屏界面、输入密码解锁，也能点管理员权限确认窗口。需要管理员权限，会装一个系统服务。注意：开启后本机其他程序理论上也能借它点管理员权限确认窗口';
+  if (on && !d.running) note = '系统服务没有运行，可以关闭后重新开启';
+  else if (on && d.problem) note = d.problem;
+  else if (on) note = '已开启：电脑锁屏时手机上也能看到画面、远程操作';
+  return (
+    <div>
+      <Row
+        icon={<LockKeyhole className="h-3.5 w-3.5 text-muted-foreground" />}
+        label="锁屏时也能远程操作"
+        right={
+          <Button size="sm" variant="outline" disabled={busy} onClick={start}>
+            {busy ? <Spinner className="h-3 w-3" /> : null}
+            {on ? '关闭' : '开启'}
+          </Button>
+        }
+      />
+      <div className={cn('px-3 pb-2.5 text-[11px] leading-relaxed', error ? 'text-destructive' : 'text-muted-foreground')}>
+        {error || note}
+      </div>
     </div>
   );
 }

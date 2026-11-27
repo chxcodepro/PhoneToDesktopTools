@@ -4,6 +4,7 @@
 ;    新版本不再带 adb（电脑端自己经 USB 连接手机），从旧版本升级时才会遇到。
 ;    adb 只结束从安装目录启动的那个，不动用户自己（Android Studio 等）的 adb。
 ; 2. 卸载时去掉开机自启（升级时的卸载不去掉，新版本启动后会重新登记）。
+; 3. 卸载时如果开着锁屏远程支持（系统服务，装在 Program Files），弹出管理员确认把它一起删掉（升级时不动）。
 
 !macro p2dStopHelpers
   ; 改名前的主程序叫 PhoneToDesktop.exe，从旧版本升级时默认的检查按新名字 p2d.exe 找不到它
@@ -32,5 +33,8 @@ Var pid
     ; 开机自启的 Run 项（见 src/electron/autostart.ts），连同改名前的 PhoneToDesktop 一起删
     DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "p2d"
     DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "PhoneToDesktop"
+    ; 没开锁屏远程支持时 secure-disable 什么都不做，不弹窗
+    nsExec::Exec `"$INSTDIR\resources\core\p2d-core.exe" secure-disable`
+    Pop $0
   ${endIf}
 !macroend

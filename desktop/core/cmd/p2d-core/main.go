@@ -26,6 +26,7 @@ import (
 	"p2d/core/internal/lanfw"
 	"p2d/core/internal/portres"
 	"p2d/core/internal/screen"
+	"p2d/core/internal/secdesk"
 	"p2d/core/internal/server"
 	"p2d/core/internal/tools"
 	"p2d/core/internal/usbdriver"
@@ -69,6 +70,10 @@ func migrateDir(old, dir string) string {
 }
 
 func main() {
+	// 锁屏远程支持的内部命令：系统服务、锁屏助手、提权后的开启 / 关闭（Windows）
+	if code, ok := secdesk.RunCommand(os.Args[1:]); ok {
+		os.Exit(code)
+	}
 	port := flag.Int("port", 39271, "监听端口（与手机端约定，一般不改）")
 	apkPath := flag.String("apk", "", "手机端安装包路径，默认 vendor/app/p2d.apk")
 	pkg := flag.String("pkg", "com.p2d.mobile", "手机端包名")
@@ -90,6 +95,7 @@ func main() {
 	}
 	log.SetFlags(log.Ltime)
 	screen.Init()
+	secdesk.Enable()
 
 	host, _ := os.Hostname()
 	reg := tools.NewRegistry()
@@ -97,6 +103,11 @@ func main() {
 	srv := server.New(reg, tokens)
 	store := lan.OpenStore(stateDir())
 	srv.LAN = &server.LANConfig{Store: store, Pairing: lan.NewPairingWindow(func() {})}
+	if secdesk.Supported {
+		srv.SecureStatus = secdesk.Status
+		srv.SecureOn = &server.ElevatedAction{Name: "开启锁屏远程支持", Pending: func() any { return nil }, Run: secdesk.Install}
+		srv.SecureOff = &server.ElevatedAction{Name: "关闭锁屏远程支持", Pending: func() any { return nil }, Run: secdesk.Uninstall}
+	}
 	if usbdriver.Supported {
 		srv.Driver = &server.ElevatedAction{
 			Name: "安装手机 USB 驱动",

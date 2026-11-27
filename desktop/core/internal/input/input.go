@@ -15,6 +15,38 @@ const (
 	Middle
 )
 
+// Op 一次键鼠操作（锁屏时转给锁屏助手做，见 Secure）。
+type Op struct {
+	Kind   string   `json:"kind"` // move、press、scroll、text、combo
+	X      int      `json:"x,omitempty"`
+	Y      int      `json:"y,omitempty"`
+	Button Button   `json:"button,omitempty"`
+	Down   bool     `json:"down,omitempty"`
+	DY     int      `json:"dy,omitempty"`
+	Text   string   `json:"text,omitempty"`
+	Keys   []string `json:"keys,omitempty"`
+}
+
+// Secure 锁屏时代为操作的锁屏助手（Windows，见 secdesk）：handled 为 false 时照常自己发。没装时为 nil
+var Secure func(op Op) (handled bool, err error)
+
+// Do 执行一次操作（锁屏助手收到请求后调用）。
+func Do(op Op) error {
+	switch op.Kind {
+	case "move":
+		return Move(op.X, op.Y)
+	case "press":
+		return Press(op.Button, op.Down)
+	case "scroll":
+		return Scroll(op.DY)
+	case "text":
+		return TypeText(op.Text)
+	case "combo":
+		return Combo(op.Keys)
+	}
+	return fmt.Errorf("不认识的操作：%s", op.Kind)
+}
+
 // ParseCombo 解析 "ctrl+shift+s" 这样的组合键，返回小写的键名列表。
 func ParseCombo(s string) ([]string, error) {
 	s = strings.ToLower(strings.TrimSpace(s))

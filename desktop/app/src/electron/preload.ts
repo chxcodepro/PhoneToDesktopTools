@@ -19,6 +19,7 @@ const api: P2DApi = {
   removePaired: (id) => ipcRenderer.invoke('p2d:removePaired', id) as Promise<void>,
   installDriver: () => ipcRenderer.invoke('p2d:installDriver') as Promise<{ ok: boolean; message?: string }>,
   allowFirewall: () => ipcRenderer.invoke('p2d:allowFirewall') as Promise<{ ok: boolean; message?: string }>,
+  setSecureDesktop: (on) => ipcRenderer.invoke('p2d:setSecureDesktop', !!on) as Promise<{ ok: boolean; message?: string }>,
   aoaConnect: (id) => ipcRenderer.invoke('p2d:aoaConnect', id) as Promise<{ ok: boolean; message?: string }>,
   setAutostart: (on) => ipcRenderer.invoke('p2d:setAutostart', !!on) as Promise<void>,
   checkUpdate: () => ipcRenderer.invoke('p2d:checkUpdate') as Promise<UpdateInfo>,

@@ -20,6 +20,18 @@ func newDisplay(i int, r image.Rectangle, primary bool) Display {
 	return Display{Index: i, Bounds: r, X: r.Min.X, Y: r.Min.Y, Width: r.Dx(), Height: r.Dy(), Primary: primary, Scale: 1}
 }
 
+// 锁屏时代为截屏的锁屏助手（Windows，见 secdesk）。没装时都是 nil
+var (
+	SecureCapture func(r image.Rectangle) (*image.RGBA, error)
+	SecureCursor  func() (x, y int, ok bool)
+	SecureWake    func()
+	// SecureReady 锁屏助手现在能用（连得上）
+	SecureReady func() bool
+)
+
+// CanSeeLocked 锁屏时也能截到画面、能操作（装了锁屏助手并且连得上）。
+func CanSeeLocked() bool { return SecureReady != nil && SecureReady() }
+
 // foregroundRect 前台窗口的位置（Windows 实现；其他系统为 nil）
 var foregroundRect func() (image.Rectangle, bool)
 

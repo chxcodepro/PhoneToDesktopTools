@@ -90,8 +90,19 @@ func sendKeys(ins []keybdINPUT) error {
 	return nil
 }
 
+// secure 锁屏时交给锁屏助手（以 SYSTEM 身份运行，能操作锁屏界面和 UAC 确认窗口）
+func secure(op Op) (bool, error) {
+	if Secure == nil {
+		return false, nil
+	}
+	return Secure(op)
+}
+
 // Move 把鼠标移到虚拟桌面坐标 (x, y)。
 func Move(x, y int) error {
+	if ok, err := secure(Op{Kind: "move", X: x, Y: y}); ok {
+		return err
+	}
 	r, _, err := procSetCursorPos.Call(uintptr(int32(x)), uintptr(int32(y)))
 	if r == 0 {
 		return fmt.Errorf("SetCursorPos 失败：%v", err)
@@ -101,6 +112,9 @@ func Move(x, y int) error {
 
 // Press 按下或松开鼠标键。
 func Press(b Button, down bool) error {
+	if ok, err := secure(Op{Kind: "press", Button: b, Down: down}); ok {
+		return err
+	}
 	var f uint32
 	switch b {
 	case Left:
@@ -124,11 +138,17 @@ func Press(b Button, down bool) error {
 
 // Scroll 滚轮，dy 为正向上。
 func Scroll(dy int) error {
+	if ok, err := secure(Op{Kind: "scroll", DY: dy}); ok {
+		return err
+	}
 	return sendMouse(mouseWheel, uint32(int32(dy*120)))
 }
 
 // TypeText 输入任意 Unicode 文字（含中文，不依赖输入法）。
 func TypeText(s string) error {
+	if ok, err := secure(Op{Kind: "text", Text: s}); ok {
+		return err
+	}
 	s = strings.ReplaceAll(s, "\r\n", "\n")
 	var batch []keybdINPUT
 	flush := func() error {
@@ -215,6 +235,9 @@ func keyToVK(k string) (vk uint16, needShift bool, err error) {
 
 // Combo 按下组合键，如 ["ctrl","c"]：依次按下，再反序松开。
 func Combo(keys []string) error {
+	if ok, err := secure(Op{Kind: "combo", Keys: keys}); ok {
+		return err
+	}
 	var vks []uint16
 	shiftAdded := false
 	for _, k := range keys {
@@ -236,4 +259,49 @@ func Combo(keys []string) error {
 		ins = append(ins, vkUp(vks[i]))
 	}
 	return sendKeys(ins)
+}
+
+// TypeASCII 用普通按键（虚拟键码，按当前键盘布局）输入英文、数字和符号。
+// 锁屏界面的密码框不一定认 Unicode 方式（VK_PACKET）输入的字，锁屏助手输入纯英文时用这个
+func TypeASCII(s string) error {
+	var ins []keybdINPUT
+	for _, r := range s {
+		switch {
+		case r == '\n' || r == '\r':
+			ins = append(ins, vkDown(0x0D), vkUp(0x0D))
+			continue
+		case r == '\t':
+			ins = append(ins, vkDown(0x09), vkUp(0x09))
+			continue
+		case r < 0x20 || r > 0x7E:
+			return TypeText(string(r))
+		}
+		res, _, _ := procVkKeyScanW.Call(uintptr(r))
+		if int16(res) == -1 {
+			ins = append(ins,
+				keybdINPUT{Type: inputKeyboard, Ki: keybdInputT{WScan: uint16(r), DwFlags: keyUnicode}},
+				keybdINPUT{Type: inputKeyboard, Ki: keybdInputT{WScan: uint16(r), DwFlags: keyUnicode | keyUp}})
+			continue
+		}
+		vk, shift := uint16(res&0xFF), res&0x100 != 0
+		if shift {
+			ins = append(ins, vkDown(0x10))
+		}
+		ins = append(ins, vkDown(vk), vkUp(vk))
+		if shift {
+			ins = append(ins, vkUp(0x10))
+		}
+	}
+	for len(ins) > 0 {
+		n := len(ins)
+		if n > 64 {
+			n = 64
+		}
+		if err := sendKeys(ins[:n]); err != nil {
+			return err
+		}
+		ins = ins[n:]
+		time.Sleep(5 * time.Millisecond)
+	}
+	return nil
 }

@@ -96,6 +96,8 @@ export interface CoreStatus {
   lanBlocked?: boolean;
   devices?: CoreDevice[];
   lan?: CoreLan;
+  /** 锁屏远程支持（Windows）：系统服务登记了没有、在不在运行、电脑端连没连上锁屏助手 */
+  secureDesktop?: { supported: boolean; installed: boolean; running: boolean; connected: boolean; problem?: string };
 }
 
 /** 主进程推送给渲染进程的状态 */
@@ -163,6 +165,8 @@ export interface P2DApi {
   installDriver(): Promise<{ ok: boolean; message?: string }>;
   /** 放行防火墙（会弹出系统的密码框），完成后返回结果 */
   allowFirewall(): Promise<{ ok: boolean; message?: string }>;
+  /** 开启 / 关闭锁屏远程支持（会弹出管理员确认），完成后返回结果 */
+  setSecureDesktop(on: boolean): Promise<{ ok: boolean; message?: string }>;
   /** 免调试连接一台手机（记住它，以后插上自动连） */
   aoaConnect(id: string): Promise<{ ok: boolean; message?: string }>;
   /** 开启 / 关闭开机自动启动 */

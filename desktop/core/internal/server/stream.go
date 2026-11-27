@@ -123,9 +123,14 @@ func (s *Session) startStream(cfg streamConfig) (*streamStarted, error) {
 	}()
 	started := &streamStarted{Displays: displays}
 	if cfg.Video != nil && cfg.Video.Codec == "h264" && screen.Locked() {
-		// 锁屏时硬件编码器也打不开桌面复制：先告诉手机在电脑上解锁，解锁后再按正常流程开始（能推视频就推视频）。
-		// 手机端收到视频帧时自己切到视频显示，不用重新请求
+		// 锁屏时硬件编码器打不开桌面复制。装了锁屏助手就先推锁屏画面（分块），否则告诉手机在电脑上解锁；
+		// 解锁后再按正常流程开始（能推视频就推视频）。手机端收到视频帧时自己切到视频显示，不用重新请求
 		started.Tiles = cfg.Tiles
+		if cfg.Tiles && screen.CanSeeLocked() {
+			log.Printf("[会话 %d] 电脑已锁屏，先推锁屏画面，解锁后改推视频", s.id)
+			go s.runLocked(ctx, cfg)
+			return started, nil
+		}
 		log.Printf("[会话 %d] 电脑已锁屏，等解锁后开始远程桌面推流", s.id)
 		go s.waitUnlock(ctx, cfg)
 		return started, nil
@@ -146,6 +151,35 @@ func (s *Session) waitUnlock(ctx context.Context, cfg streamConfig) {
 		if ctx.Err() != nil {
 			return
 		}
+	}
+	log.Printf("[会话 %d] 电脑已解锁", s.id)
+	screen.WakeDisplay()
+	s.launchStream(ctx, cfg, &streamStarted{})
+}
+
+// lockedFPS 推锁屏画面的帧率：锁屏助手每帧经管道传整屏像素，锁屏界面也很少动，不用太高
+const lockedFPS = 15
+
+// runLocked 电脑锁屏、装了锁屏助手时：经助手推锁屏画面（分块），解锁后改按正常流程推流（能推视频就推视频）。
+func (s *Session) runLocked(ctx context.Context, cfg streamConfig) {
+	tcfg := cfg
+	tcfg.Video = nil
+	if tcfg.FPS > lockedFPS {
+		tcfg.FPS = lockedFPS
+	}
+	lctx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() {
+		s.runTiles(lctx, tcfg)
+		close(done)
+	}()
+	for screen.Locked() && ctx.Err() == nil {
+		sleepCtx(ctx, 300*time.Millisecond)
+	}
+	cancel()
+	<-done
+	if ctx.Err() != nil {
+		return
 	}
 	log.Printf("[会话 %d] 电脑已解锁", s.id)
 	screen.WakeDisplay()

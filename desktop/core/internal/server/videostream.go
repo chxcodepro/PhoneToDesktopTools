@@ -217,7 +217,13 @@ func (s *Session) runVideo(ctx context.Context, cfg streamConfig, ready chan<- *
 			fed, err := v.Feed(8 * time.Millisecond)
 			switch {
 			case errors.Is(err, screen.ErrCaptureLost):
-				// 推流中锁屏了：告诉手机在电脑上解锁（每 10 秒一次），解锁后桌面复制自己恢复
+				// 推流中锁屏了：装了锁屏助手就改推锁屏画面，解锁后再推视频；
+				// 否则告诉手机在电脑上解锁（每 10 秒一次），解锁后桌面复制自己恢复
+				if cfg.Tiles && screen.Locked() && screen.CanSeeLocked() {
+					log.Printf("[会话 %d] 电脑锁屏了，改推锁屏画面，解锁后再推视频", s.id)
+					go s.runLocked(ctx, cfg)
+					return
+				}
 				if screen.Locked() && time.Since(lockTold) >= 10*time.Second {
 					s.notify("p2d/screen.error", map[string]string{"message": screen.ErrLocked.Error()})
 					lockTold = time.Now()

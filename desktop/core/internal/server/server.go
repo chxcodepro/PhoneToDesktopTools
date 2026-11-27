@@ -69,6 +69,10 @@ type Server struct {
 	LAN       *LANConfig      // 局域网直连，未开启时为 nil
 	Driver    *ElevatedAction // 手机 USB 驱动检测与安装（仅 Windows），不支持时为 nil
 	Firewall  *ElevatedAction // 防火墙放行局域网直连端口（银河麒麟），不支持时为 nil
+	// 锁屏远程支持（Windows）：状态和开启 / 关闭，不支持时为 nil
+	SecureStatus func() any
+	SecureOn     *ElevatedAction
+	SecureOff    *ElevatedAction
 
 	// 用户在电脑上点了「断开」：局域网的自动重连先拒绝，手机上手动点「连接」才接受
 	lanSuppressed atomic.Bool
@@ -110,6 +114,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/driver/install", s.handleElevated(func() *ElevatedAction { return s.Driver }, "这个系统不需要安装手机驱动"))
 	mux.HandleFunc("/api/firewall/allow", s.handleElevated(func() *ElevatedAction { return s.Firewall }, "这个系统不需要放行防火墙"))
 	mux.HandleFunc("/api/aoa/connect", s.handleAOAConnect)
+	mux.HandleFunc("/api/secure-desktop/enable", s.handleElevated(func() *ElevatedAction { return s.SecureOn }, "这个系统不支持锁屏远程支持"))
+	mux.HandleFunc("/api/secure-desktop/disable", s.handleElevated(func() *ElevatedAction { return s.SecureOff }, "这个系统不支持锁屏远程支持"))
 	return localOnly(mux)
 }
 
@@ -367,6 +373,11 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	if b := s.Firewall.pending(); b != nil {
 		st["lanBlocked"] = b
+	}
+	if s.SecureStatus != nil {
+		if v := s.SecureStatus(); v != nil {
+			st["secureDesktop"] = v
+		}
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	_ = json.NewEncoder(w).Encode(st)
