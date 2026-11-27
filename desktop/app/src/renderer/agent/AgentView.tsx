@@ -484,21 +484,42 @@ function Composer() {
 function ModelSettings({ onClose }: { onClose: () => void }) {
   const model = useStore(modelStore);
   const [active, setActive] = useState<PresetId>(model.active);
-  const [draft, setDraft] = useState<PresetSettings>(model.presets[model.active]);
-  const [key, setKey] = useState('');
+  // 三个预设各自的草稿和 Key：切换预设不丢已经填的内容，点「保存并使用」时一起保存
+  const [drafts, setDrafts] = useState<Record<PresetId, PresetSettings>>(model.presets);
+  const [keys, setKeys] = useState<Record<PresetId, string>>({ openai: '', deepseek: '', custom: '' });
+  const [savedKeys, setSavedKeys] = useState<Record<PresetId, string>>({ openai: '', deepseek: '', custom: '' });
   const [showKey, setShowKey] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
+  const draft = drafts[active];
+  const key = keys[active];
 
   useEffect(() => {
-    setDraft(modelStore.get().presets[active]);
+    void Promise.all(MODEL_PRESETS.map(async (p) => [p.id, await getApiKey(p.id)] as const)).then((list) => {
+      const k = Object.fromEntries(list) as Record<PresetId, string>;
+      setKeys(k);
+      setSavedKeys(k);
+    });
+  }, []);
+
+  useEffect(() => {
     setError('');
     setQuery('');
-    void getApiKey(active).then(setKey);
   }, [active]);
 
-  const patch = (p: Partial<PresetSettings>) => setDraft((d) => ({ ...d, ...p }));
+  const patch = (p: Partial<PresetSettings>) => setDrafts((d) => ({ ...d, [active]: { ...d[active], ...p } }));
+  const setKey = (v: string) => setKeys((k) => ({ ...k, [active]: v }));
+
+  const dirty =
+    active !== model.active ||
+    MODEL_PRESETS.some((p) => JSON.stringify(drafts[p.id]) !== JSON.stringify(model.presets[p.id]) || keys[p.id].trim() !== savedKeys[p.id].trim());
+
+  /** 关闭：有没保存的修改时先问一下（点弹窗外面不关闭，免得误点丢掉填好的 Key） */
+  const close = () => {
+    if (dirty && !confirm('填写的内容还没保存，关闭后会丢掉。确定关闭吗？\n要保存请点「保存并使用」。')) return;
+    onClose();
+  };
 
   const fetchModels = async () => {
     setLoading(true);
@@ -515,8 +536,13 @@ function ModelSettings({ onClose }: { onClose: () => void }) {
   };
 
   const saveAll = async () => {
-    await updatePreset(active, { ...draft, baseUrl: draft.baseUrl.trim(), model: draft.model.trim() });
-    await setApiKey(active, key);
+    for (const p of MODEL_PRESETS) {
+      const d = drafts[p.id];
+      if (JSON.stringify(d) !== JSON.stringify(model.presets[p.id])) {
+        await updatePreset(p.id, { ...d, baseUrl: d.baseUrl.trim(), model: d.model.trim() });
+      }
+      if (keys[p.id].trim() !== savedKeys[p.id].trim()) await setApiKey(p.id, keys[p.id]);
+    }
     await setActivePreset(active);
     onClose();
   };
@@ -525,11 +551,11 @@ function ModelSettings({ onClose }: { onClose: () => void }) {
   const field = 'h-8 w-full rounded-md border border-border bg-background px-2.5 text-[13px] outline-none focus:border-primary';
 
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/30 p-6" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/30 p-6">
       <div className="flex max-h-full w-[520px] flex-col rounded-xl border border-border bg-background shadow-xl">
         <div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-5">
           <span className="font-semibold">模型设置</span>
-          <button className="text-muted-foreground hover:text-foreground" onClick={onClose} aria-label="关闭">
+          <button className="text-muted-foreground hover:text-foreground" onClick={close} aria-label="关闭">
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -610,7 +636,7 @@ function ModelSettings({ onClose }: { onClose: () => void }) {
               <Toggle label="深度思考" hint="回答更仔细，但更慢" on={thinkingOn(draft)} onChange={(v) => patch({ thinking: v })} />
             ) : null}
           </div>
-          <Field label="上下文长度" hint={`不填按模型默认（${formatWindow(contextWindowOf({ model: draft.model }))}），快用满时自动压缩较早的对话`}>
+          <Field label="上下文长度（可不填）" hint={`不填按模型默认（${formatWindow(contextWindowOf({ model: draft.model }))}），快用满时自动压缩较早的对话`}>
             <input
               className={field}
               type="number"
@@ -620,12 +646,12 @@ function ModelSettings({ onClose }: { onClose: () => void }) {
               onChange={(e) => patch({ contextWindow: e.target.value ? Number(e.target.value) : undefined })}
             />
           </Field>
-          <Field label="额外要求" hint="加在内置提示词之后，例如回答风格、常用目录">
+          <Field label="额外要求（可不填）" hint="加在内置提示词之后，例如回答风格、常用目录">
             <textarea className={cn(field, 'h-20 resize-none py-1.5')} value={draft.systemPrompt ?? ''} onChange={(e) => patch({ systemPrompt: e.target.value })} />
           </Field>
         </div>
         <div className="flex h-14 shrink-0 items-center justify-end gap-2 border-t border-border px-5">
-          <Button size="sm" variant="outline" onClick={onClose}>
+          <Button size="sm" variant="outline" onClick={close}>
             取消
           </Button>
           <Button size="sm" onClick={() => void saveAll()}>
