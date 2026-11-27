@@ -273,7 +273,7 @@ Core 在同一端口提供 HTTP 接口，只接受本机访问：
 - 附件：拖入或选择文件（给模型文件路径，让它用 `fs_read` / `doc_read` 读）、粘贴或拖入图片（长边缩到 2000 像素以内发给模型，对话记录里界面只存 240 像素的缩略图）。最后一轮可以「重新回答」「编辑」（按用户消息在历史里的位置截断；压缩过上下文后不能再用）
 - 界面布局参考 Claude 桌面版和 Codex：左边是可收起的对话列表（新对话、定时任务、扩展、最近的对话、设置）；对话居中、最宽 46rem，用户消息是浅灰气泡，助手回答不加气泡；执行过的操作折叠成一行「执行了 N 个操作」，正在执行时展开；答完的选择卡片收成一行；输入框在页面底部（新对话也一样，上面放问候和「试试这些」，参考 DeepSeek Harness），卡片里是文字、附件、框选和发送按钮；卡片下面一排左边是操作确认模式，右边是模型、思考程度、上下文圆环，点开的选择层贴在各自按钮正上方
 - 回答里的 ```` ```p2d-ui ```` 代码块和手机端一样渲染成卡片（`mobile/src/agent/genui.ts`），`buttons` 点击后作为用户消息发出
-- 模型配置：和手机端一样三个预设（OpenAI、DeepSeek、自定义 OpenAI 兼容地址），电脑端单独配置，存在数据目录的 `agent/config.json`；API Key 用 Electron `safeStorage` 加密（Windows 是 DPAPI）存在 `agent/keys.json`，系统没有加密存储时（Linux 没有密钥环）明文保存
+- 模型配置：和手机端一样三个预设（OpenAI、DeepSeek、自定义 OpenAI 兼容地址），电脑端单独配置，存在数据目录的 `agent/config.json`；API Key 用 Electron `safeStorage` 加密（Windows 是 DPAPI）存在 `agent/keys.json`，系统没有加密存储时（Linux 没有密钥环，麒麟默认就没有）明文保存，设置里的说明和扩展面板的提示会照实写「明文保存」（主进程 `p2d:keyEncrypted` 返回能不能加密）
 - 思考程度（手机端和电脑端共用 `mobile/src/agent/reasoning.ts`，参考 DeepSeek Harness）：输入框下面切换，设置里也能选。DeepSeek 四档「关闭 / 低 / 高 / 最高」（默认高）：关闭发 `thinking: {type: "disabled"}`，其余发 `thinking: {type: "enabled"}` 加 `reasoning_effort: low | high | max`；OpenAI 只有推理模型（o 系列、GPT-5 及以后）能调，自定义渠道都能调，档位「默认 / 低 / 中 / 高」，默认不传参数，其余发 `reasoning_effort`。接口不认这个取值时（400，DeepSeek 是 422）自动去掉 `reasoning_effort` 再试一次。旧版的「深度思考」开关关着的，按「关闭」处理
 - 上下文长度：用户在设置里填的 > 获取模型列表时接口 `/models` 声明的（`context_window`、`context_length` 等字段，DeepSeek 官方返回 1,048,576）> 按模型名推断的（`mobile/src/agent/contextWindow.ts`，2026年11月核对：DeepSeek 官方模型、GPT-5.4 起、Claude Opus / Sonnet 4.6 起、Gemini、通义 Plus / Turbo、Kimi K3、MiniMax M3 都是 1M）
 - 系统提示词：新装时直接填入「电脑管理」提示词（电脑端去掉「用手机下载」那句），可以改、清空，设置里有「恢复默认」；老版本没填过的启动时补上一次（`promptFilled`）

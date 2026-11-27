@@ -374,6 +374,8 @@ export function registerAgentIpc(): void {
   ipcMain.handle('p2d:agentConfig', () => readJson<unknown>(path.join(dataDir(), 'config.json'), null));
   ipcMain.handle('p2d:agentSaveConfig', (_e, v: unknown) => writeJson(path.join(dataDir(), 'config.json'), v));
   ipcMain.handle('p2d:agentKey', (_e, preset: unknown) => (typeof preset === 'string' ? getKey(preset) : ''));
+  // Key、令牌能不能加密保存：Windows / Mac 一般能；Linux 要有系统密钥环（麒麟默认没有），没有时以明文保存
+  ipcMain.handle('p2d:keyEncrypted', () => safeStorage.isEncryptionAvailable());
   ipcMain.handle('p2d:agentSetKey', (_e, preset: unknown, key: unknown) => {
     if (typeof preset === 'string' && typeof key === 'string') setKey(preset, key.trim());
   });

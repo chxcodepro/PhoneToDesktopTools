@@ -31,11 +31,22 @@ jobs:
       version: ${{ steps.v.outputs.version }}
     steps:
       - id: v
+        # 测试包的版本号要比已发布的正式版大，否则检查更新会提示「发现新版本」让人装回旧版：
+        # 取最新的 v 标签，补丁号加一，如 v0.1.0 之后的测试包是 0.1.1-ci.<构建序号>；还没有标签时用 0.1.0-ci.<序号>
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
             echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
           else
-            echo "version=0.1.0-ci.${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+            latest=$(git ls-remote --tags --refs "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" 'v*' \
+              | sed 's#.*refs/tags/v##' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
+            if [[ -n "$latest" ]]; then
+              IFS=. read -r major minor patch <<< "$latest"
+              echo "version=${major}.${minor}.$((patch + 1))-ci.${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+            else
+              echo "version=0.1.0-ci.${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+            fi
           fi
 
   core:

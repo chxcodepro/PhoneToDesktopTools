@@ -18,7 +18,7 @@ import {
   setServerEnabled,
   setSkillEnabled,
 } from './extensions';
-import { useStore } from './model';
+import { useKeyEncrypted, useStore } from './model';
 import { deleteTask, runTask, scheduleStore, updateTask } from './schedules';
 
 export function Dialog({ title, onClose, children, width = 560 }: { title: string; onClose: () => void; children: React.ReactNode; width?: number }) {
@@ -174,6 +174,7 @@ function SecretInput({ id, name }: { id: string; name: string }) {
 
 function Mcps() {
   const ext = useStore(extStore);
+  const encrypted = useKeyEncrypted();
   const [input, setInput] = useState('');
   const [error, setError] = useState('');
   const add = async () => {
@@ -236,7 +237,9 @@ function Mcps() {
         />
         {error ? <div className="mt-1 text-xs text-destructive">{error}</div> : null}
         <div className="mt-1.5 flex items-center justify-between gap-2">
-          <span className="text-[11px] text-muted-foreground">令牌、密码类的值会单独加密保存，不进对话记录</span>
+          <span className="text-[11px] text-muted-foreground">
+            {encrypted === false ? '令牌、密码类的值单独保存、不进对话记录（这台电脑没有系统密钥环，是明文保存）' : '令牌、密码类的值会单独加密保存，不进对话记录'}
+          </span>
           <Button size="sm" disabled={!input.trim()} onClick={() => void add()}>
             添加
           </Button>

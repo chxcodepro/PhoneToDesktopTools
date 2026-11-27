@@ -287,6 +287,8 @@ export interface AgentBridge {
   saveConfig(v: unknown): Promise<void>;
   key(preset: string): Promise<string>;
   setKey(preset: string, key: string): Promise<void>;
+  /** Key、令牌能不能加密保存（不能时以明文存在本机，设置里要照实说明） */
+  keyEncrypted(): Promise<boolean>;
   convList(): Promise<unknown[]>;
   convLoad(id: string): Promise<unknown>;
   convSave(id: string, data: unknown, list: unknown[]): Promise<void>;

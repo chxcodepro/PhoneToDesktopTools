@@ -1,6 +1,6 @@
 // 电脑端助手的模型配置：和手机端一样三个预设（OpenAI、DeepSeek、自定义）各存一份，切换预设不丢。
 // 配置存在数据目录的 agent/config.json，API Key 由主进程用系统加密存储保存（Windows 是 DPAPI），页面里不长期持有。
-import { useSyncExternalStore } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import { resolveContextWindow } from '@agent/contextWindow';
 import { configProblem, type LlmConfig } from '@agent/llm';
 import { getPreset, MODEL_PRESETS, type PresetId } from '@agent/presets';
@@ -171,6 +171,23 @@ export async function resolveActiveModel(id = modelStore.get().active): Promise<
     systemPrompt: (s.systemPrompt ?? '').trim(),
     problem: configProblem(llm),
   };
+}
+
+/** Key、令牌是否加密保存（读一次就够，系统密钥环不会在运行中出现或消失） */
+let encryptedOnce: Promise<boolean> | null = null;
+export function useKeyEncrypted(): boolean | null {
+  const [v, setV] = useState<boolean | null>(null);
+  useEffect(() => {
+    encryptedOnce ??= window.p2d.agent.keyEncrypted().catch(() => false);
+    void encryptedOnce.then(setV);
+  }, []);
+  return v;
+}
+
+/** 保存方式的说明，照实写：加密不可用时说明是明文 */
+export function keyStorageHint(encrypted: boolean | null): string {
+  if (encrypted === false) return '保存在这台电脑上。这台电脑没有可用的系统密钥环，Key 以明文存在本机用户目录里';
+  return '保存在这台电脑上，用系统的加密存储';
 }
 
 // ---------- 其他设置 ----------

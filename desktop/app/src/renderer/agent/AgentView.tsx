@@ -75,8 +75,10 @@ import {
   setActivePreset,
   setApiKey,
   settingsStore,
+  keyStorageHint,
   reasoningOf,
   setReasoning,
+  useKeyEncrypted,
   updatePreset,
   updateSettings,
   useStore,
@@ -228,7 +230,8 @@ function Sidebar({ onPanel }: { onPanel: (p: Panel) => void }) {
 
 const SUGGESTIONS = [
   { icon: Monitor, text: '看看这台电脑的配置' },
-  { icon: HardDrive, text: 'C 盘还剩多少空间' },
+  // Linux、Mac 没有 C 盘
+  { icon: HardDrive, text: navigator.platform.toLowerCase().startsWith('win') ? 'C 盘还剩多少空间' : '磁盘还剩多少空间' },
   { icon: Newspaper, text: '查一下今天的科技新闻' },
   { icon: Download, text: '找到 7-Zip 官网，下载最新版' },
 ];
@@ -1120,6 +1123,7 @@ function ModelSettings({ onClose }: { onClose: () => void }) {
 
   const { items, hidden } = filterModels(draft.models, query, { hideNonChat: true, selected: draft.model });
   const autoWindow = contextWindowOf({ ...draft, contextWindow: undefined });
+  const encrypted = useKeyEncrypted();
   const field = 'h-8 w-full rounded-md border border-border bg-background px-2.5 text-[13px] outline-none focus:border-primary';
 
   return (
@@ -1173,7 +1177,7 @@ function ModelSettings({ onClose }: { onClose: () => void }) {
               <div className="text-muted-foreground">{draft.baseUrl}</div>
             </Field>
           )}
-          <Field label="API Key" hint="保存在这台电脑上，用系统的加密存储">
+          <Field label="API Key" hint={keyStorageHint(encrypted)}>
             <div className="flex gap-2">
               <input
                 className={cn(field, 'font-mono')}

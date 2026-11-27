@@ -78,6 +78,7 @@ function agentBridge(): AgentBridge {
     saveConfig: (v) => ipcRenderer.invoke('p2d:agentSaveConfig', v) as Promise<void>,
     key: (preset) => ipcRenderer.invoke('p2d:agentKey', preset) as Promise<string>,
     setKey: (preset, key) => ipcRenderer.invoke('p2d:agentSetKey', preset, key) as Promise<void>,
+    keyEncrypted: () => ipcRenderer.invoke('p2d:keyEncrypted') as Promise<boolean>,
     convList: () => ipcRenderer.invoke('p2d:convList') as Promise<unknown[]>,
     convLoad: (id) => ipcRenderer.invoke('p2d:convLoad', id),
     convSave: (id, data, list) => ipcRenderer.invoke('p2d:convSave', id, data, list) as Promise<void>,
