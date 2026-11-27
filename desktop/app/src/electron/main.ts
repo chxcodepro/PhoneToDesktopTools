@@ -21,7 +21,7 @@ import { checkUpdate, getUpdate, repoUrl, startAutoCheck } from './update';
 import { aboutInfo, exportLogs } from './logs';
 import { registerAgentIpc } from './agent';
 import { OverlayManager } from './overlay';
-import { deviceNameFor, type AppStatus } from '../shared/types';
+import { deviceNameFor, type AppStatus, type HotkeyId, type HotkeySettings, type HotkeyStatus } from '../shared/types';
 
 // 断开热键：依次尝试，使用第一个没有被其他程序占用的
 const HOTKEY_CANDIDATES = ['Control+Alt+Q', 'Control+Alt+Shift+Q', 'Control+Shift+F12'];
@@ -37,25 +37,95 @@ const core = new CoreProcess();
 let overlays: OverlayManager | null = null; // screen 模块需在 ready 之后使用
 let agentOverlays: OverlayManager | null = null; // 电脑端 AI 助手动键鼠时的提示
 
-// 电脑端 AI 助手的热键：唤起输入框、框选屏幕提问、停止（停止热键只在助手运行时注册）。依次尝试，用第一个没被占用的
-const ASK_KEYS = ['Control+Alt+Space', 'Alt+Shift+Space'];
-const CAPTURE_KEYS = ['Control+Alt+X', 'Control+Alt+Shift+X'];
-const STOP_KEYS = ['Control+Alt+Escape', 'Control+Alt+Shift+Escape'];
-const agentKeys: { ask?: string; capture?: string; stop?: string } = {};
-let stopKeyOn = false;
+// 电脑端 AI 助手的快捷键：唤起输入框、框选屏幕提问、停止（停止键只在助手运行时注册）。
+// 默认都关着（免得和别的程序抢快捷键），用户在助手的设置里打开、改组合；设置存在 agent/hotkeys.json
+const HOTKEY_DEFAULTS: HotkeySettings = {
+  ask: { enabled: false, accel: 'Alt+Shift+Space' },
+  capture: { enabled: false, accel: 'Control+Alt+X' },
+  stop: { enabled: false, accel: 'Control+Alt+Shift+Escape' },
+};
+let hotkeys: HotkeySettings = HOTKEY_DEFAULTS;
+const hotkeyErrors: Partial<Record<HotkeyId, string>> = {};
+const registered: Partial<Record<HotkeyId, string>> = {};
+let agentRunning = false;
+const hotkeysPath = () => path.join(app.getPath('userData'), 'agent', 'hotkeys.json');
 
-/** 热键显示给用户看的写法：Control+Alt+Space → Ctrl+Alt+Space */
-const keyLabel = (accel: string) => accel.replace('Control', 'Ctrl').replace('Escape', 'Esc');
+/** 快捷键显示给用户看的写法：Control+Alt+Space → Ctrl+Alt+Space */
+const keyLabel = (accel: string) => accel.replace(/Control|CommandOrControl/g, 'Ctrl').replace('Escape', 'Esc');
 
-function registerFirst(candidates: string[], fn: () => void): string | undefined {
-  for (const accel of candidates) {
-    try {
-      if (globalShortcut.register(accel, fn)) return accel;
-    } catch {
-      // 系统不支持的组合，换下一个
+function loadHotkeys(): void {
+  try {
+    const saved = JSON.parse(fs.readFileSync(hotkeysPath(), 'utf8')) as Partial<HotkeySettings>;
+    hotkeys = { ...HOTKEY_DEFAULTS };
+    for (const id of Object.keys(HOTKEY_DEFAULTS) as HotkeyId[]) {
+      const v = saved[id];
+      if (v && typeof v.accel === 'string') hotkeys[id] = { enabled: v.enabled === true, accel: v.accel };
     }
+  } catch {
+    hotkeys = { ...HOTKEY_DEFAULTS };
   }
-  return undefined;
+}
+
+function hotkeyAction(id: HotkeyId): () => void {
+  if (id === 'ask') return () => agentEvent({ type: 'focus' });
+  if (id === 'capture') return () => void startCapture();
+  return () => agentEvent({ type: 'stop' });
+}
+
+function unregisterKey(id: HotkeyId): void {
+  const k = registered[id];
+  if (k && globalShortcut.isRegistered(k)) globalShortcut.unregister(k);
+  delete registered[id];
+}
+
+function registerKey(id: HotkeyId): boolean {
+  const c = hotkeys[id];
+  try {
+    if (globalShortcut.register(c.accel, hotkeyAction(id))) {
+      registered[id] = c.accel;
+      delete hotkeyErrors[id];
+      return true;
+    }
+    hotkeyErrors[id] = '被别的程序占用了，换一个组合';
+  } catch {
+    hotkeyErrors[id] = '这个组合不能用作快捷键';
+  }
+  return false;
+}
+
+/** 按设置重新注册（停止键：开着时试一下能不能注册，助手运行时才真正占用） */
+function applyHotkeys(): void {
+  for (const id of Object.keys(HOTKEY_DEFAULTS) as HotkeyId[]) {
+    unregisterKey(id);
+    delete hotkeyErrors[id];
+    if (!hotkeys[id].enabled) continue;
+    if (registerKey(id) && id === 'stop' && !agentRunning) unregisterKey(id);
+  }
+}
+
+function hotkeyStatus(): HotkeyStatus {
+  const out = {} as HotkeyStatus;
+  for (const id of Object.keys(HOTKEY_DEFAULTS) as HotkeyId[]) {
+    const c = hotkeys[id];
+    out[id] = { ...c, label: keyLabel(c.accel), ok: c.enabled && !hotkeyErrors[id], error: c.enabled ? hotkeyErrors[id] : undefined };
+  }
+  return out;
+}
+
+function saveHotkeys(next: unknown): HotkeyStatus {
+  const n = (next ?? {}) as Partial<HotkeySettings>;
+  for (const id of Object.keys(HOTKEY_DEFAULTS) as HotkeyId[]) {
+    const v = n[id];
+    if (v && typeof v.accel === 'string' && v.accel.length <= 60) hotkeys[id] = { enabled: v.enabled === true, accel: v.accel };
+  }
+  try {
+    fs.mkdirSync(path.dirname(hotkeysPath()), { recursive: true });
+    fs.writeFileSync(hotkeysPath(), JSON.stringify(hotkeys));
+  } catch (e) {
+    console.error('保存快捷键失败：', e);
+  }
+  applyHotkeys();
+  return hotkeyStatus();
 }
 
 /** 让页面切到助手模式并处理事件（聚焦输入框、加上框选的截图、停止） */
@@ -71,16 +141,9 @@ function agentEvent(e: { type: 'focus' } | { type: 'image'; dataUrl: string } | 
 function setAgentActive(running: boolean, operating: boolean): void {
   if (operating) agentOverlays?.show();
   else agentOverlays?.hide();
-  if (running && !stopKeyOn) {
-    const k = registerFirst(STOP_KEYS, () => agentEvent({ type: 'stop' }));
-    if (k) {
-      agentKeys.stop = keyLabel(k);
-      stopKeyOn = true;
-    }
-  } else if (!running && stopKeyOn) {
-    for (const k of STOP_KEYS) if (globalShortcut.isRegistered(k)) globalShortcut.unregister(k);
-    stopKeyOn = false;
-  }
+  agentRunning = running;
+  if (running && hotkeys.stop.enabled && !registered.stop) registerKey('stop');
+  else if (!running && registered.stop) unregisterKey('stop');
 }
 
 // Win7 / Win8（系统版本号 6.x）上用 GPU 绘制全屏透明的被控红框窗口，会让主进程卡死（Win7 虚拟机稳定复现），
@@ -454,7 +517,8 @@ function registerIpc(): void {
   });
   ipcMain.on('p2d:minimize', () => mainWindow?.minimize());
   ipcMain.handle('p2d:getMode', () => mode);
-  ipcMain.handle('p2d:agentHotkeys', () => ({ ...agentKeys, stop: agentKeys.stop ?? keyLabel(STOP_KEYS[0]) }));
+  ipcMain.handle('p2d:agentHotkeys', () => hotkeyStatus());
+  ipcMain.handle('p2d:setAgentHotkeys', (_e, v: unknown) => saveHotkeys(v));
   ipcMain.on('p2d:agentActive', (e, running: unknown, operating: unknown) => {
     if (mainWindow && e.sender === mainWindow.webContents) setAgentActive(running === true, operating === true);
   });
@@ -507,10 +571,8 @@ app.whenReady().then(() => {
     }
     console.error(`热键 ${accel} 注册失败（可能已被其他程序占用），尝试下一个`);
   }
-  const ask = registerFirst(ASK_KEYS, () => agentEvent({ type: 'focus' }));
-  if (ask) agentKeys.ask = keyLabel(ask);
-  const cap = registerFirst(CAPTURE_KEYS, () => void startCapture());
-  if (cap) agentKeys.capture = keyLabel(cap);
+  loadHotkeys();
+  applyHotkeys();
   void poll();
   setInterval(tick, 1000);
   startAutoCheck(() => broadcast({ ...current, update: getUpdate() }));

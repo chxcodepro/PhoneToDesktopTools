@@ -268,9 +268,10 @@ Core 在同一端口提供 HTTP 接口，只接受本机访问：
 - 电脑上的 stdio MCP：`POST /api/agent/mcp/start {id, command, args, env, cwd}` → `{name, tools}`，`/api/agent/mcp/call {id, name, arguments}`，`/api/agent/mcp/stop {id}`（同样带令牌）。进程归属 `desktop-agent`，和手机会话启动的分开；进程不在了返回 `not_started`，界面重新启动后重试。远程 MCP 由页面经主进程的网络请求连接。Skill 文件存在数据目录的 `agent/skills/<id>/`，`skill_run` 经 `shell_exec` 在这个目录里执行；MCP 的令牌类请求头、环境变量用 `safeStorage` 加密存在 `agent/secrets.json`
 - 操作确认（设置里选）：`risky`（默认，管理员命令、`fs_delete`、删除 / 格式化 / 改注册表 / 服务 / 账户之类的命令先弹卡片）、`all`（执行命令、写文件、删除、下载都问）、`off`。卡片选项：允许、这次对话都允许、不允许（可以填原因）。定时任务自动执行时不弹卡片，要确认的操作直接拒绝、`ask_user` 直接返回「用户不在」
 - 定时任务存在 `agent/schedules.json`，页面每 20 秒检查一次；到点时助手正忙就等，P2D 没开着超过 30 分钟记为错过。执行时新建对话，附加「只做查询和低风险操作、不动键鼠」的说明
-- 热键（全局，被占用时换下一个）：唤起 `Ctrl+Alt+Space` / `Alt+Shift+Space`（切到助手模式、聚焦输入框，剪贴板有新文字时提示「引用」）、框选屏幕提问 `Ctrl+Alt+X` / `Ctrl+Alt+Shift+X`（`desktopCapturer` 截鼠标所在的显示器，全屏窗口里拖选，原始分辨率裁下交给输入框）、停止 `Ctrl+Alt+Escape` / `Ctrl+Alt+Shift+Escape`（只在助手运行时注册）
+- 全局快捷键默认都关着，在助手的「设置 → 全局快捷键」里逐个打开、点按钮后按下新组合来改（要带 Ctrl / Alt / Shift，F1～F12 可单独用），改了马上重新注册，注册不上时提示「被别的程序占用」。设置存在 `agent/hotkeys.json`（主进程读写）。三个快捷键：唤起（默认 `Alt+Shift+Space`，切到助手模式、聚焦输入框，剪贴板有新文字时提示「引用剪贴板」）、框选屏幕提问（默认 `Ctrl+Alt+X`，`desktopCapturer` 截鼠标所在的显示器，全屏窗口里拖选，原始分辨率裁下交给输入框）、停止（默认 `Ctrl+Alt+Shift+Escape`，只在助手运行时注册）。输入框旁的框选按钮、提示条上的停止按钮不受开关影响
 - 助手调用 `input_mouse`、`input_keyboard`、`ui_act`、`window_activate` 时，每个显示器显示紫色边框，主显示器顶部有「AI 助手正在操作电脑」提示条和「停止」按钮（和被控红框同一套窗口，`overlay.html?kind=agent`），这一轮结束后收起
 - 附件：拖入或选择文件（给模型文件路径，让它用 `fs_read` / `doc_read` 读）、粘贴或拖入图片（长边缩到 2000 像素以内发给模型，对话记录里界面只存 240 像素的缩略图）。最后一轮可以「重新回答」「编辑」（按用户消息在历史里的位置截断；压缩过上下文后不能再用）
+- 界面布局参考 Claude 桌面版和 Codex：左边是可收起的对话列表（新对话、定时任务、扩展、最近的对话、设置）；对话居中、最宽 46rem，用户消息是浅灰气泡，助手回答不加气泡；执行过的操作折叠成一行「执行了 N 个操作」，正在执行时展开；答完的选择卡片收成一行；输入框是一张卡片，模型选择和发送按钮在卡片底部；新对话时标题和输入框在页面中间
 - 回答里的 ```` ```p2d-ui ```` 代码块和手机端一样渲染成卡片（`mobile/src/agent/genui.ts`），`buttons` 点击后作为用户消息发出
 - 模型配置：和手机端一样三个预设（OpenAI、DeepSeek、自定义 OpenAI 兼容地址），电脑端单独配置，存在数据目录的 `agent/config.json`；API Key 用 Electron `safeStorage` 加密（Windows 是 DPAPI）存在 `agent/keys.json`，系统没有加密存储时（Linux 没有密钥环）明文保存
 - 对话记录存在 `agent/conversations/`（最多 100 个），窗口模式和助手窗口大小存在 `agent/window.json`

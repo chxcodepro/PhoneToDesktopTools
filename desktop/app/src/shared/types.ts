@@ -189,8 +189,10 @@ export interface P2DApi {
   /** 助手模式下最大化 / 还原 */
   toggleMaximize(): void;
   agent: AgentBridge;
-  /** 电脑端助手的热键（显示用，如 Ctrl+Alt+Space）；没注册上的为空 */
-  agentHotkeys(): Promise<{ ask?: string; capture?: string; stop?: string }>;
+  /** 电脑端助手的快捷键：设置和生效情况（默认都关着） */
+  agentHotkeys(): Promise<HotkeyStatus>;
+  /** 保存快捷键设置并重新注册，返回生效情况 */
+  setAgentHotkeys(s: HotkeySettings): Promise<HotkeyStatus>;
   /** 助手运行状态：running 运行中（注册停止热键），operating 正在动键鼠（显示紫色边框提示） */
   agentActive(running: boolean, operating: boolean): void;
   /** 停止助手（被控提示上的「停止」按钮） */
@@ -202,6 +204,28 @@ export interface P2DApi {
   onCaptureImage(cb: (dataUrl: string) => void): () => void;
   captureDone(dataUrl: string | null): void;
 }
+
+/** 快捷键：ask 唤起助手，capture 框选屏幕提问，stop 停止助手（只在助手运行时注册） */
+export type HotkeyId = 'ask' | 'capture' | 'stop';
+
+export interface HotkeyConfig {
+  enabled: boolean;
+  /** Electron 快捷键写法，如 Alt+Shift+Space */
+  accel: string;
+}
+
+export type HotkeySettings = Record<HotkeyId, HotkeyConfig>;
+
+export interface HotkeyState extends HotkeyConfig {
+  /** 显示用的写法，如 Ctrl+Alt+X */
+  label: string;
+  /** 开着且注册成功（停止键：能注册） */
+  ok: boolean;
+  /** 开着但注册不上的原因 */
+  error?: string;
+}
+
+export type HotkeyStatus = Record<HotkeyId, HotkeyState>;
 
 export type AgentEvent = { type: 'focus' } | { type: 'image'; dataUrl: string } | { type: 'stop' };
 

@@ -1,6 +1,6 @@
 // 预加载脚本：只暴露页面需要的最小接口（sandbox 模式下只能使用 electron 模块）。
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
-import type { AboutInfo, AgentBridge, AgentEvent, AgentToolsInfo, AppStatus, DownloadedFile, HttpEvent, P2DApi, UpdateInfo, WindowMode } from '../shared/types';
+import type { AboutInfo, AgentBridge, AgentEvent, HotkeyStatus, AgentToolsInfo, AppStatus, DownloadedFile, HttpEvent, P2DApi, UpdateInfo, WindowMode } from '../shared/types';
 
 const api: P2DApi = {
   getStatus: () => ipcRenderer.invoke('p2d:getStatus') as Promise<AppStatus>,
@@ -32,7 +32,8 @@ const api: P2DApi = {
   setMode: (mode) => ipcRenderer.send('p2d:setMode', mode),
   toggleMaximize: () => ipcRenderer.send('p2d:toggleMaximize'),
   agent: agentBridge(),
-  agentHotkeys: () => ipcRenderer.invoke('p2d:agentHotkeys') as Promise<{ ask?: string; capture?: string; stop?: string }>,
+  agentHotkeys: () => ipcRenderer.invoke('p2d:agentHotkeys') as Promise<HotkeyStatus>,
+  setAgentHotkeys: (s) => ipcRenderer.invoke('p2d:setAgentHotkeys', s) as Promise<HotkeyStatus>,
   agentActive: (running, operating) => ipcRenderer.send('p2d:agentActive', !!running, !!operating),
   stopAgent: () => ipcRenderer.send('p2d:stopAgent'),
   captureRegion: () => ipcRenderer.send('p2d:captureRegion'),

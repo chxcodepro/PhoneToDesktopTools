@@ -12,7 +12,7 @@ const agent = query.get('kind') === 'agent';
 function AgentOverlay() {
   const [stopKey, setStopKey] = useState('');
   useEffect(() => {
-    void window.p2d.agentHotkeys().then((h) => setStopKey(h.stop ?? ''));
+    void window.p2d.agentHotkeys().then((h) => setStopKey(h.stop.ok ? h.stop.label : ''));
   }, []);
   return (
     <div className="pointer-events-none fixed inset-0 border-4 border-[#8b5cf6]">
