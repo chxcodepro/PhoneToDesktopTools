@@ -183,6 +183,63 @@ export interface P2DApi {
   exportLogs(): Promise<{ ok: boolean; path?: string; message?: string }>;
   /** Mac：打开「系统设置 → 隐私与安全性」里对应的权限页面 */
   openMacPrivacy(kind: 'accessibility' | 'screen'): void;
+  /** 窗口模式：phone 连接手机，agent 电脑上的 AI 助手 */
+  getMode(): Promise<WindowMode>;
+  setMode(mode: WindowMode): void;
+  /** 助手模式下最大化 / 还原 */
+  toggleMaximize(): void;
+  agent: AgentBridge;
+}
+
+export type WindowMode = 'phone' | 'agent';
+
+/** 网络请求的流式响应（主进程 → 页面） */
+export type HttpEvent =
+  | { type: 'head'; status: number }
+  | { type: 'data'; data: Uint8Array }
+  | { type: 'end' }
+  | { type: 'error'; message: string; abort?: boolean };
+
+export interface HttpInit {
+  method: string;
+  headers: Record<string, string>;
+  body?: string;
+}
+
+/** Core 的工具列表（GET /api/agent/tools） */
+export interface AgentToolsInfo {
+  tools: { name: string; description?: string; inputSchema?: unknown }[];
+  host: string;
+  os: string;
+  downloadDir: string;
+}
+
+export interface DownloadedFile {
+  path: string;
+  size: number;
+  sha256: string;
+  sha1: string;
+  signature?: string;
+}
+
+/** 电脑端 AI 助手用的主进程接口（见 electron/agent.ts） */
+export interface AgentBridge {
+  httpStart(id: string, url: string, init: HttpInit): void;
+  onHttp(cb: (id: string, e: HttpEvent) => void): () => void;
+  /** 取消进行中的网络请求、工具调用或下载 */
+  cancel(id: string): void;
+  tools(): Promise<AgentToolsInfo>;
+  call(id: string, name: string, args: Record<string, unknown>): Promise<unknown>;
+  download(id: string, url: string, name: string, dir: string): Promise<DownloadedFile>;
+  onDownloadProgress(cb: (id: string, received: number, total: number) => void): () => void;
+  config(): Promise<unknown>;
+  saveConfig(v: unknown): Promise<void>;
+  key(preset: string): Promise<string>;
+  setKey(preset: string, key: string): Promise<void>;
+  convList(): Promise<unknown[]>;
+  convLoad(id: string): Promise<unknown>;
+  convSave(id: string, data: unknown, list: unknown[]): Promise<void>;
+  convRemove(id: string, list: unknown[]): Promise<void>;
 }
 
 /** 会话所在手机当前在线的通道（同一台手机可能同时有 USB 和 WiFi 两条，USB 优先） */

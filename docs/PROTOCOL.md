@@ -254,6 +254,20 @@ Core 在同一端口提供 HTTP 接口，只接受本机访问：
 - `POST /api/driver/install`（Windows）：以管理员身份（弹出 UAC）安装电脑端自带的 ADB 接口驱动（WinUSB，按兼容标识 `USB\Class_FF&SubClass_42&Prot_01` 匹配所有品牌手机），等安装结束返回 `{ok, message?}`。已装厂商驱动的手机不受影响
 - `POST /api/firewall/allow`（银河麒麟）：用 `pkexec` 弹出系统的密码框，执行 `kylin-firewall -A p2d -d inbound -m all -p tcp -L <局域网端口> -a allow`（规则已存在但被关掉时改为重新开启），公用、专用两种网络模式都放行，等结束返回 `{ok, message?}`
 
+### 7.1 电脑端 AI 助手（电脑端界面里运行 Agent）
+
+电脑端主窗口有「连接手机 / AI 助手」两种模式。AI 助手在 Electron 页面里运行和手机端同一套 Agent 代码（`mobile/src/agent` 的 `runAgent`、模型接口、联网工具，经 Vite 别名 `@agent` 引用），系统提示词换成电脑端的（`desktop/app/src/renderer/agent/prompt.ts`）。
+
+- 网络请求（模型接口、`web_search`、`web_fetch`、`driver_search`）：页面直接请求会被跨域限制挡住，改由主进程的 `net` 模块发（走系统代理），响应经 IPC 流式传回页面
+- 电脑工具：主进程带令牌请求 Core：
+  - `GET /api/agent/tools` → `{tools, host, os, downloadDir}`
+  - `POST /api/agent/call {name, arguments}` → 和 MCP `tools/call` 相同的结果。请求取消时工具的 ctx 跟着取消（正在执行的命令会结束）。权限按「完全控制」（用户自己坐在电脑前用），提权照样弹 UAC / 密码框
+  - `POST /api/agent/verify {path}` → `{signature}`（Windows 数字签名，下载的安装包用）
+  - 令牌放在请求头 `X-P2D-Agent`：Core 每次启动随机生成，监听端口成功后写进数据目录的 `agent-token-<端口>`（只有当前用户能读）。只靠「只允许本机访问」不够：浏览器里的网页能向 127.0.0.1 发请求，远程桌面服务器上的其他用户也能连本机端口；自定义请求头会让浏览器先发跨域预检，Core 不回跨域许可
+- 工具：Core 的 15 个电脑工具，加上共用的 `web_search`、`web_fetch`、`driver_search`、`download_to_pc`（电脑自己下载到「下载/P2D」，返回 SHA-256、SHA-1，Windows 安装包带数字签名）、`ask_user`（对话里的选择卡片）。没有定时任务和扩展（MCP / Skill）
+- 模型配置：和手机端一样三个预设（OpenAI、DeepSeek、自定义 OpenAI 兼容地址），电脑端单独配置，存在数据目录的 `agent/config.json`；API Key 用 Electron `safeStorage` 加密（Windows 是 DPAPI）存在 `agent/keys.json`，系统没有加密存储时（Linux 没有密钥环）明文保存
+- 对话记录存在 `agent/conversations/`（最多 100 个），窗口模式和助手窗口大小存在 `agent/window.json`
+
 ## 8. 扩展（MCP / Skill，自定义扩展）
 
 扩展的配置都保存在手机上（令牌类请求头 / 环境变量存手机安全存储），Agent 看到的工具 = 电脑工具 + 手机工具 + 扩展工具。电脑未连接时仍可使用手机工具和远程 MCP。

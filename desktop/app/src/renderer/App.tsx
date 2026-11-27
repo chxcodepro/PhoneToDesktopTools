@@ -1,7 +1,8 @@
-// 电脑端主窗口：等待连接 → 正在连接 → 已连接
+// 电脑端主窗口：两种模式——连接手机（等待连接 → 正在连接 → 已连接）和电脑上的 AI 助手（agent/AgentView）
 import {
   AlertTriangle,
   ArrowUpCircle,
+  Bot,
   CheckCircle2,
   Circle,
   ExternalLink,
@@ -9,6 +10,7 @@ import {
   Github,
   Info,
   LockKeyhole,
+  Maximize2,
   Minus,
   Monitor,
   OctagonX,
@@ -24,7 +26,8 @@ import QRCode from 'qrcode';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Badge, Button, Card, Kbd, Spinner } from '@/components/ui';
 import { cn, formatDuration, platformLabel } from '@/lib/utils';
-import { deviceNameFor, type AboutInfo, type AppStatus, type CoreDevice, type CoreLan } from '../shared/types';
+import { deviceNameFor, type AboutInfo, type AppStatus, type CoreDevice, type CoreLan, type WindowMode } from '../shared/types';
+import { AgentView } from './agent/AgentView';
 
 function useAppStatus(): AppStatus {
   const [s, setS] = useState<AppStatus>({ coreOnline: false });
@@ -73,6 +76,27 @@ function useFitHeight() {
 const CONNECTING_STAGES =['unauthorized', 'installing', 'starting', 'ready', 'error'];
 
 export function App() {
+  const [mode, setMode] = useState<WindowMode | null>(null);
+  useEffect(() => {
+    void window.p2d.getMode().then(setMode);
+  }, []);
+  const switchMode = (m: WindowMode) => {
+    setMode(m);
+    window.p2d.setMode(m);
+  };
+  if (!mode) return null;
+  if (mode === 'agent') {
+    return (
+      <div className="flex h-full flex-col overflow-hidden border border-border bg-background">
+        <TitleBar mode={mode} onMode={switchMode} />
+        <AgentView />
+      </div>
+    );
+  }
+  return <PhoneApp onMode={switchMode} />;
+}
+
+function PhoneApp({ onMode }: { onMode: (m: WindowMode) => void }) {
   const s = useAppStatus();
   const st = s.status;
   const session = st?.sessions?.[0];
@@ -104,7 +128,7 @@ export function App() {
 
   return (
     <div ref={fit.root} className="flex h-full flex-col overflow-hidden border border-border bg-background">
-      <TitleBar />
+      <TitleBar mode="phone" onMode={onMode} />
       <div ref={fit.scroller} className="no-scrollbar min-h-0 flex-1 overflow-y-auto p-5">
         <div ref={fit.content} className="flex flex-col gap-3.5">
           <UpdateBanner u={s.update} manual={manualCheck} onClose={() => setManualCheck(false)} />
@@ -144,16 +168,37 @@ export function App() {
   );
 }
 
-function TitleBar() {
+function TitleBar({ mode, onMode }: { mode: WindowMode; onMode: (m: WindowMode) => void }) {
+  const tab = (m: WindowMode, Icon: typeof Smartphone, label: string) => (
+    <button
+      className={cn(
+        'flex h-6 items-center gap-1 rounded-[5px] px-2 text-xs',
+        mode === m ? 'bg-background font-medium text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
+      )}
+      onClick={() => mode !== m && onMode(m)}
+    >
+      <Icon className="h-3 w-3" />
+      {label}
+    </button>
+  );
   return (
-    <header className="drag flex h-9 shrink-0 items-center justify-between border-b border-border pl-3">
-      <div className="flex items-center gap-2">
-        <div className="flex h-5 w-5 items-center justify-center rounded-md bg-primary text-white">
-          <Smartphone className="h-3 w-3" strokeWidth={2.5} />
+    <header
+      className="drag flex h-9 shrink-0 items-center justify-between border-b border-border pl-3"
+      onDoubleClick={() => mode === 'agent' && window.p2d.toggleMaximize()}
+    >
+      <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2">
+          <div className="flex h-5 w-5 items-center justify-center rounded-md bg-primary text-white">
+            <Smartphone className="h-3 w-3" strokeWidth={2.5} />
+          </div>
+          <span className="text-[13px] font-semibold">P2D</span>
         </div>
-        <span className="text-[13px] font-semibold">P2D</span>
+        <div className="no-drag flex rounded-md bg-muted p-0.5" onDoubleClick={(e) => e.stopPropagation()}>
+          {tab('phone', Smartphone, '连接手机')}
+          {tab('agent', Bot, 'AI 助手')}
+        </div>
       </div>
-      <div className="no-drag flex h-full">
+      <div className="no-drag flex h-full" onDoubleClick={(e) => e.stopPropagation()}>
         <button
           aria-label="最小化"
           className="flex w-10 items-center justify-center text-muted-foreground hover:bg-accent"
@@ -161,6 +206,15 @@ function TitleBar() {
         >
           <Minus className="h-3.5 w-3.5" />
         </button>
+        {mode === 'agent' ? (
+          <button
+            aria-label="最大化"
+            className="flex w-10 items-center justify-center text-muted-foreground hover:bg-accent"
+            onClick={() => window.p2d.toggleMaximize()}
+          >
+            <Maximize2 className="h-3 w-3" />
+          </button>
+        ) : null}
         <button
           aria-label="关闭到托盘"
           className="flex w-10 items-center justify-center text-muted-foreground hover:bg-[#e81123] hover:text-white"

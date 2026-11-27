@@ -184,6 +184,10 @@ func main() {
 		}
 	}()
 	log.Printf("P2D 电脑端 %s 已启动：%s（%s/%s）", server.Version, ln.Addr(), runtime.GOOS, runtime.GOARCH)
+	// 端口监听成功后才写令牌：端口被已经在运行的电脑端占着时不能覆盖它的令牌
+	if err := srv.EnableAgent(stateDir(), *port); err != nil {
+		log.Printf("电脑端助手不可用：写令牌失败（%v）", err)
+	}
 	if *devToken != "" {
 		log.Printf("开发令牌已启用：ws://127.0.0.1:%d/mcp?token=%s", *port, *devToken)
 	}

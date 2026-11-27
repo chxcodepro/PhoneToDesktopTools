@@ -1,0 +1,108 @@
+// 页面和主进程之间的桥：网络请求改由主进程发（页面直接请求会被跨域限制挡住），响应流式传回来，
+// 包装成共用 Agent 代码需要的 fetch 接口（FetchLike）。
+import type { FetchLike } from '@agent/llm';
+import type { HttpEvent } from '../../shared/types';
+
+let seq = 0;
+export const uid = (prefix: string) => `${prefix}${Date.now().toString(36)}${(seq++).toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+
+type Listener = (e: HttpEvent) => void;
+const listeners = new Map<string, Listener>();
+let subscribed = false;
+
+function subscribe(): void {
+  if (subscribed) return;
+  subscribed = true;
+  window.p2d.agent.onHttp((id, e) => listeners.get(id)?.(e));
+}
+
+const abortError = () => Object.assign(new Error('已停止'), { name: 'AbortError' });
+
+/** 经主进程发请求；响应头到达时返回，正文以流的方式读取 */
+export const ipcFetch: FetchLike = (url, init) => {
+  subscribe();
+  const id = uid('h');
+  return new Promise((resolve, reject) => {
+    if (init.signal?.aborted) {
+      reject(abortError());
+      return;
+    }
+    let controller: ReadableStreamDefaultController<Uint8Array> | null = null;
+    let settled = false;
+    const chunks: Uint8Array[] = [];
+    let ended = false;
+    let failure: Error | null = null;
+    const cleanup = () => {
+      listeners.delete(id);
+      init.signal?.removeEventListener('abort', onAbort);
+    };
+    const onAbort = () => window.p2d.agent.cancel(id);
+    init.signal?.addEventListener('abort', onAbort);
+
+    const body = new ReadableStream<Uint8Array>({
+      start(c) {
+        controller = c;
+        for (const ch of chunks) c.enqueue(ch);
+        chunks.length = 0;
+        if (failure) c.error(failure);
+        else if (ended) c.close();
+      },
+      cancel() {
+        window.p2d.agent.cancel(id);
+        cleanup();
+      },
+    });
+
+    listeners.set(id, (e) => {
+      switch (e.type) {
+        case 'head': {
+          settled = true;
+          const status = e.status;
+          let used = false;
+          resolve({
+            ok: status >= 200 && status < 300,
+            status,
+            body,
+            // text() 读完整个正文（和 body 只能用一个）
+            async text() {
+              if (used) throw new Error('响应正文已读取');
+              used = true;
+              const reader = body.getReader();
+              const dec = new TextDecoder();
+              let out = '';
+              for (;;) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                out += dec.decode(value, { stream: true });
+              }
+              return out + dec.decode();
+            },
+          });
+          break;
+        }
+        case 'data':
+          if (controller) controller.enqueue(e.data);
+          else chunks.push(e.data);
+          break;
+        case 'end':
+          cleanup();
+          ended = true;
+          controller?.close();
+          break;
+        case 'error': {
+          cleanup();
+          const err = e.abort || init.signal?.aborted ? abortError() : new TypeError(e.message);
+          failure = err;
+          if (!settled) {
+            settled = true;
+            reject(err);
+          } else {
+            controller?.error(err);
+          }
+          break;
+        }
+      }
+    });
+    window.p2d.agent.httpStart(id, url, { method: init.method, headers: init.headers, body: init.body });
+  });
+};

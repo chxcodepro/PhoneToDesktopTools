@@ -73,6 +73,8 @@ type Server struct {
 	SecureStatus func() any
 	SecureOn     *ElevatedAction
 	SecureOff    *ElevatedAction
+	// 电脑端界面里的 AI 助手调用本机工具的令牌（见 agentapi.go），没开启时为空
+	agentToken atomic.Value
 
 	// 用户在电脑上点了「断开」：局域网的自动重连先拒绝，手机上手动点「连接」才接受
 	lanSuppressed atomic.Bool
@@ -116,6 +118,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/aoa/connect", s.handleAOAConnect)
 	mux.HandleFunc("/api/secure-desktop/enable", s.handleElevated(func() *ElevatedAction { return s.SecureOn }, "这个系统不支持锁屏远程支持"))
 	mux.HandleFunc("/api/secure-desktop/disable", s.handleElevated(func() *ElevatedAction { return s.SecureOff }, "这个系统不支持锁屏远程支持"))
+	mux.HandleFunc("/api/agent/tools", s.handleAgentTools)
+	mux.HandleFunc("/api/agent/call", s.handleAgentCall)
+	mux.HandleFunc("/api/agent/verify", s.handleAgentVerify)
 	return localOnly(mux)
 }
 

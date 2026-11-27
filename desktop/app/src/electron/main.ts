@@ -18,6 +18,7 @@ import {
 import { getAutostart, initAutostart, setAutostart } from './autostart';
 import { checkUpdate, getUpdate, repoUrl, startAutoCheck } from './update';
 import { aboutInfo, exportLogs } from './logs';
+import { registerAgentIpc } from './agent';
 import { OverlayManager } from './overlay';
 import { deviceNameFor, type AppStatus } from '../shared/types';
 
@@ -84,6 +85,7 @@ const MAIN_WIDTH = 380;
 const MAIN_MIN_HEIGHT = 320;
 
 function fitMainHeight(want: number): void {
+  if (mode === 'agent') return;
   if (!mainWindow || mainWindow.isDestroyed() || !Number.isFinite(want) || want <= 0) return;
   const b = mainWindow.getBounds();
   const area = screen.getDisplayMatching(b).workArea;
@@ -92,6 +94,74 @@ function fitMainHeight(want: number): void {
   // 变高后下边超出屏幕时往上挪
   const y = b.y + height > area.y + area.height ? Math.max(area.y, area.y + area.height - height) : b.y;
   mainWindow.setBounds({ x: b.x, y, width: b.width, height });
+}
+
+// 两种模式：phone 连接手机（窄窗口，高度按内容），agent 电脑上的 AI 助手（宽窗口，可以调大小、最大化）。
+// 模式和助手窗口的位置大小记在 agent/window.json，下次打开还是上次的样子
+type WindowMode = 'phone' | 'agent';
+const AGENT_MIN = { width: 760, height: 500 };
+let mode: WindowMode = 'phone';
+const windowStatePath = () => path.join(app.getPath('userData'), 'agent', 'window.json');
+
+function readWindowState(): { mode?: WindowMode; bounds?: Electron.Rectangle; maximized?: boolean } {
+  try {
+    return JSON.parse(fs.readFileSync(windowStatePath(), 'utf8'));
+  } catch {
+    return {};
+  }
+}
+
+function saveWindowState(): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const prev = readWindowState();
+  const st = {
+    mode,
+    bounds: mode === 'agent' && !mainWindow.isMaximized() ? mainWindow.getBounds() : prev.bounds,
+    maximized: mode === 'agent' ? mainWindow.isMaximized() : prev.maximized,
+  };
+  try {
+    fs.mkdirSync(path.dirname(windowStatePath()), { recursive: true });
+    fs.writeFileSync(windowStatePath(), JSON.stringify(st));
+  } catch (e) {
+    console.error('保存窗口状态失败：', e);
+  }
+}
+
+function applyMode(next: WindowMode): void {
+  const w = mainWindow;
+  if (!w || w.isDestroyed()) return;
+  if (mode === 'agent' && next !== 'agent') saveWindowState(); // 记下助手窗口的大小
+  mode = next;
+  const area = screen.getDisplayMatching(w.getBounds()).workArea;
+  if (next === 'agent') {
+    const saved = readWindowState();
+    w.setResizable(true);
+    w.setMaximizable(true);
+    w.setMinimumSize(AGENT_MIN.width, AGENT_MIN.height);
+    const b = saved.bounds;
+    const visible = b && screen.getAllDisplays().some((d) => {
+      const a = d.workArea;
+      return b.x < a.x + a.width - 80 && b.x + b.width > a.x + 80 && b.y >= a.y - 8 && b.y < a.y + a.height - 80;
+    });
+    if (b && visible) {
+      w.setBounds(b);
+    } else {
+      const width = Math.min(1080, area.width - 40);
+      const height = Math.min(760, area.height - 40);
+      w.setBounds({ x: area.x + Math.round((area.width - width) / 2), y: area.y + Math.round((area.height - height) / 2), width, height });
+    }
+    if (saved.maximized) w.maximize();
+  } else {
+    if (w.isMaximized()) w.unmaximize();
+    w.setMinimumSize(MAIN_WIDTH, MAIN_MIN_HEIGHT);
+    const b = w.getBounds();
+    // 从宽窗口切回来：保持右上角大致不动，高度等页面报上来再调
+    const x = Math.min(Math.max(area.x, b.x + b.width - MAIN_WIDTH), area.x + area.width - MAIN_WIDTH);
+    w.setBounds({ x, y: b.y, width: MAIN_WIDTH, height: Math.min(b.height, 520) });
+    w.setResizable(false);
+    w.setMaximizable(false);
+  }
+  saveWindowState();
 }
 
 function createMainWindow(): void {
@@ -116,6 +186,16 @@ function createMainWindow(): void {
     },
   });
   mainWindow.setMenu(null);
+  if (readWindowState().mode === 'agent') applyMode('agent');
+  // 拖动、调大小时事件很密，停下半秒后再存（resized / moved 只有 Windows 和 Mac 有）
+  let saveTimer: NodeJS.Timeout | undefined;
+  const saveLater = () => {
+    if (mode !== 'agent') return;
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(saveWindowState, 500);
+  };
+  mainWindow.on('resize', saveLater);
+  mainWindow.on('move', saveLater);
   void mainWindow.loadFile(path.join(rendererDir, 'index.html'));
   mainWindow.once('ready-to-show', () => {
     if (!startHidden()) mainWindow?.show();
@@ -325,6 +405,16 @@ function registerIpc(): void {
     }
   });
   ipcMain.on('p2d:minimize', () => mainWindow?.minimize());
+  ipcMain.handle('p2d:getMode', () => mode);
+  ipcMain.on('p2d:setMode', (e, m: unknown) => {
+    if (mainWindow && e.sender === mainWindow.webContents && (m === 'phone' || m === 'agent') && m !== mode) applyMode(m);
+  });
+  ipcMain.on('p2d:toggleMaximize', () => {
+    if (!mainWindow || mode !== 'agent') return;
+    if (mainWindow.isMaximized()) mainWindow.unmaximize();
+    else mainWindow.maximize();
+  });
+  registerAgentIpc();
   ipcMain.on('p2d:hide', () => mainWindow?.hide());
   ipcMain.on('p2d:fitHeight', (e, h: unknown) => {
     if (mainWindow && e.sender === mainWindow.webContents) fitMainHeight(Number(h));

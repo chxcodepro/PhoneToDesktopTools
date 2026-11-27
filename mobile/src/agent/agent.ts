@@ -51,6 +51,8 @@ export interface AgentOptions {
   computers?: ComputerInfo[];
   /** 用户为当前模型填写的系统提示词，加在内置提示词之后 */
   customPrompt?: string;
+  /** 替换内置的系统提示词（电脑端界面里的助手用自己的提示词）；canSee 为模型当前能否看图片 */
+  systemPrompt?: (canSee: boolean) => string;
   signal?: AbortSignal;
   /** 最多执行多少轮工具调用，默认 40 */
   maxSteps?: number;
@@ -407,7 +409,10 @@ export async function runAgent(history: ChatMessage[], opts: AgentOptions): Prom
       const tools = useTools ? toToolSpecs(opts.tools!.list()) : undefined;
       // 模型实际不接受图片时，提示词和截图处理都按「看不到图片」来（改用文字识别）
       const canSee = opts.supportsVision && visionOk;
-      const system: ChatMessage = { role: 'system', content: buildSystemPrompt({ ...opts, supportsVision: canSee }) };
+      const system: ChatMessage = {
+        role: 'system',
+        content: opts.systemPrompt ? opts.systemPrompt(canSee) : buildSystemPrompt({ ...opts, supportsVision: canSee }),
+      };
       const pruned = pruneImages([...history, ...added]);
       const callModel = (msgs: ChatMessage[]) =>
         chat(

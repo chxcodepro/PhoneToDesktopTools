@@ -8,7 +8,8 @@ export default defineConfig({
   base: './',
   plugins: [react()],
   resolve: {
-    alias: { '@': resolve(__dirname, 'src/renderer') },
+    // @agent：和手机端共用的 Agent 代码（Agent 循环、模型接口、联网工具），不依赖 React Native
+    alias: { '@agent': resolve(__dirname, '../../mobile/src/agent'), '@': resolve(__dirname, 'src/renderer') },
   },
   build: {
     outDir: resolve(__dirname, 'dist'),
