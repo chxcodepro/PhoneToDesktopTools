@@ -121,6 +121,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/agent/tools", s.handleAgentTools)
 	mux.HandleFunc("/api/agent/call", s.handleAgentCall)
 	mux.HandleFunc("/api/agent/verify", s.handleAgentVerify)
+	mux.HandleFunc("/api/agent/mcp/", s.handleAgentMCP)
 	return localOnly(mux)
 }
 

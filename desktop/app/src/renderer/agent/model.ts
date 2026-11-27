@@ -150,3 +150,25 @@ export async function resolveActiveModel(id = modelStore.get().active): Promise<
     problem: configProblem(llm),
   };
 }
+
+// ---------- 其他设置 ----------
+
+/** 危险操作确认：risky 只确认高风险（管理员命令、删除、格式化之类），all 执行命令和改文件都确认，off 不确认 */
+export type ConfirmMode = 'risky' | 'all' | 'off';
+
+export interface AgentSettings {
+  confirm: ConfirmMode;
+}
+
+export const settingsStore = createStore<AgentSettings & { ready: boolean }>({ confirm: 'risky', ready: false });
+
+export async function initSettings(): Promise<void> {
+  const saved = ((await window.p2d.agent.storeLoad('settings')) ?? {}) as Partial<AgentSettings>;
+  settingsStore.set({ confirm: saved.confirm ?? 'risky', ready: true });
+}
+
+export function updateSettings(patch: Partial<AgentSettings>): Promise<void> {
+  settingsStore.set(patch);
+  const { confirm } = settingsStore.get();
+  return window.p2d.agent.storeSave('settings', { confirm });
+}

@@ -8,6 +8,8 @@ export interface PromptInput {
   supportsTools: boolean;
   /** 电脑端服务连不上时为 false（电脑工具不可用） */
   pcTools: boolean;
+  /** 已安装的 Skill、已连接的 MCP 的说明 */
+  extensionPrompt?: string[];
   customPrompt?: string;
 }
 
@@ -57,7 +59,8 @@ export function desktopSystemPrompt(p: PromptInput): string {
       );
     }
     lines.push(
-      '- 你的对话窗口（P2D）也在这块屏幕上，截图里看到它是正常的。要操作别的程序时先用 window_activate 把它切到前台，键盘输入才会进到那个程序里，不要输进对话窗口。',
+      '- 你的对话窗口（P2D）也在这块屏幕上，截图里看到它是正常的。要操作别的程序时先用 window_activate 把它切到前台，键盘输入才会进到那个程序里，不要输进对话窗口。你动键鼠时屏幕边上会出现紫色边框和顶部的「AI 助手正在操作电脑」提示条，那是 P2D 自己显示的，不用理会。',
+      '- 用户说「我复制的」「剪贴板里」时用 clipboard_read；生成好的命令、文案可以用 clipboard_write 放进剪贴板方便用户粘贴。',
       '- 要用键鼠操作界面时，先提醒用户这段时间别动鼠标键盘；能用命令或文件工具完成的事不要用键鼠。',
       '- 每步操作后确认结果（ui_tree 或截图）。同一个位置点了两次还没反应，换一种方式（ui_act、快捷键、先 window_activate），不要原样重复。',
     );
@@ -69,7 +72,7 @@ export function desktopSystemPrompt(p: PromptInput): string {
       lines.push('- 当前模型看不到图片：优先用命令、文件和控件树（ui_tree、ui_act）完成任务，不要依赖截图。');
     }
     lines.push(
-      '- 删除或覆盖重要文件、结束进程、关机重启、安装软件或驱动、改系统设置前，先用一句话说明要做什么，必要时用 ask_user 让用户确认。',
+      '- 删除或覆盖重要文件、结束进程、关机重启、安装软件或驱动、改系统设置前，先用一句话说明要做什么，必要时用 ask_user 让用户确认。有的操作 P2D 会先弹确认卡片，用户没允许时不要换个说法重试。',
     );
   }
   if (p.supportsTools) {
@@ -77,8 +80,20 @@ export function desktopSystemPrompt(p: PromptInput): string {
       '',
       '和用户交互：',
       '- 需要用户做决定时（几个版本选哪个、是否安装或重启、几种方案选哪种），调用 ask_user 给出 2～6 个选项，等用户点选后再继续；不要在文字里列选项让用户回复。',
+      '- 用户要求定期或在某个时间做某事时（如「每天早上 9 点体检」「明天提醒我清理磁盘」），用 schedule_create 创建定时任务，创建后说明下次执行时间；查看、停用、删除用 schedule_list / schedule_update / schedule_delete。',
     );
   }
+  lines.push(
+    '- 回答中可以用 ```p2d-ui 代码块（内容为 JSON）显示可视化组件，界面会渲染成卡片。只在比纯文字更清楚时使用（体检结果、磁盘空间、步骤进度等），普通说明仍用文字。可用组件：',
+    '  callout {"type":"callout","tone":"info|success|warning|error","title":"标题","text":"内容"}；',
+    '  stats {"type":"stats","items":[{"label":"C 盘可用","value":"172 GB","hint":"共 476 GB","tone":"success"}]}（最多 4 个）；',
+    '  progress {"type":"progress","label":"磁盘已用","value":64}；',
+    '  steps {"type":"steps","items":[{"title":"下载驱动","status":"done|current|todo|error","detail":"说明"}]}；',
+    '  kv {"type":"kv","title":"系统信息","items":[{"label":"系统","value":"Windows 10"}]}；',
+    '  buttons {"type":"buttons","items":[{"label":"清理磁盘","send":"点击后发给你的话"}]}（任务结束后给出后续操作建议，最多 3 个，label 简短，具体要求写在 send 里）。',
+    '  多个组件放进数组：[{...},{...}]。',
+  );
+  if (p.supportsTools && p.extensionPrompt?.length) lines.push(...p.extensionPrompt, '');
   lines.push(
     '- 用户消息末尾的［发送时间 …］是系统附加的电脑本地时间，用来理解「今天」「明天」，不要在回答里提起它。',
     '- 回答用 Markdown（标题、列表、表格、代码块），引用网页时附上链接。',

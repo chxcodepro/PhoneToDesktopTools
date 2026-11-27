@@ -1,5 +1,6 @@
 // P2D 电脑端主进程：启动 Core、轮询状态、主窗口、托盘、被控红框、断开热键。
 import { app, BrowserWindow, globalShortcut, ipcMain, Menu, nativeImage, screen, session, shell, systemPreferences, Tray } from 'electron';
+import { captureRegion } from './capture';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -34,6 +35,53 @@ let quitting = false;
 let current: AppStatus = { coreOnline: false };
 const core = new CoreProcess();
 let overlays: OverlayManager | null = null; // screen 模块需在 ready 之后使用
+let agentOverlays: OverlayManager | null = null; // 电脑端 AI 助手动键鼠时的提示
+
+// 电脑端 AI 助手的热键：唤起输入框、框选屏幕提问、停止（停止热键只在助手运行时注册）。依次尝试，用第一个没被占用的
+const ASK_KEYS = ['Control+Alt+Space', 'Alt+Shift+Space'];
+const CAPTURE_KEYS = ['Control+Alt+X', 'Control+Alt+Shift+X'];
+const STOP_KEYS = ['Control+Alt+Escape', 'Control+Alt+Shift+Escape'];
+const agentKeys: { ask?: string; capture?: string; stop?: string } = {};
+let stopKeyOn = false;
+
+/** 热键显示给用户看的写法：Control+Alt+Space → Ctrl+Alt+Space */
+const keyLabel = (accel: string) => accel.replace('Control', 'Ctrl').replace('Escape', 'Esc');
+
+function registerFirst(candidates: string[], fn: () => void): string | undefined {
+  for (const accel of candidates) {
+    try {
+      if (globalShortcut.register(accel, fn)) return accel;
+    } catch {
+      // 系统不支持的组合，换下一个
+    }
+  }
+  return undefined;
+}
+
+/** 让页面切到助手模式并处理事件（聚焦输入框、加上框选的截图、停止） */
+function agentEvent(e: { type: 'focus' } | { type: 'image'; dataUrl: string } | { type: 'stop' }): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (e.type !== 'stop') {
+    if (mode !== 'agent') applyMode('agent');
+    showMainWindow();
+  }
+  mainWindow.webContents.send('p2d:agentEvent', e);
+}
+
+function setAgentActive(running: boolean, operating: boolean): void {
+  if (operating) agentOverlays?.show();
+  else agentOverlays?.hide();
+  if (running && !stopKeyOn) {
+    const k = registerFirst(STOP_KEYS, () => agentEvent({ type: 'stop' }));
+    if (k) {
+      agentKeys.stop = keyLabel(k);
+      stopKeyOn = true;
+    }
+  } else if (!running && stopKeyOn) {
+    for (const k of STOP_KEYS) if (globalShortcut.isRegistered(k)) globalShortcut.unregister(k);
+    stopKeyOn = false;
+  }
+}
 
 // Win7 / Win8（系统版本号 6.x）上用 GPU 绘制全屏透明的被控红框窗口，会让主进程卡死（Win7 虚拟机稳定复现），
 // 这些系统改用软件绘制。界面很简单，不需要 GPU。
@@ -406,6 +454,12 @@ function registerIpc(): void {
   });
   ipcMain.on('p2d:minimize', () => mainWindow?.minimize());
   ipcMain.handle('p2d:getMode', () => mode);
+  ipcMain.handle('p2d:agentHotkeys', () => ({ ...agentKeys, stop: agentKeys.stop ?? keyLabel(STOP_KEYS[0]) }));
+  ipcMain.on('p2d:agentActive', (e, running: unknown, operating: unknown) => {
+    if (mainWindow && e.sender === mainWindow.webContents) setAgentActive(running === true, operating === true);
+  });
+  ipcMain.on('p2d:stopAgent', () => agentEvent({ type: 'stop' }));
+  ipcMain.on('p2d:captureRegion', () => void startCapture());
   ipcMain.on('p2d:setMode', (e, m: unknown) => {
     if (mainWindow && e.sender === mainWindow.webContents && (m === 'phone' || m === 'agent') && m !== mode) applyMode(m);
   });
@@ -421,7 +475,7 @@ function registerIpc(): void {
   });
   ipcMain.on('p2d:overlayInteractive', (e, interactive: unknown) => {
     const w = BrowserWindow.fromWebContents(e.sender);
-    if (w && overlays?.owns(w)) w.setIgnoreMouseEvents(!interactive, { forward: true });
+    if (w && (overlays?.owns(w) || agentOverlays?.owns(w))) w.setIgnoreMouseEvents(!interactive, { forward: true });
   });
 }
 
@@ -442,6 +496,7 @@ app.whenReady().then(() => {
   initAutostart();
   registerIpc();
   overlays = new OverlayManager(rendererDir, preloadPath);
+  agentOverlays = new OverlayManager(rendererDir, preloadPath, 'agent');
   core.start();
   createMainWindow();
   createTray();
@@ -452,11 +507,25 @@ app.whenReady().then(() => {
     }
     console.error(`热键 ${accel} 注册失败（可能已被其他程序占用），尝试下一个`);
   }
+  const ask = registerFirst(ASK_KEYS, () => agentEvent({ type: 'focus' }));
+  if (ask) agentKeys.ask = keyLabel(ask);
+  const cap = registerFirst(CAPTURE_KEYS, () => void startCapture());
+  if (cap) agentKeys.capture = keyLabel(cap);
   void poll();
   setInterval(tick, 1000);
   startAutoCheck(() => broadcast({ ...current, update: getUpdate() }));
   startDebugCapture();
 });
+
+/** 框选屏幕提问：截图、让用户框一块，交给助手的输入框 */
+async function startCapture(): Promise<void> {
+  try {
+    const dataUrl = await captureRegion(rendererDir, preloadPath);
+    if (dataUrl) agentEvent({ type: 'image', dataUrl });
+  } catch (e) {
+    console.error('框选屏幕失败：', e);
+  }
+}
 
 // 开发调试：设置 P2D_DEBUG_CAPTURE=<目录> 时，每 2 秒把主窗口画面写入 <目录>/main.png（打包后无效）
 function startDebugCapture(): void {
@@ -477,6 +546,7 @@ app.on('before-quit', () => {
 app.on('will-quit', (e) => {
   globalShortcut.unregisterAll();
   overlays?.destroy();
+  agentOverlays?.destroy();
   if (!core.stopped) {
     e.preventDefault();
     void core.stop().finally(() => app.quit());

@@ -1,4 +1,5 @@
 // 被控提示：每个显示器一个全屏、透明、点击穿透、置顶的窗口，画红色边框和顶部悬浮条。
+// kind=agent 时是电脑端 AI 助手在动键鼠的提示（紫色边框，悬浮条上有「停止」）。
 import { BrowserWindow, screen } from 'electron';
 import * as path from 'path';
 
@@ -9,6 +10,7 @@ export class OverlayManager {
   constructor(
     private rendererDir: string,
     private preloadPath: string,
+    private kind: 'phone' | 'agent' = 'phone',
   ) {
     screen.on('display-added', () => this.rebuild());
     screen.on('display-removed', () => this.rebuild());
@@ -54,7 +56,7 @@ export class OverlayManager {
       w.setBounds(d.bounds);
       // 只有主显示器显示悬浮条，其他显示器只画红框
       void w.loadFile(path.join(this.rendererDir, 'overlay.html'), {
-        query: { bar: d.id === primaryId ? '1' : '0' },
+        query: { bar: d.id === primaryId ? '1' : '0', kind: this.kind },
       });
       w.once('ready-to-show', () => {
         if (this.visible) w.showInactive();

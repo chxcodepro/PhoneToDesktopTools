@@ -2,8 +2,9 @@
 //   - 网络请求（模型接口、搜索、读网页）：页面直接请求会被跨域限制挡住，改由主进程的 net 模块发（走系统代理），
 //     流式地把响应传回页面；
 //   - 调用电脑工具：带令牌请求 Core 的 /api/agent/*（令牌在数据目录的 agent-token-<端口> 文件里）；
-//   - 下载文件到「下载/P2D」、保存模型配置（API Key 用系统加密存储）和对话记录。
-import { app, ipcMain, net, safeStorage, type WebContents } from 'electron';
+//   - 下载文件到「下载/P2D」、保存模型配置（API Key 用系统加密存储）和对话记录；
+//   - 扩展（Skill 文件、MCP 令牌）、定时任务的保存，电脑上的 stdio MCP（经 Core 启动），剪贴板。
+import { app, clipboard, ipcMain, net, safeStorage, type WebContents } from 'electron';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as http from 'http';
@@ -58,7 +59,9 @@ function startHttp(sender: WebContents, id: string, url: string, init: HttpInit)
     }
   }
   req.on('response', (res) => {
-    send({ type: 'head', status: res.statusCode });
+    const headers: Record<string, string> = {};
+    for (const [k, v] of Object.entries(res.headers)) headers[k.toLowerCase()] = Array.isArray(v) ? v.join(', ') : String(v);
+    send({ type: 'head', status: res.statusCode, headers });
     res.on('data', (chunk: Buffer) => {
       if (!done) send({ type: 'data', data: new Uint8Array(chunk) });
     });
@@ -289,6 +292,56 @@ function setKey(preset: string, key: string): void {
   writeJson(keysPath(), all);
 }
 
+// ---------- 扩展：Skill 文件、令牌 ----------
+
+const skillsRoot = () => path.join(dataDir(), 'skills');
+
+/** Skill 里的相对路径：不能跳出 Skill 目录 */
+function skillPath(id: string, rel: string): string {
+  const dir = path.join(skillsRoot(), id);
+  const p = path.resolve(dir, rel);
+  if (!p.startsWith(dir + path.sep)) throw new Error(`文件路径不合法：${rel}`);
+  return p;
+}
+
+function writeSkill(id: string, files: { path: string; data: Uint8Array }[]): string {
+  const dir = path.join(skillsRoot(), id);
+  const tmp = `${dir}.tmp`;
+  fs.rmSync(tmp, { recursive: true, force: true });
+  for (const f of files) {
+    const p = path.resolve(tmp, f.path);
+    if (!p.startsWith(tmp + path.sep)) throw new Error(`文件路径不合法：${f.path}`);
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(p, Buffer.from(f.data));
+  }
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.renameSync(tmp, dir);
+  return dir;
+}
+
+const secretsPath = () => path.join(dataDir(), 'secrets.json');
+
+function getSecret(key: string): string {
+  const v = readJson<Record<string, string>>(secretsPath(), {})[key];
+  if (!v) return '';
+  if (v.startsWith('plain:')) return v.slice(6);
+  try {
+    return safeStorage.decryptString(Buffer.from(v, 'base64'));
+  } catch {
+    return '';
+  }
+}
+
+function setSecret(key: string, value: string): void {
+  const all = readJson<Record<string, string>>(secretsPath(), {});
+  if (!value) delete all[key];
+  else all[key] = safeStorage.isEncryptionAvailable() ? safeStorage.encryptString(value).toString('base64') : `plain:${value}`;
+  writeJson(secretsPath(), all);
+}
+
+/** 页面能读写的数据文件（agent/<名字>.json） */
+const STORES = new Set(['extensions', 'schedules', 'settings']);
+
 /** 对话编号只能是字母数字（防止拼出别的路径） */
 const validId = (id: unknown): id is string => typeof id === 'string' && /^[\w-]{1,64}$/.test(id);
 
@@ -323,6 +376,39 @@ export function registerAgentIpc(): void {
   ipcMain.handle('p2d:agentKey', (_e, preset: unknown) => (typeof preset === 'string' ? getKey(preset) : ''));
   ipcMain.handle('p2d:agentSetKey', (_e, preset: unknown, key: unknown) => {
     if (typeof preset === 'string' && typeof key === 'string') setKey(preset, key.trim());
+  });
+  ipcMain.handle('p2d:storeLoad', (_e, name: unknown) =>
+    typeof name === 'string' && STORES.has(name) ? readJson<unknown>(path.join(dataDir(), `${name}.json`), null) : null,
+  );
+  ipcMain.handle('p2d:storeSave', (_e, name: unknown, v: unknown) => {
+    if (typeof name === 'string' && STORES.has(name)) writeJson(path.join(dataDir(), `${name}.json`), v);
+  });
+  ipcMain.handle('p2d:secretGet', (_e, key: unknown) => (typeof key === 'string' ? getSecret(key) : ''));
+  ipcMain.handle('p2d:secretSet', (_e, key: unknown, value: unknown) => {
+    if (typeof key === 'string' && typeof value === 'string') setSecret(key, value);
+  });
+  ipcMain.handle('p2d:skillWrite', (_e, id: unknown, files: unknown) => {
+    if (!validId(id) || !Array.isArray(files)) throw new Error('参数不对');
+    return writeSkill(id, files as { path: string; data: Uint8Array }[]);
+  });
+  ipcMain.handle('p2d:skillRead', (_e, id: unknown, rel: unknown) => {
+    if (!validId(id) || typeof rel !== 'string') throw new Error('参数不对');
+    return new Uint8Array(fs.readFileSync(skillPath(id, rel)));
+  });
+  ipcMain.handle('p2d:skillRemove', (_e, id: unknown) => {
+    if (validId(id)) fs.rmSync(path.join(skillsRoot(), id), { recursive: true, force: true });
+  });
+  ipcMain.handle('p2d:skillDir', (_e, id: unknown) => (validId(id) ? path.join(skillsRoot(), id) : ''));
+  ipcMain.handle('p2d:agentMcp', (_e, op: unknown, payload: unknown, id: unknown) => {
+    if (op !== 'start' && op !== 'call' && op !== 'stop') throw new Error('参数不对');
+    return coreRequest('POST', `/api/agent/mcp/${op}`, payload ?? {}, typeof id === 'string' ? id : undefined);
+  });
+  ipcMain.handle('p2d:clipboardRead', () => {
+    const img = clipboard.readImage();
+    return { text: clipboard.readText(), image: img.isEmpty() ? undefined : img.toDataURL() };
+  });
+  ipcMain.handle('p2d:clipboardWrite', (_e, text: unknown) => {
+    if (typeof text === 'string') clipboard.writeText(text);
   });
   ipcMain.handle('p2d:convList', () => readJson<unknown[]>(path.join(convDir(), 'index.json'), []));
   ipcMain.handle('p2d:convLoad', (_e, id: unknown) => (validId(id) ? readJson<unknown>(path.join(convDir(), `${id}.json`), null) : null));

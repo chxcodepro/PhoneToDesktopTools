@@ -1,4 +1,4 @@
-// 电脑端 AI 助手界面：左边对话列表，右边聊天（回答、执行步骤、选择卡片），右上角模型设置。
+// 电脑端 AI 助手界面：左边对话列表（底部是扩展、定时任务、设置），右边聊天（回答、执行步骤、选择卡片），右上角模型设置。
 import {
   AlertCircle,
   Bot,
@@ -6,12 +6,19 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
+  Clock,
+  Copy,
+  Crop,
   Eye,
   EyeOff,
   Loader2,
   MessageSquarePlus,
   Minimize2,
+  Paperclip,
+  Pencil,
+  Puzzle,
   RefreshCw,
+  RotateCcw,
   SendHorizontal,
   Settings2,
   Square,
@@ -24,69 +31,101 @@ import { formatWindow } from '@agent/contextWindow';
 import { listModels } from '@agent/llm';
 import { filterModels } from '@agent/modelList';
 import { MODEL_PRESETS, type PresetId } from '@agent/presets';
+import { PROMPT_PRESETS } from '@agent/promptPresets';
 import { Button, Spinner } from '@/components/ui';
 import { cn } from '@/lib/utils';
 import { ipcFetch } from './bridge';
+import { composerBus, fileAttachments, imageAttachment, pushToComposer, takeFromComposerBus } from './composer';
 import {
   answerChoice,
   compressNow,
   convStore,
-  initConversations,
+  editLast,
+  lastUserItem,
   newConversation,
   openConversation,
+  regenerate,
   removeConversation,
   send,
   stop,
+  type Attachment,
   type ChoiceItem,
   type Step,
+  type UiAttachment,
   type UiItem,
 } from './conversation';
 import { Markdown } from './Markdown';
+import { ExtensionsPanel, SchedulesPanel } from './Panels';
 import {
   contextWindowOf,
   getApiKey,
-  initModel,
   modelStore,
   setActivePreset,
   setApiKey,
+  settingsStore,
   supportsThinkingToggle,
   thinkingOn,
   updatePreset,
+  updateSettings,
   useStore,
+  type ConfirmMode,
   type PresetSettings,
 } from './model';
 
+type Panel = 'settings' | 'extensions' | 'schedules' | null;
+
 export function AgentView() {
-  const [settings, setSettings] = useState(false);
+  const [panel, setPanel] = useState<Panel>(null);
   const conv = useStore(convStore);
   const model = useStore(modelStore);
-  useEffect(() => {
-    void initModel();
-    void initConversations();
-  }, []);
   const preset = model.presets[model.active];
   const configured = model.ready && model.hasKey[model.active] && !!preset.model.trim() && !!preset.baseUrl.trim();
+  const [dragging, setDragging] = useState(false);
 
   return (
     <div className="flex min-h-0 flex-1">
-      <Sidebar onSettings={() => setSettings(true)} />
-      <main className="flex min-w-0 flex-1 flex-col">
+      <Sidebar onPanel={setPanel} />
+      <main
+        className="relative flex min-w-0 flex-1 flex-col"
+        onDragOver={(e) => {
+          if (!e.dataTransfer.types.includes('Files')) return;
+          e.preventDefault();
+          setDragging(true);
+        }}
+        onDragLeave={(e) => e.currentTarget === e.target && setDragging(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragging(false);
+          void fileAttachments(e.dataTransfer.files).then((a) => a.length && pushToComposer({ attachments: a }));
+        }}
+      >
         <header className="flex h-11 shrink-0 items-center gap-2 border-b border-border px-4">
           <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{conv.title || '新对话'}</span>
           <ContextMeter />
           <button
             className="flex h-7 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs hover:bg-accent"
-            onClick={() => setSettings(true)}
+            onClick={() => setPanel('settings')}
             title="模型设置"
           >
             <Settings2 className="h-3.5 w-3.5" />
             <span className="max-w-[220px] truncate">{modelLabel(model.active, preset)}</span>
           </button>
         </header>
-        {conv.items.length ? <Messages items={conv.items} running={conv.running} /> : <Welcome configured={configured} onSettings={() => setSettings(true)} />}
+        {conv.items.length ? (
+          <Messages items={conv.items} running={conv.running} />
+        ) : (
+          <Welcome configured={configured} onSettings={() => setPanel('settings')} />
+        )}
         <Composer />
+        {dragging ? (
+          <div className="pointer-events-none absolute inset-2 flex items-center justify-center rounded-xl border-2 border-dashed border-primary bg-primary/5 text-primary">
+            松开鼠标，把文件交给助手
+          </div>
+        ) : null}
       </main>
-      {settings ? <ModelSettings onClose={() => setSettings(false)} /> : null}
+      {panel === 'settings' ? <ModelSettings onClose={() => setPanel(null)} /> : null}
+      {panel === 'extensions' ? <ExtensionsPanel onClose={() => setPanel(null)} /> : null}
+      {panel === 'schedules' ? <SchedulesPanel onClose={() => setPanel(null)} /> : null}
     </div>
   );
 }
@@ -108,7 +147,7 @@ function relTime(t: number): string {
   return `${a.getMonth() + 1}月${a.getDate()}日`;
 }
 
-function Sidebar({ onSettings }: { onSettings: () => void }) {
+function Sidebar({ onPanel }: { onPanel: (p: Panel) => void }) {
   const conv = useStore(convStore);
   return (
     <aside className="flex w-56 shrink-0 flex-col border-r border-border bg-muted/40">
@@ -147,10 +186,24 @@ function Sidebar({ onSettings }: { onSettings: () => void }) {
           </div>
         ))}
       </div>
-      <button className="flex h-10 items-center gap-2 border-t border-border px-4 text-xs text-muted-foreground hover:text-foreground" onClick={onSettings}>
-        <Settings2 className="h-3.5 w-3.5" />
-        模型设置
-      </button>
+      <div className="flex border-t border-border">
+        {(
+          [
+            ['extensions', Puzzle, '扩展'],
+            ['schedules', Clock, '定时任务'],
+            ['settings', Settings2, '设置'],
+          ] as const
+        ).map(([p, Icon, label]) => (
+          <button
+            key={p}
+            className="flex h-10 flex-1 items-center justify-center gap-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+            onClick={() => onPanel(p)}
+          >
+            <Icon className="h-3.5 w-3.5" />
+            {label}
+          </button>
+        ))}
+      </div>
     </aside>
   );
 }
@@ -159,7 +212,16 @@ function Sidebar({ onSettings }: { onSettings: () => void }) {
 
 const SUGGESTIONS = ['看看这台电脑的配置和系统版本', 'C 盘还剩多少空间？哪些文件夹最大？', '查一下今天的科技新闻', '找到 7-Zip 的官网，下载最新版'];
 
+function useHotkeys() {
+  const [keys, setKeys] = useState<{ ask?: string; capture?: string; stop?: string }>({});
+  useEffect(() => {
+    void window.p2d.agentHotkeys().then(setKeys);
+  }, []);
+  return keys;
+}
+
 function Welcome({ configured, onSettings }: { configured: boolean; onSettings: () => void }) {
+  const keys = useHotkeys();
   return (
     <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-5 overflow-y-auto p-8">
       <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 text-primary">
@@ -192,6 +254,11 @@ function Welcome({ configured, onSettings }: { configured: boolean; onSettings: 
           </Button>
         </div>
       )}
+      <div className="flex flex-wrap justify-center gap-x-5 gap-y-1 text-xs text-muted-foreground">
+        {keys.ask ? <span>{keys.ask} 随时唤起</span> : null}
+        {keys.capture ? <span>{keys.capture} 框选屏幕提问</span> : null}
+        <span>可以拖入文件、粘贴截图</span>
+      </div>
     </div>
   );
 }
@@ -207,6 +274,10 @@ function Messages({ items, running }: { items: UiItem[]; running: boolean }) {
     if (el && stick.current) el.scrollTop = el.scrollHeight;
   }, [items]);
   const last = items[items.length - 1];
+  // 只有最后一轮能「编辑」「重新回答」
+  const lastUser = lastUserItem(items);
+  const editable = lastUser?.id;
+  const lastAnswer = lastUser ? [...items].reverse().find((x) => x.kind === 'assistant' && x.text.trim())?.id : undefined;
   const waiting = running && (!last || last.kind === 'user' || (last.kind === 'steps' && last.steps.every((s) => s.status !== 'running')));
   return (
     <div
@@ -219,7 +290,7 @@ function Messages({ items, running }: { items: UiItem[]; running: boolean }) {
     >
       <div className="mx-auto flex max-w-3xl flex-col gap-4 px-6 py-5">
         {items.map((it) => (
-          <Item key={it.id} it={it} />
+          <Item key={it.id} it={it} canEdit={!running && it.id === editable} canRegenerate={!running && it.id === lastAnswer} />
         ))}
         {waiting ? (
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -232,21 +303,95 @@ function Messages({ items, running }: { items: UiItem[]; running: boolean }) {
   );
 }
 
-function Item({ it }: { it: UiItem }) {
+function Attachments({ list, light }: { list: UiAttachment[]; light?: boolean }) {
+  return (
+    <div className="mb-1.5 flex flex-wrap justify-end gap-1.5">
+      {list.map((a, i) =>
+        a.kind === 'image' && a.thumb ? (
+          <img key={i} src={a.thumb} title={a.path ?? a.name} className="h-16 max-w-[160px] rounded-md border border-white/30 object-cover" alt={a.name} />
+        ) : (
+          <span
+            key={i}
+            title={a.path}
+            className={cn('flex items-center gap-1 rounded-md px-2 py-1 text-xs', light ? 'bg-white/20 text-white' : 'bg-muted text-foreground')}
+          >
+            <Paperclip className="h-3 w-3" />
+            {a.name}
+          </span>
+        ),
+      )}
+    </div>
+  );
+}
+
+function ActionButton({ title, onClick, children }: { title: string; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button title={title} className="flex h-6 items-center gap-1 rounded px-1.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground" onClick={onClick}>
+      {children}
+    </button>
+  );
+}
+
+function CopyButton({ text }: { text: string }) {
+  const [done, setDone] = useState(false);
+  return (
+    <ActionButton
+      title="复制回答"
+      onClick={() => {
+        void window.p2d.agent.clipboardWrite(text);
+        setDone(true);
+        setTimeout(() => setDone(false), 1500);
+      }}
+    >
+      {done ? <Check className="h-3.5 w-3.5 text-success" /> : <Copy className="h-3.5 w-3.5" />}
+      {done ? '已复制' : '复制'}
+    </ActionButton>
+  );
+}
+
+function Item({ it, canEdit, canRegenerate }: { it: UiItem; canEdit: boolean; canRegenerate: boolean }) {
   switch (it.kind) {
     case 'user':
       return (
-        <div className="flex justify-end">
-          <div className="max-w-[80%] select-text whitespace-pre-wrap break-words rounded-2xl rounded-br-md bg-primary px-3.5 py-2 text-[14px] text-white">
-            {it.text}
+        <div className="group flex flex-col items-end">
+          <div className="max-w-[80%]">
+            {it.attachments?.length ? <Attachments list={it.attachments} /> : null}
+            {it.text ? (
+              <div className="select-text whitespace-pre-wrap break-words rounded-2xl rounded-br-md bg-primary px-3.5 py-2 text-[14px] text-white">{it.text}</div>
+            ) : null}
           </div>
+          {canEdit ? (
+            <div className="invisible mt-0.5 group-hover:visible">
+              <ActionButton
+                title="编辑这条消息重新发送"
+                onClick={() => {
+                  const r = editLast();
+                  if (r) pushToComposer(r);
+                }}
+              >
+                <Pencil className="h-3.5 w-3.5" />
+                编辑
+              </ActionButton>
+            </div>
+          ) : null}
         </div>
       );
     case 'assistant':
       return (
-        <div className="flex flex-col gap-1.5 text-[14px]">
+        <div className="group flex flex-col gap-1.5 text-[14px]">
           {it.reasoning ? <Reasoning text={it.reasoning} /> : null}
           {it.text ? <Markdown text={it.text} /> : null}
+          {it.text ? (
+            <div className={cn('-ml-1.5 flex gap-0.5', !canRegenerate && 'invisible group-hover:visible')}>
+              <CopyButton text={it.text} />
+              {canRegenerate ? (
+                <ActionButton title="让助手重新回答这个问题" onClick={() => void regenerate()}>
+                  <RotateCcw className="h-3.5 w-3.5" />
+                  重新回答
+                </ActionButton>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       );
     case 'steps':
@@ -431,8 +576,14 @@ function ContextMeter() {
 
 function Composer() {
   const conv = useStore(convStore);
+  const bus = useStore(composerBus);
   const [text, setText] = useState('');
+  const [atts, setAtts] = useState<Attachment[]>([]);
+  // 热键唤起时，剪贴板里有新复制的文字就提示「引用」
+  const [clip, setClip] = useState('');
+  const lastClip = useRef('');
   const ref = useRef<HTMLTextAreaElement>(null);
+  const picker = useRef<HTMLInputElement>(null);
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
@@ -440,39 +591,131 @@ function Composer() {
     el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
   }, [text]);
   useEffect(() => ref.current?.focus(), [conv.currentId]);
+  // 外面交过来的文字和附件（编辑上一条、框选截图、拖入文件、热键唤起）
+  useEffect(() => {
+    const p = takeFromComposerBus();
+    if (p.text !== undefined) setText(p.text);
+    if (p.attachments.length) setAtts((a) => [...a, ...p.attachments]);
+    ref.current?.focus();
+    if (bus.focusSeq > 0 && p.text === undefined && !p.attachments.length) {
+      void window.p2d.agent.clipboardRead().then((c) => {
+        const t = c.text.trim();
+        if (t && t.length <= 4000 && t !== lastClip.current) setClip(t);
+      });
+    }
+  }, [bus.focusSeq]);
   const submit = () => {
-    if (!text.trim() || conv.running) return;
-    void send(text);
+    if ((!text.trim() && !atts.length) || conv.running) return;
+    void send(text, atts);
     setText('');
+    setAtts([]);
+    setClip('');
+  };
+  const addFiles = (files: FileList | null) => {
+    if (files?.length) void fileAttachments(files).then((a) => setAtts((x) => [...x, ...a]));
   };
   return (
     <div className="shrink-0 px-6 pb-4 pt-1">
       <div className="mx-auto max-w-3xl">
         {conv.progress ? <div className="mb-1.5 text-xs text-muted-foreground">{conv.progress}</div> : null}
-        <div className="flex items-end gap-2 rounded-xl border border-border bg-background p-2 shadow-sm focus-within:border-primary">
-          <textarea
-            ref={ref}
-            rows={1}
-            className="max-h-[200px] min-h-[36px] flex-1 resize-none bg-transparent px-2 py-1.5 text-[14px] leading-6 outline-none"
-            placeholder="让助手查点什么，或者在这台电脑上做点什么…（Enter 发送，Shift+Enter 换行）"
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+        {clip ? (
+          <div className="mb-1.5 flex items-center gap-2 rounded-lg border border-border bg-muted/40 px-3 py-1.5 text-xs">
+            <span className="shrink-0 text-muted-foreground">剪贴板：</span>
+            <span className="min-w-0 flex-1 truncate">{clip}</span>
+            <button
+              className="shrink-0 text-primary hover:underline"
+              onClick={() => {
+                setText((t) => `${clip}\n\n${t}`);
+                lastClip.current = clip;
+                setClip('');
+                ref.current?.focus();
+              }}
+            >
+              引用
+            </button>
+            <button
+              className="shrink-0 text-muted-foreground hover:text-foreground"
+              aria-label="不引用"
+              onClick={() => {
+                lastClip.current = clip;
+                setClip('');
+              }}
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        ) : null}
+        <div className="rounded-xl border border-border bg-background p-2 shadow-sm focus-within:border-primary">
+          {atts.length ? (
+            <div className="mb-1.5 flex flex-wrap gap-1.5 px-1">
+              {atts.map((a, i) => (
+                <div key={i} className="group relative" title={a.path ?? a.name}>
+                  {a.kind === 'image' && a.thumb ? (
+                    <img src={a.thumb} className="h-14 max-w-[120px] rounded-md border border-border object-cover" alt={a.name} />
+                  ) : (
+                    <span className="flex h-7 items-center gap-1 rounded-md bg-muted px-2 text-xs">
+                      <Paperclip className="h-3 w-3" />
+                      {a.name}
+                    </span>
+                  )}
+                  <button
+                    className="absolute -right-1.5 -top-1.5 hidden h-4 w-4 items-center justify-center rounded-full bg-foreground text-background group-hover:flex"
+                    aria-label="移除"
+                    onClick={() => setAtts((x) => x.filter((_, k) => k !== i))}
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : null}
+          <div className="flex items-end gap-1">
+            <button className="flex h-9 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground" title="添加文件或图片" onClick={() => picker.current?.click()}>
+              <Paperclip className="h-4 w-4" />
+            </button>
+            <button className="flex h-9 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground" title="框选屏幕提问" onClick={() => window.p2d.captureRegion()}>
+              <Crop className="h-4 w-4" />
+            </button>
+            <input ref={picker} type="file" multiple className="hidden" onChange={(e) => (addFiles(e.target.files), (e.target.value = ''))} />
+            <textarea
+              ref={ref}
+              rows={1}
+              className="max-h-[200px] min-h-[36px] flex-1 resize-none bg-transparent px-2 py-1.5 text-[14px] leading-6 outline-none"
+              placeholder="让助手查点什么，或者在这台电脑上做点什么…（Enter 发送，Shift+Enter 换行，可以粘贴截图）"
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              onPaste={(e) => {
+                const items = Array.from(e.clipboardData.items).filter((x) => x.kind === 'file');
+                if (!items.length) return;
                 e.preventDefault();
-                submit();
-              }
-            }}
-          />
-          {conv.running ? (
-            <Button size="sm" variant="outline" className="h-9 w-9 shrink-0 p-0" title="停止" onClick={stop}>
-              <Square className="h-3.5 w-3.5 fill-current" />
-            </Button>
-          ) : (
-            <Button size="sm" className="h-9 w-9 shrink-0 p-0" title="发送" disabled={!text.trim()} onClick={submit}>
-              <SendHorizontal className="h-4 w-4" />
-            </Button>
-          )}
+                for (const it of items) {
+                  const f = it.getAsFile();
+                  if (!f) continue;
+                  if (f.type.startsWith('image/')) {
+                    const r = new FileReader();
+                    r.onload = () =>
+                      void imageAttachment(String(r.result), (f.name || '截图.png').replace(/^image\.png$/, '粘贴的图片.png')).then((a) => setAtts((x) => [...x, a]));
+                    r.readAsDataURL(f);
+                  } else addFiles(e.clipboardData.files);
+                }
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                  e.preventDefault();
+                  submit();
+                }
+              }}
+            />
+            {conv.running ? (
+              <Button size="sm" variant="outline" className="h-9 w-9 shrink-0 p-0" title="停止" onClick={stop}>
+                <Square className="h-3.5 w-3.5 fill-current" />
+              </Button>
+            ) : (
+              <Button size="sm" className="h-9 w-9 shrink-0 p-0" title="发送" disabled={!text.trim() && !atts.length} onClick={submit}>
+                <SendHorizontal className="h-4 w-4" />
+              </Button>
+            )}
+          </div>
         </div>
       </div>
     </div>
@@ -578,6 +821,22 @@ function ModelSettings({ onClose }: { onClose: () => void }) {
               </Field>
               <Field label="接口地址" hint="兼容 OpenAI 协议的地址，一般以 /v1 结尾">
                 <input className={field} value={draft.baseUrl} placeholder="https://<接口地址>/v1" onChange={(e) => patch({ baseUrl: e.target.value })} />
+                <div className="mt-1.5 flex items-center gap-2 text-xs text-muted-foreground">
+                  本机模型：
+                  {LOCAL_MODELS.map((m) => (
+                    <button
+                      key={m.name}
+                      className="rounded border border-border px-2 py-0.5 text-foreground hover:bg-accent"
+                      title={`${m.baseUrl}（本机模型不校验 Key，自动填一个）`}
+                      onClick={() => {
+                        patch({ name: m.name, baseUrl: m.baseUrl, supportsVision: false, models: [] });
+                        if (!key.trim()) setKey(m.key);
+                      }}
+                    >
+                      {m.name}
+                    </button>
+                  ))}
+                </div>
               </Field>
             </>
           ) : (
@@ -648,7 +907,24 @@ function ModelSettings({ onClose }: { onClose: () => void }) {
           </Field>
           <Field label="额外要求（可不填）" hint="加在内置提示词之后，例如回答风格、常用目录">
             <textarea className={cn(field, 'h-20 resize-none py-1.5')} value={draft.systemPrompt ?? ''} onChange={(e) => patch({ systemPrompt: e.target.value })} />
+            <div className="mt-1.5 flex items-center gap-2 text-xs text-muted-foreground">
+              填入预设：
+              {PROMPT_PRESETS.map((p) => (
+                <button
+                  key={p.id}
+                  className="rounded border border-border px-2 py-0.5 text-foreground hover:bg-accent"
+                  title={p.summary}
+                  onClick={() => {
+                    if (draft.systemPrompt?.trim() && !confirm('替换现在填写的要求？')) return;
+                    patch({ systemPrompt: p.text });
+                  }}
+                >
+                  {p.name}
+                </button>
+              ))}
+            </div>
           </Field>
+          <OtherSettings />
         </div>
         <div className="flex h-14 shrink-0 items-center justify-end gap-2 border-t border-border px-5">
           <Button size="sm" variant="outline" onClick={close}>
@@ -659,6 +935,49 @@ function ModelSettings({ onClose }: { onClose: () => void }) {
           </Button>
         </div>
       </div>
+    </div>
+  );
+}
+
+/** 本机运行的模型（OpenAI 兼容接口，不校验 Key） */
+const LOCAL_MODELS = [
+  { name: 'Ollama', baseUrl: 'http://127.0.0.1:11434/v1', key: 'ollama' },
+  { name: 'LM Studio', baseUrl: 'http://127.0.0.1:1234/v1', key: 'lm-studio' },
+];
+
+const CONFIRM_MODES: { id: ConfirmMode; label: string; hint: string }[] = [
+  { id: 'risky', label: '高风险操作', hint: '管理员命令、删除、格式化、改注册表 / 服务等先问一下' },
+  { id: 'all', label: '执行命令和改文件都问', hint: '每条命令、写文件、删除、下载前都要你点允许' },
+  { id: 'off', label: '不确认', hint: '助手自己决定（不建议）' },
+];
+
+/** 操作确认和快捷键（改了马上生效，不用点「保存并使用」） */
+function OtherSettings() {
+  const st = useStore(settingsStore);
+  const keys = useHotkeys();
+  return (
+    <div className="space-y-3 border-t border-border pt-4">
+      <Field label="操作前确认" hint="改了马上生效">
+        <div className="space-y-1">
+          {CONFIRM_MODES.map((m) => (
+            <label key={m.id} className="flex cursor-pointer items-baseline gap-2">
+              <input type="radio" className="accent-primary" checked={st.confirm === m.id} onChange={() => void updateSettings({ confirm: m.id })} />
+              <span>{m.label}</span>
+              <span className="text-[11px] text-muted-foreground">{m.hint}</span>
+            </label>
+          ))}
+        </div>
+      </Field>
+      <Field label="快捷键" hint="被别的程序占用时会换成备用的组合">
+        <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-0.5 text-muted-foreground">
+          <span>随时唤起助手</span>
+          <span className="font-mono text-foreground">{keys.ask ?? '（没注册上）'}</span>
+          <span>框选屏幕提问</span>
+          <span className="font-mono text-foreground">{keys.capture ?? '（没注册上）'}</span>
+          <span>停止助手（运行时）</span>
+          <span className="font-mono text-foreground">{keys.stop ?? '—'}</span>
+        </div>
+      </Field>
     </div>
   );
 }

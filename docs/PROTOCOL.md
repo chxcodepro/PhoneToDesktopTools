@@ -264,7 +264,14 @@ Core 在同一端口提供 HTTP 接口，只接受本机访问：
   - `POST /api/agent/call {name, arguments}` → 和 MCP `tools/call` 相同的结果。请求取消时工具的 ctx 跟着取消（正在执行的命令会结束）。权限按「完全控制」（用户自己坐在电脑前用），提权照样弹 UAC / 密码框
   - `POST /api/agent/verify {path}` → `{signature}`（Windows 数字签名，下载的安装包用）
   - 令牌放在请求头 `X-P2D-Agent`：Core 每次启动随机生成，监听端口成功后写进数据目录的 `agent-token-<端口>`（只有当前用户能读）。只靠「只允许本机访问」不够：浏览器里的网页能向 127.0.0.1 发请求，远程桌面服务器上的其他用户也能连本机端口；自定义请求头会让浏览器先发跨域预检，Core 不回跨域许可
-- 工具：Core 的 15 个电脑工具，加上共用的 `web_search`、`web_fetch`、`driver_search`、`download_to_pc`（电脑自己下载到「下载/P2D」，返回 SHA-256、SHA-1，Windows 安装包带数字签名）、`ask_user`（对话里的选择卡片）。没有定时任务和扩展（MCP / Skill）
+- 工具：Core 的 15 个电脑工具，加上共用的 `web_search`、`web_fetch`、`driver_search`、`download_to_pc`（电脑自己下载到「下载/P2D」，返回 SHA-256、SHA-1，Windows 安装包带数字签名）、`ask_user`（对话里的选择卡片）、`schedule_*`（定时任务），电脑端自己的 `clipboard_read` / `clipboard_write`，以及扩展工具（`skill_read`、`skill_run`、`ext_*`、已连接 MCP 的工具）
+- 电脑上的 stdio MCP：`POST /api/agent/mcp/start {id, command, args, env, cwd}` → `{name, tools}`，`/api/agent/mcp/call {id, name, arguments}`，`/api/agent/mcp/stop {id}`（同样带令牌）。进程归属 `desktop-agent`，和手机会话启动的分开；进程不在了返回 `not_started`，界面重新启动后重试。远程 MCP 由页面经主进程的网络请求连接。Skill 文件存在数据目录的 `agent/skills/<id>/`，`skill_run` 经 `shell_exec` 在这个目录里执行；MCP 的令牌类请求头、环境变量用 `safeStorage` 加密存在 `agent/secrets.json`
+- 操作确认（设置里选）：`risky`（默认，管理员命令、`fs_delete`、删除 / 格式化 / 改注册表 / 服务 / 账户之类的命令先弹卡片）、`all`（执行命令、写文件、删除、下载都问）、`off`。卡片选项：允许、这次对话都允许、不允许（可以填原因）。定时任务自动执行时不弹卡片，要确认的操作直接拒绝、`ask_user` 直接返回「用户不在」
+- 定时任务存在 `agent/schedules.json`，页面每 20 秒检查一次；到点时助手正忙就等，P2D 没开着超过 30 分钟记为错过。执行时新建对话，附加「只做查询和低风险操作、不动键鼠」的说明
+- 热键（全局，被占用时换下一个）：唤起 `Ctrl+Alt+Space` / `Alt+Shift+Space`（切到助手模式、聚焦输入框，剪贴板有新文字时提示「引用」）、框选屏幕提问 `Ctrl+Alt+X` / `Ctrl+Alt+Shift+X`（`desktopCapturer` 截鼠标所在的显示器，全屏窗口里拖选，原始分辨率裁下交给输入框）、停止 `Ctrl+Alt+Escape` / `Ctrl+Alt+Shift+Escape`（只在助手运行时注册）
+- 助手调用 `input_mouse`、`input_keyboard`、`ui_act`、`window_activate` 时，每个显示器显示紫色边框，主显示器顶部有「AI 助手正在操作电脑」提示条和「停止」按钮（和被控红框同一套窗口，`overlay.html?kind=agent`），这一轮结束后收起
+- 附件：拖入或选择文件（给模型文件路径，让它用 `fs_read` / `doc_read` 读）、粘贴或拖入图片（长边缩到 2000 像素以内发给模型，对话记录里界面只存 240 像素的缩略图）。最后一轮可以「重新回答」「编辑」（按用户消息在历史里的位置截断；压缩过上下文后不能再用）
+- 回答里的 ```` ```p2d-ui ```` 代码块和手机端一样渲染成卡片（`mobile/src/agent/genui.ts`），`buttons` 点击后作为用户消息发出
 - 模型配置：和手机端一样三个预设（OpenAI、DeepSeek、自定义 OpenAI 兼容地址），电脑端单独配置，存在数据目录的 `agent/config.json`；API Key 用 Electron `safeStorage` 加密（Windows 是 DPAPI）存在 `agent/keys.json`，系统没有加密存储时（Linux 没有密钥环）明文保存
 - 对话记录存在 `agent/conversations/`（最多 100 个），窗口模式和助手窗口大小存在 `agent/window.json`
 

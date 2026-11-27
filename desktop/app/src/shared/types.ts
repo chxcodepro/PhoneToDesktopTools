@@ -189,13 +189,27 @@ export interface P2DApi {
   /** 助手模式下最大化 / 还原 */
   toggleMaximize(): void;
   agent: AgentBridge;
+  /** 电脑端助手的热键（显示用，如 Ctrl+Alt+Space）；没注册上的为空 */
+  agentHotkeys(): Promise<{ ask?: string; capture?: string; stop?: string }>;
+  /** 助手运行状态：running 运行中（注册停止热键），operating 正在动键鼠（显示紫色边框提示） */
+  agentActive(running: boolean, operating: boolean): void;
+  /** 停止助手（被控提示上的「停止」按钮） */
+  stopAgent(): void;
+  /** 框选屏幕提问 */
+  captureRegion(): void;
+  onAgentEvent(cb: (e: AgentEvent) => void): () => void;
+  /** 框选截图窗口：收到截图、返回框选结果（取消为 null） */
+  onCaptureImage(cb: (dataUrl: string) => void): () => void;
+  captureDone(dataUrl: string | null): void;
 }
+
+export type AgentEvent = { type: 'focus' } | { type: 'image'; dataUrl: string } | { type: 'stop' };
 
 export type WindowMode = 'phone' | 'agent';
 
 /** 网络请求的流式响应（主进程 → 页面） */
 export type HttpEvent =
-  | { type: 'head'; status: number }
+  | { type: 'head'; status: number; headers?: Record<string, string> }
   | { type: 'data'; data: Uint8Array }
   | { type: 'end' }
   | { type: 'error'; message: string; abort?: boolean };
@@ -240,6 +254,21 @@ export interface AgentBridge {
   convLoad(id: string): Promise<unknown>;
   convSave(id: string, data: unknown, list: unknown[]): Promise<void>;
   convRemove(id: string, list: unknown[]): Promise<void>;
+  /** agent/<name>.json：extensions、schedules、settings */
+  storeLoad(name: string): Promise<unknown>;
+  storeSave(name: string, v: unknown): Promise<void>;
+  /** 扩展的令牌（系统加密存储） */
+  secretGet(key: string): Promise<string>;
+  secretSet(key: string, value: string): Promise<void>;
+  /** Skill 文件：写入整个目录（返回目录路径）、读一个文件、删除、取目录路径 */
+  skillWrite(id: string, files: { path: string; data: Uint8Array }[]): Promise<string>;
+  skillRead(id: string, path: string): Promise<Uint8Array>;
+  skillRemove(id: string): Promise<void>;
+  skillDir(id: string): Promise<string>;
+  /** 电脑上的 stdio MCP（经 Core） */
+  mcp(op: 'start' | 'call' | 'stop', payload: Record<string, unknown>, id?: string): Promise<unknown>;
+  clipboardRead(): Promise<{ text: string; image?: string }>;
+  clipboardWrite(text: string): Promise<void>;
 }
 
 /** 会话所在手机当前在线的通道（同一台手机可能同时有 USB 和 WiFi 两条，USB 优先） */

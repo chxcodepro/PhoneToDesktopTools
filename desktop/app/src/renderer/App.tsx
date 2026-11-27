@@ -28,6 +28,9 @@ import { Badge, Button, Card, Kbd, Spinner } from '@/components/ui';
 import { cn, formatDuration, platformLabel } from '@/lib/utils';
 import { deviceNameFor, type AboutInfo, type AppStatus, type CoreDevice, type CoreLan, type WindowMode } from '../shared/types';
 import { AgentView } from './agent/AgentView';
+import { imageAttachment, pushToComposer } from './agent/composer';
+import { initConversations, stop as stopAgent } from './agent/conversation';
+import { initModel } from './agent/model';
 
 function useAppStatus(): AppStatus {
   const [s, setS] = useState<AppStatus>({ coreOnline: false });
@@ -79,6 +82,19 @@ export function App() {
   const [mode, setMode] = useState<WindowMode | null>(null);
   useEffect(() => {
     void window.p2d.getMode().then(setMode);
+    // 助手在两种模式下都要准备好：定时任务到点要执行，热键随时能唤起
+    void initModel();
+    void initConversations();
+    return window.p2d.onAgentEvent((e) => {
+      if (e.type === 'stop') {
+        stopAgent();
+        return;
+      }
+      setMode('agent'); // 主进程已经把窗口切成助手模式
+      if (e.type === 'image') {
+        void imageAttachment(e.dataUrl, '框选的屏幕.png').then((a) => pushToComposer({ attachments: [a] }));
+      } else pushToComposer();
+    });
   }, []);
   const switchMode = (m: WindowMode) => {
     setMode(m);

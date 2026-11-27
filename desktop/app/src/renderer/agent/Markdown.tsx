@@ -2,8 +2,33 @@
 import { memo } from 'react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { GENUI_LANG, parseGenui } from '@agent/genui';
+import { Genui } from './Genui';
+
+/** 代码块的文字（hast 节点） */
+function nodeText(n: unknown): string {
+  const x = n as { value?: string; children?: unknown[] };
+  if (typeof x?.value === 'string') return x.value;
+  return (x?.children ?? []).map(nodeText).join('');
+}
 
 const components: Components = {
+  // ```p2d-ui 代码块渲染成卡片；JSON 还没写完（正在生成）或不合法时显示提示，可以展开看原文
+  pre: ({ node, children }) => {
+    const code = node?.children?.[0] as { tagName?: string; properties?: { className?: unknown } } | undefined;
+    const cls = code?.properties?.className;
+    if (code?.tagName === 'code' && Array.isArray(cls) && cls.includes(`language-${GENUI_LANG}`)) {
+      const spec = parseGenui(nodeText(code));
+      if (spec) return <Genui spec={spec} />;
+      return (
+        <details className="text-xs text-muted-foreground">
+          <summary className="cursor-pointer">卡片内容生成中…</summary>
+          <pre>{children}</pre>
+        </details>
+      );
+    }
+    return <pre>{children}</pre>;
+  },
   a: ({ href, children }) => (
     <a href={href} target="_blank" rel="noreferrer" title={href}>
       {children}

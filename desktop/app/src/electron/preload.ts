@@ -1,6 +1,6 @@
 // 预加载脚本：只暴露页面需要的最小接口（sandbox 模式下只能使用 electron 模块）。
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
-import type { AboutInfo, AgentBridge, AgentToolsInfo, AppStatus, DownloadedFile, HttpEvent, P2DApi, UpdateInfo, WindowMode } from '../shared/types';
+import type { AboutInfo, AgentBridge, AgentEvent, AgentToolsInfo, AppStatus, DownloadedFile, HttpEvent, P2DApi, UpdateInfo, WindowMode } from '../shared/types';
 
 const api: P2DApi = {
   getStatus: () => ipcRenderer.invoke('p2d:getStatus') as Promise<AppStatus>,
@@ -32,6 +32,21 @@ const api: P2DApi = {
   setMode: (mode) => ipcRenderer.send('p2d:setMode', mode),
   toggleMaximize: () => ipcRenderer.send('p2d:toggleMaximize'),
   agent: agentBridge(),
+  agentHotkeys: () => ipcRenderer.invoke('p2d:agentHotkeys') as Promise<{ ask?: string; capture?: string; stop?: string }>,
+  agentActive: (running, operating) => ipcRenderer.send('p2d:agentActive', !!running, !!operating),
+  stopAgent: () => ipcRenderer.send('p2d:stopAgent'),
+  captureRegion: () => ipcRenderer.send('p2d:captureRegion'),
+  onAgentEvent: (cb) => {
+    const listener = (_e: IpcRendererEvent, ev: AgentEvent) => cb(ev);
+    ipcRenderer.on('p2d:agentEvent', listener);
+    return () => ipcRenderer.removeListener('p2d:agentEvent', listener);
+  },
+  onCaptureImage: (cb) => {
+    const listener = (_e: IpcRendererEvent, url: string) => cb(url);
+    ipcRenderer.on('p2d:captureImage', listener);
+    return () => ipcRenderer.removeListener('p2d:captureImage', listener);
+  },
+  captureDone: (dataUrl) => ipcRenderer.send('p2d:captureDone', dataUrl),
 };
 
 function agentBridge(): AgentBridge {
@@ -59,6 +74,17 @@ function agentBridge(): AgentBridge {
     convLoad: (id) => ipcRenderer.invoke('p2d:convLoad', id),
     convSave: (id, data, list) => ipcRenderer.invoke('p2d:convSave', id, data, list) as Promise<void>,
     convRemove: (id, list) => ipcRenderer.invoke('p2d:convRemove', id, list) as Promise<void>,
+    storeLoad: (name) => ipcRenderer.invoke('p2d:storeLoad', name),
+    storeSave: (name, v) => ipcRenderer.invoke('p2d:storeSave', name, v) as Promise<void>,
+    secretGet: (key) => ipcRenderer.invoke('p2d:secretGet', key) as Promise<string>,
+    secretSet: (key, value) => ipcRenderer.invoke('p2d:secretSet', key, value) as Promise<void>,
+    skillWrite: (id, files) => ipcRenderer.invoke('p2d:skillWrite', id, files) as Promise<string>,
+    skillRead: (id, p) => ipcRenderer.invoke('p2d:skillRead', id, p) as Promise<Uint8Array>,
+    skillRemove: (id) => ipcRenderer.invoke('p2d:skillRemove', id) as Promise<void>,
+    skillDir: (id) => ipcRenderer.invoke('p2d:skillDir', id) as Promise<string>,
+    mcp: (op, payload, id) => ipcRenderer.invoke('p2d:agentMcp', op, payload, id),
+    clipboardRead: () => ipcRenderer.invoke('p2d:clipboardRead') as Promise<{ text: string; image?: string }>,
+    clipboardWrite: (text) => ipcRenderer.invoke('p2d:clipboardWrite', text) as Promise<void>,
   };
 }
 

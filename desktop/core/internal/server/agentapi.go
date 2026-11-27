@@ -5,6 +5,9 @@ package server
 //	GET  /api/agent/tools                     → { tools, host, os, downloadDir }
 //	POST /api/agent/call   { name, arguments } → 工具结果（和 MCP tools/call 相同）
 //	POST /api/agent/verify { path }           → { signature }（Windows 数字签名，下载的安装包用）
+//	POST /api/agent/mcp/start { id, command, args, env, cwd } → { name, tools }（电脑上的 stdio MCP）
+//	POST /api/agent/mcp/call  { id, name, arguments }          → MCP tools/call 的结果
+//	POST /api/agent/mcp/stop  { id }
 //
 // 这些接口能执行命令，只靠「只允许本机访问」不够：浏览器里的网页可以向 127.0.0.1 发请求，
 // 同一台电脑上的其他用户（远程桌面服务器）也能连本机端口。所以要带令牌（请求头 X-P2D-Agent）：
@@ -13,10 +16,12 @@ package server
 // 自定义请求头还会让浏览器先发跨域预检，这里不回跨域许可，网页就发不出来。
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -27,6 +32,7 @@ import (
 	"time"
 
 	"p2d/core/internal/perm"
+	"p2d/core/internal/stdiomcp"
 )
 
 // EnableAgent 生成令牌并写进 dir/agent-token-<port>。要在监听端口成功之后调用：
@@ -130,4 +136,89 @@ func (s *Server) handleAgentVerify(w http.ResponseWriter, r *http.Request) {
 func replyJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	_ = json.NewEncoder(w).Encode(v)
+}
+
+// errNotStarted 进程不在了（电脑端服务重启过等），界面收到后重新启动再调用
+var errNotStarted = errors.New("MCP 未启动（not_started）")
+
+// agentMCPOwner 电脑端助手启动的 MCP 进程的归属（和手机会话的分开）
+const agentMCPOwner = "desktop-agent"
+
+func (s *Server) handleAgentMCP(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "需要 POST", http.StatusMethodNotAllowed)
+		return
+	}
+	if !s.agentAuth(w, r) {
+		return
+	}
+	var p struct {
+		ID        string          `json:"id"`
+		Name      string          `json:"name"`
+		Arguments json.RawMessage `json:"arguments"`
+		stdiomcp.Config
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 4<<20)).Decode(&p); err != nil || p.ID == "" {
+		http.Error(w, "需要 id", http.StatusBadRequest)
+		return
+	}
+	key := s.mcpKey(agentMCPOwner, p.ID)
+	fail := func(err error) { http.Error(w, err.Error(), http.StatusBadGateway) }
+	switch r.URL.Path {
+	case "/api/agent/mcp/start":
+		if p.Command == "" {
+			http.Error(w, "需要 command", http.StatusBadRequest)
+			return
+		}
+		s.mu.Lock()
+		old := s.mcp[key]
+		s.mu.Unlock()
+		if old != nil && old.Alive() && old.Config().Key() == p.Config.Key() {
+			replyJSON(w, map[string]any{"name": old.Name, "tools": old.Tools})
+			return
+		}
+		if old != nil {
+			old.Close()
+		}
+		// 进程跟着电脑端服务走，不跟着这次请求结束
+		c, err := stdiomcp.Start(context.Background(), p.Config)
+		if err != nil {
+			fail(err)
+			return
+		}
+		s.mu.Lock()
+		if prev := s.mcp[key]; prev != nil && prev != c {
+			go prev.Close()
+		}
+		s.mcp[key] = c
+		s.mu.Unlock()
+		log.Printf("[电脑端助手] 已启动 MCP「%s」（%s，%d 个工具）", p.ID, p.Command, len(c.Tools))
+		replyJSON(w, map[string]any{"name": c.Name, "tools": c.Tools})
+	case "/api/agent/mcp/call":
+		s.mu.Lock()
+		c := s.mcp[key]
+		s.mu.Unlock()
+		if c == nil || !c.Alive() {
+			fail(errNotStarted)
+			return
+		}
+		args := p.Arguments
+		if len(args) == 0 {
+			args = json.RawMessage("{}")
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Minute)
+		defer cancel()
+		res, err := c.Request(ctx, "tools/call", map[string]any{"name": p.Name, "arguments": args})
+		if err != nil {
+			fail(err)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		_, _ = w.Write(res)
+	case "/api/agent/mcp/stop":
+		s.stopMCP(func(k string) bool { return k == key })
+		replyJSON(w, map[string]any{})
+	default:
+		http.NotFound(w, r)
+	}
 }
