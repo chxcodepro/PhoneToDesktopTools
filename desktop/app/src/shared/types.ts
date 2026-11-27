@@ -188,6 +188,10 @@ export interface P2DApi {
   setMode(mode: WindowMode): void;
   /** 助手模式下最大化 / 还原 */
   toggleMaximize(): void;
+  /** 外观设置（整个应用共用，存在数据目录的 appearance.json） */
+  appearance(): Promise<AppearanceState>;
+  setAppearance(v: Appearance): Promise<AppearanceState>;
+  onAppearance(cb: (s: AppearanceState) => void): () => void;
   agent: AgentBridge;
   /** 电脑端助手的快捷键：设置和生效情况（默认都关着） */
   agentHotkeys(): Promise<HotkeyStatus>;
@@ -230,6 +234,15 @@ export type HotkeyStatus = Record<HotkeyId, HotkeyState>;
 export type AgentEvent = { type: 'focus' } | { type: 'image'; dataUrl: string } | { type: 'stop' };
 
 export type WindowMode = 'phone' | 'agent';
+
+/** 外观：跟随系统 / 浅色 / 深色 */
+export type Appearance = 'system' | 'light' | 'dark';
+
+export interface AppearanceState {
+  setting: Appearance;
+  /** 现在实际是不是深色 */
+  dark: boolean;
+}
 
 /** 网络请求的流式响应（主进程 → 页面） */
 export type HttpEvent =

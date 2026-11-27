@@ -23,7 +23,7 @@ import { deleteTask, runTask, scheduleStore, updateTask } from './schedules';
 
 export function Dialog({ title, onClose, children, width = 560 }: { title: string; onClose: () => void; children: React.ReactNode; width?: number }) {
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/30 p-6">
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/30 dark:bg-black/60 p-6">
       <div className="flex max-h-full flex-col rounded-xl border border-border bg-background shadow-xl" style={{ width }}>
         <div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-5">
           <span className="font-semibold">{title}</span>

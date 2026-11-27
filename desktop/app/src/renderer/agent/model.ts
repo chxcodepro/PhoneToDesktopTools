@@ -1,9 +1,11 @@
 // 电脑端助手的模型配置：和手机端一样三个预设（OpenAI、DeepSeek、自定义）各存一份，切换预设不丢。
 // 配置存在数据目录的 agent/config.json，API Key 由主进程用系统加密存储保存（Windows 是 DPAPI），页面里不长期持有。
 import { useSyncExternalStore } from 'react';
-import { defaultContextWindow } from '@agent/contextWindow';
+import { resolveContextWindow } from '@agent/contextWindow';
 import { configProblem, type LlmConfig } from '@agent/llm';
 import { getPreset, MODEL_PRESETS, type PresetId } from '@agent/presets';
+import { defaultPrompt } from '@agent/promptPresets';
+import { effectiveReasoning, reasoningBody, type ReasoningLevel } from '@agent/reasoning';
 
 export function createStore<T extends object>(initial: T) {
   let state = initial;
@@ -39,12 +41,18 @@ export interface PresetSettings {
   supportsTools: boolean;
   /** 最近一次拉取的模型列表 */
   models: string[];
-  /** 用户指定的上下文长度（token）；不填时按模型名取默认值 */
+  /** 接口 /models 声明的各模型上下文长度（拉取模型列表时记下） */
+  windows?: Record<string, number>;
+  /** 用户指定的上下文长度（token）；不填时用接口声明的，再没有就按模型名取官方公布的值 */
   contextWindow?: number;
-  /** 深度思考（仅 DeepSeek），不填为开启 */
+  /** 旧版的深度思考开关（仅 DeepSeek），已改用 reasoning；关掉的按「关闭」处理 */
   thinking?: boolean;
+  /** 思考程度；不填用渠道默认（DeepSeek 为「高」，其他为模型默认） */
+  reasoning?: ReasoningLevel;
   /** 加在内置提示词之后的要求 */
   systemPrompt?: string;
+  /** 已经填过默认提示词（之后用户清空了也不再自动填） */
+  promptFilled?: boolean;
 }
 
 export interface ModelState {
@@ -64,6 +72,8 @@ function defaults(): Record<PresetId, PresetSettings> {
       supportsVision: p.supportsVision,
       supportsTools: p.supportsTools,
       models: [],
+      systemPrompt: defaultPrompt('desktop'),
+      promptFilled: true,
     };
   }
   return out;
@@ -82,14 +92,19 @@ export function initModel(): Promise<void> {
   initPromise ??= (async () => {
     const saved = ((await window.p2d.agent.config()) ?? {}) as Partial<Pick<ModelState, 'active' | 'presets'>>;
     const presets = defaults();
+    let migrated = false;
     for (const p of MODEL_PRESETS) {
       const s = saved.presets?.[p.id];
       if (s) presets[p.id] = { ...presets[p.id], ...s };
+      // 老版本没有默认提示词：没填过的补上（只补一次）
+      if (s && !s.promptFilled) migrated = true;
+      if (s && !s.promptFilled) presets[p.id] = { ...presets[p.id], systemPrompt: s.systemPrompt?.trim() ? s.systemPrompt : defaultPrompt('desktop'), promptFilled: true };
       if (p.id !== 'custom') presets[p.id].baseUrl = p.baseUrl;
     }
     const hasKey = { openai: false, deepseek: false, custom: false } as Record<PresetId, boolean>;
     await Promise.all(MODEL_PRESETS.map(async (p) => (hasKey[p.id] = !!(await window.p2d.agent.key(p.id)))));
     modelStore.set({ active: saved.active ?? 'deepseek', presets, hasKey, ready: true });
+    if (migrated) await persist();
   })();
   return initPromise;
 }
@@ -117,11 +132,17 @@ export async function setApiKey(id: PresetId, key: string): Promise<void> {
 
 export const getApiKey = (id: PresetId) => window.p2d.agent.key(id);
 
-export const supportsThinkingToggle = (id: PresetId) => id === 'deepseek';
-export const thinkingOn = (s: Pick<PresetSettings, 'thinking'>) => s.thinking !== false;
+/** 某个预设当前的思考程度；这个模型不能调时为 null */
+export function reasoningOf(id: PresetId, s: Pick<PresetSettings, 'model' | 'reasoning' | 'thinking'>): ReasoningLevel | null {
+  return effectiveReasoning(id, s.model, s.reasoning, s.thinking);
+}
 
-export function contextWindowOf(s: Pick<PresetSettings, 'model' | 'contextWindow'>): number {
-  return s.contextWindow && s.contextWindow > 0 ? s.contextWindow : defaultContextWindow(s.model);
+export function setReasoning(level: ReasoningLevel): Promise<void> {
+  return updatePreset(modelStore.get().active, { reasoning: level });
+}
+
+export function contextWindowOf(s: Pick<PresetSettings, 'model' | 'contextWindow' | 'windows'>): number {
+  return resolveContextWindow(s.model, { custom: s.contextWindow, listed: s.windows });
 }
 
 export interface ResolvedModel {
@@ -137,8 +158,9 @@ export interface ResolvedModel {
 export async function resolveActiveModel(id = modelStore.get().active): Promise<ResolvedModel> {
   const s = modelStore.get().presets[id];
   const llm: LlmConfig = { baseUrl: s.baseUrl.trim(), apiKey: await getApiKey(id), model: s.model.trim() };
-  // DeepSeek：{"thinking": {"type": "enabled" | "disabled"}}
-  if (supportsThinkingToggle(id)) llm.extraBody = { thinking: { type: thinkingOn(s) ? 'enabled' : 'disabled' } };
+  // 思考程度（见 @agent/reasoning）
+  const extra = reasoningBody(id, reasoningOf(id, s));
+  if (extra) llm.extraBody = extra;
   const label = id === 'custom' ? s.name || '自定义' : getPreset(id).label;
   return {
     llm,

@@ -24,7 +24,39 @@
     --success-foreground: 142 72% 29%;
     --warning: 38 92% 50%;
     --warning-foreground: 32 95% 35%;
+    --subtle: 60 9% 97%;
+    --bubble: 60 6% 94%;
     --radius: 0.6rem;
+    color-scheme: light;
+  }
+
+  /* 深色：中性的深灰（参考 Claude 桌面版、DeepSeek Harness），主色调亮一点保证对比度。
+     主进程的窗口底色 DARK_BG 要和这里的 --background 一致 */
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --background: 0 0% 11%;
+      --foreground: 0 0% 92%;
+      --card: 0 0% 13%;
+      --card-foreground: 0 0% 92%;
+      --muted: 0 0% 17%;
+      --muted-foreground: 0 0% 62%;
+      --accent: 0 0% 19%;
+      --accent-foreground: 0 0% 95%;
+      --border: 0 0% 23%;
+      --primary: 217 91% 62%;
+      --primary-foreground: 0 0% 100%;
+      --secondary: 0 0% 17%;
+      --secondary-foreground: 0 0% 92%;
+      --destructive: 0 75% 60%;
+      --destructive-foreground: 0 0% 100%;
+      --success: 142 60% 45%;
+      --success-foreground: 142 60% 62%;
+      --warning: 38 92% 50%;
+      --warning-foreground: 40 92% 62%;
+      --subtle: 0 0% 9%;
+      --bubble: 0 0% 19%;
+      color-scheme: dark;
+    }
   }
 
   html,

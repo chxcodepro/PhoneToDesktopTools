@@ -11,11 +11,15 @@ import {
   Clock,
   Copy,
   Crop,
+  Download,
   Eye,
   EyeOff,
   FileText,
+  HardDrive,
   ListChecks,
   Loader2,
+  Monitor,
+  Newspaper,
   PanelLeft,
   Pencil,
   Plus,
@@ -23,6 +27,7 @@ import {
   RefreshCw,
   RotateCcw,
   Settings2,
+  ShieldCheck,
   Sparkles,
   Square,
   SquarePen,
@@ -32,15 +37,18 @@ import {
 } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { formatWindow } from '@agent/contextWindow';
-import { listModels } from '@agent/llm';
+import { listModelsDetailed } from '@agent/llm';
 import { filterModels } from '@agent/modelList';
 import { MODEL_PRESETS, type PresetId } from '@agent/presets';
-import { PROMPT_PRESETS } from '@agent/promptPresets';
+import { defaultPrompt, MAX_PROMPT } from '@agent/promptPresets';
+import { reasoningOptions, type ReasoningLevel } from '@agent/reasoning';
 import { Button, Spinner } from '@/components/ui';
+import { APPEARANCES, setAppearance, useAppearance } from '@/lib/appearance';
 import { cn } from '@/lib/utils';
 import { ipcFetch } from './bridge';
 import { composerBus, fileAttachments, imageAttachment, pushToComposer, takeFromComposerBus } from './composer';
 import {
+  AUTO_COMPRESS_RATIO,
   answerChoice,
   compressNow,
   convStore,
@@ -67,8 +75,8 @@ import {
   setActivePreset,
   setApiKey,
   settingsStore,
-  supportsThinkingToggle,
-  thinkingOn,
+  reasoningOf,
+  setReasoning,
   updatePreset,
   updateSettings,
   useStore,
@@ -117,20 +125,14 @@ export function AgentView() {
             </IconButton>
           ) : null}
           <span className="ml-1 min-w-0 flex-1 truncate text-[13px] text-muted-foreground">{empty ? '' : conv.title}</span>
-          {!empty ? <ContextMeter /> : null}
         </header>
-        {empty ? (
-          <Welcome onSettings={() => setPanel('settings')} />
-        ) : (
-          <>
-            <Messages items={conv.items} running={conv.running} />
-            <div className="shrink-0 px-6 pb-5">
-              <div className="mx-auto max-w-[46rem]">
-                <Composer onSettings={() => setPanel('settings')} />
-              </div>
-            </div>
-          </>
-        )}
+        {empty ? <Welcome onSettings={() => setPanel('settings')} /> : <Messages items={conv.items} running={conv.running} />}
+        {/* 输入框始终在底部，新对话和对话中位置一样，切换时不跳 */}
+        <div className="shrink-0 px-6 pb-3">
+          <div className="mx-auto max-w-[46rem]">
+            <Composer onSettings={() => setPanel('settings')} />
+          </div>
+        </div>
         {dragging ? (
           <div className="pointer-events-none absolute inset-3 flex items-center justify-center rounded-2xl border-2 border-dashed border-primary/60 bg-primary/5 text-sm text-primary">
             松开鼠标，把文件交给助手
@@ -168,7 +170,7 @@ function modelLabel(id: PresetId, s: PresetSettings): string {
 function SideRow({ icon: Icon, label, onClick, disabled }: { icon: typeof Clock; label: string; onClick: () => void; disabled?: boolean }) {
   return (
     <button
-      className="flex h-8 w-full items-center gap-2.5 rounded-lg px-2.5 text-[13px] text-foreground/80 hover:bg-black/5 hover:text-foreground disabled:opacity-40"
+      className="flex h-8 w-full items-center gap-2.5 rounded-lg px-2.5 text-[13px] text-foreground/80 hover:bg-foreground/5 hover:text-foreground disabled:opacity-40"
       onClick={onClick}
       disabled={disabled}
     >
@@ -181,7 +183,7 @@ function SideRow({ icon: Icon, label, onClick, disabled }: { icon: typeof Clock;
 function Sidebar({ onPanel }: { onPanel: (p: Panel) => void }) {
   const conv = useStore(convStore);
   return (
-    <aside className="flex w-60 shrink-0 flex-col border-r border-border/70 bg-[#f8f8f7]">
+    <aside className="flex w-60 shrink-0 flex-col border-r border-border/70 bg-subtle">
       <div className="space-y-0.5 px-2 pt-2">
         <SideRow icon={SquarePen} label="新对话" onClick={newConversation} disabled={conv.running} />
         <SideRow icon={Clock} label="定时任务" onClick={() => onPanel('schedules')} />
@@ -195,15 +197,15 @@ function Sidebar({ onPanel }: { onPanel: (p: Panel) => void }) {
             key={m.id}
             title={m.title}
             className={cn(
-              'group flex h-8 cursor-pointer items-center gap-1 rounded-lg pl-2.5 pr-1 hover:bg-black/5',
-              m.id === conv.currentId && 'bg-black/[0.07]',
+              'group flex h-8 cursor-pointer items-center gap-1 rounded-lg pl-2.5 pr-1 hover:bg-foreground/5',
+              m.id === conv.currentId && 'bg-foreground/[0.07]',
               conv.running && m.id !== conv.currentId && 'cursor-not-allowed opacity-50',
             )}
             onClick={() => void openConversation(m.id)}
           >
             <span className="min-w-0 flex-1 truncate text-[13px] text-foreground/90">{m.title}</span>
             <button
-              className="hidden h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-black/5 hover:text-destructive group-hover:flex"
+              className="hidden h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-foreground/5 hover:text-destructive group-hover:flex"
               title="删除对话"
               onClick={(e) => {
                 e.stopPropagation();
@@ -224,7 +226,12 @@ function Sidebar({ onPanel }: { onPanel: (p: Panel) => void }) {
 
 // ---------- 新对话 ----------
 
-const SUGGESTIONS = ['看看这台电脑的配置', 'C 盘还剩多少空间', '查一下今天的科技新闻', '找到 7-Zip 官网，下载最新版'];
+const SUGGESTIONS = [
+  { icon: Monitor, text: '看看这台电脑的配置' },
+  { icon: HardDrive, text: 'C 盘还剩多少空间' },
+  { icon: Newspaper, text: '查一下今天的科技新闻' },
+  { icon: Download, text: '找到 7-Zip 官网，下载最新版' },
+];
 
 function useHotkeys(): [HotkeyStatus | null, (s: HotkeyStatus) => void] {
   const [keys, setKeys] = useState<HotkeyStatus | null>(null);
@@ -234,6 +241,7 @@ function useHotkeys(): [HotkeyStatus | null, (s: HotkeyStatus) => void] {
   return [keys, setKeys];
 }
 
+/** 新对话页：上面是问候、试试这些和能做什么，输入框在页面底部（和对话中一样） */
 function Welcome({ onSettings }: { onSettings: () => void }) {
   const model = useStore(modelStore);
   const preset = model.presets[model.active];
@@ -241,37 +249,40 @@ function Welcome({ onSettings }: { onSettings: () => void }) {
   const [keys] = useHotkeys();
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-6">
-      <div className="m-auto w-full max-w-[46rem] pb-[12vh]">
-        <h1 className="mb-6 flex items-center justify-center gap-2.5 text-center text-[26px] font-semibold tracking-tight text-foreground/90">
+      <div className="mx-auto w-full max-w-[46rem] pb-6 pt-[9vh]">
+        <h1 className="flex items-center gap-2.5 text-[24px] font-semibold tracking-tight text-foreground/90">
           <Sparkles className="h-6 w-6 text-primary" />
           有什么可以帮你？
         </h1>
+        <p className="mt-2 text-[13px] leading-6 text-muted-foreground">
+          能联网查资料、下载文件，也能执行命令、读写文件、看屏幕、点界面。可以拖入文件、粘贴截图
+          {keys?.ask.ok ? `，${keys.ask.label} 随时唤起` : ''}
+          {keys?.capture.ok ? `，${keys.capture.label} 框选屏幕提问` : ''}。
+        </p>
         {model.ready && !configured ? (
-          <div className="mb-3 flex items-center justify-between gap-3 rounded-xl border border-warning/40 bg-warning/10 px-4 py-2.5 text-[13px] text-warning-foreground">
+          <div className="mt-5 flex items-center justify-between gap-3 rounded-xl border border-warning/40 bg-warning/10 px-4 py-2.5 text-[13px] text-warning-foreground">
             先填写模型的 API Key 并选择模型，才能开始对话
             <Button size="sm" variant="outline" onClick={onSettings}>
               模型设置
             </Button>
           </div>
         ) : null}
-        <Composer onSettings={onSettings} />
-        <div className="mt-4 flex flex-wrap justify-center gap-2">
-          {SUGGESTIONS.map((s) => (
-            <button
-              key={s}
-              disabled={!configured}
-              className="rounded-full border border-border px-3.5 py-1.5 text-[13px] text-foreground/75 hover:bg-accent hover:text-foreground disabled:opacity-50"
-              onClick={() => void send(s)}
-            >
-              {s}
-            </button>
-          ))}
+        <div className="mt-6 rounded-2xl border border-border bg-subtle p-3">
+          <div className="px-1 pb-2 text-xs text-muted-foreground">试试这些</div>
+          <div className="grid grid-cols-2 gap-2">
+            {SUGGESTIONS.map(({ icon: Icon, text }) => (
+              <button
+                key={text}
+                disabled={!configured}
+                className="flex items-center gap-2.5 rounded-xl border border-border bg-background px-3.5 py-3 text-left text-[13px] text-foreground/80 hover:border-foreground/20 hover:text-foreground disabled:opacity-50"
+                onClick={() => void send(text)}
+              >
+                <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
+                <span className="truncate">{text}</span>
+              </button>
+            ))}
+          </div>
         </div>
-        <p className="mt-6 text-center text-xs text-muted-foreground">
-          能联网查资料、下载文件，也能执行命令、读写文件、看屏幕、点界面。可以拖入文件、粘贴截图
-          {keys?.ask.ok ? `，${keys.ask.label} 随时唤起` : ''}
-          {keys?.capture.ok ? `，${keys.capture.label} 框选屏幕提问` : ''}。
-        </p>
       </div>
     </div>
   );
@@ -371,7 +382,7 @@ function Item({ it, canEdit, canRegenerate }: { it: UiItem; canEdit: boolean; ca
           <div className="flex max-w-[78%] flex-col items-end">
             {it.attachments?.length ? <Attachments list={it.attachments} /> : null}
             {it.text ? (
-              <div className="select-text whitespace-pre-wrap break-words rounded-2xl bg-[#f0f0ee] px-4 py-2.5 text-[14.5px] leading-relaxed text-foreground">
+              <div className="select-text whitespace-pre-wrap break-words rounded-2xl bg-bubble px-4 py-2.5 text-[14.5px] leading-relaxed text-foreground">
                 {it.text}
               </div>
             ) : null}
@@ -503,45 +514,205 @@ function Steps({ steps: all, image }: { steps: Step[]; image?: { data: string; m
 
 // ---------- 输入框 ----------
 
+function fmtTokens(n: number): string {
+  if (n < 1000) return String(n);
+  if (n < 1_000_000) return `${(n / 1000).toFixed(n < 10_000 ? 2 : 1)}K`;
+  return `${(n / 1_000_000).toFixed(2)}M`;
+}
+
+/** 点外面或按 Esc 关闭的弹出层（贴着自己的按钮往上弹） */
+function usePopover() {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && setOpen(false);
+    const esc = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
+    window.addEventListener('mousedown', close);
+    window.addEventListener('keydown', esc);
+    return () => {
+      window.removeEventListener('mousedown', close);
+      window.removeEventListener('keydown', esc);
+    };
+  }, [open]);
+  return { open, setOpen, ref };
+}
+
+/** 输入框下面一排的小按钮 */
+const chip = 'flex h-7 items-center gap-1 rounded-md px-2 text-xs text-muted-foreground hover:bg-accent hover:text-foreground';
+/** 输入框下面一排按钮的弹出层：在按钮正上方，右边和按钮对齐 */
+const popover = 'absolute bottom-full right-0 z-30 mb-1.5 rounded-xl border border-border bg-background shadow-lg';
+
+/**
+ * 上下文圆环：进度 = 上下文用量 / 上限，超过自动压缩的比例时变红。
+ * 点开是 Token 用量卡片（上下文、缓存命中、输出、速度、累计）和「压缩上下文」按钮，和手机端一样。
+ */
 function ContextMeter() {
   const conv = useStore(convStore);
-  const st = conv.stats;
-  if (!st) return null;
-  const pct = Math.min(100, Math.round((st.contextTokens / st.contextWindow) * 100));
+  const model = useStore(modelStore);
+  const { open, setOpen, ref } = usePopover();
+  const cur = model.presets[model.active];
+  const win = contextWindowOf(cur);
+  // 统计来自当前模型时才算（切换模型后旧数字没有意义）
+  const s = conv.stats && conv.stats.model === cur.model.trim() ? conv.stats : null;
+  const ratio = s ? s.contextTokens / win : 0;
+  const warn = ratio > AUTO_COMPRESS_RATIO;
+  const hit = s?.promptTokens ? Math.round(((s.cachedTokens ?? 0) / s.promptTokens) * 100) : null;
+  const pct = Math.min(100, ratio * 100);
+  const row = (label: string, value: string, red?: boolean) => (
+    <div className="flex items-center justify-between py-0.5">
+      <span className="text-muted-foreground">{label}</span>
+      <span className={cn('tabular-nums', red && 'text-destructive')}>{value}</span>
+    </div>
+  );
   return (
-    <button
-      className="flex h-8 items-center gap-1.5 rounded-lg px-2 text-xs text-muted-foreground hover:bg-accent disabled:opacity-50"
-      title={`上下文 ${st.contextTokens.toLocaleString()} / ${formatWindow(st.contextWindow)} token${st.tokensPerSec ? `，${st.tokensPerSec.toFixed(0)} token/秒` : ''}\n点击压缩较早的对话`}
-      disabled={conv.running}
-      onClick={() => void compressNow()}
-    >
-      <span className="relative h-3.5 w-3.5 rounded-full border-2 border-border">
-        <span
-          className="absolute inset-[-2px] rounded-full"
-          style={{ background: `conic-gradient(hsl(var(--primary)) ${pct * 3.6}deg, transparent 0)`, WebkitMask: 'radial-gradient(circle, transparent 3px, #000 3.5px)' }}
-        />
-      </span>
-      {pct}%
-    </button>
+    <div ref={ref} className="relative shrink-0">
+      <button
+        className={cn(chip, 'gap-1.5', open && 'bg-accent text-foreground')}
+        title="上下文用量"
+        onClick={() => setOpen((v) => !v)}
+      >
+        <span className="relative h-3.5 w-3.5 rounded-full border-2 border-border">
+          {pct > 0 ? (
+            <span
+              className="absolute inset-[-2px] rounded-full"
+              style={{
+                background: `conic-gradient(${warn ? 'hsl(var(--destructive))' : 'hsl(var(--primary))'} ${Math.max(pct, 3) * 3.6}deg, transparent 0)`,
+                WebkitMask: 'radial-gradient(circle, transparent 3px, #000 3.5px)',
+              }}
+            />
+          ) : null}
+        </span>
+        {s ? `${Math.round(pct)}%` : null}
+      </button>
+      {open ? (
+        <div className={cn(popover, 'max-h-[calc(100vh-8rem)] w-72 overflow-y-auto p-3 text-[13px]')}>
+          <div className="flex items-center justify-between border-b border-border pb-2">
+            <span className="font-medium">Token 用量</span>
+            <span className="tabular-nums">{conv.totalTokens.toLocaleString('en-US')} tok</span>
+          </div>
+          <div className="truncate pt-1.5 text-[11px] text-muted-foreground">{cur.model || '未选择模型'}</div>
+          <div className="pb-2 pt-1">
+            {row('上下文', `${s ? fmtTokens(s.contextTokens) : '—'} / ${formatWindow(win)}`)}
+            {s ? (
+              <>
+                <div className="my-1.5 h-1.5 overflow-hidden rounded-full bg-muted">
+                  <div className={cn('h-full rounded-full', warn ? 'bg-destructive' : 'bg-primary')} style={{ width: `${Math.max(pct, 1)}%` }} />
+                </div>
+                {row('已用', `${(ratio * 100).toFixed(1)}%`, warn)}
+                {hit !== null ? row('缓存命中', `${hit}%`) : null}
+                {s.promptTokens !== undefined ? row('未命中', `${(s.promptTokens - (s.cachedTokens ?? 0)).toLocaleString('en-US')} tok`) : null}
+                {s.cachedTokens !== undefined ? row('缓存读取', `${s.cachedTokens.toLocaleString('en-US')} tok`) : null}
+                {s.completionTokens !== undefined ? row('输出', `${s.completionTokens.toLocaleString('en-US')} tok`) : null}
+                {s.ttftMs ? row('首字等待', `${(s.ttftMs / 1000).toFixed(1)} 秒`) : null}
+                {s.tokensPerSec != null ? row('速度', `${s.tokensPerSec.toFixed(s.tokensPerSec < 10 ? 1 : 0)}${s.estimated ? '≈' : ''} tok/s`) : null}
+              </>
+            ) : (
+              <div className="py-1 text-xs text-muted-foreground">发送消息后显示本次请求的用量</div>
+            )}
+          </div>
+          <button
+            className="h-8 w-full rounded-lg bg-primary text-[13px] font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-40"
+            disabled={conv.running || conv.history.length === 0}
+            onClick={() => {
+              setOpen(false);
+              void compressNow();
+            }}
+          >
+            压缩上下文
+          </button>
+          <div className="mt-1.5 text-center text-[11px] text-muted-foreground">超过 {Math.round(AUTO_COMPRESS_RATIO * 100)}% 时自动压缩较早的对话</div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/** 输入框下面左边的操作确认模式，和「设置 → 操作确认」是同一个开关 */
+function ConfirmPicker() {
+  const settings = useStore(settingsStore);
+  const { open, setOpen, ref } = usePopover();
+  const cur = CONFIRM_MODES.find((m) => m.id === settings.confirm) ?? CONFIRM_MODES[0];
+  return (
+    <div ref={ref} className="relative min-w-0">
+      <button className={cn(chip, settings.confirm === 'off' && 'text-warning-foreground', open && 'bg-accent text-foreground')} title="操作确认" onClick={() => setOpen((v) => !v)}>
+        <ShieldCheck className="h-3.5 w-3.5 shrink-0" />
+        <span className="truncate">{cur.short}</span>
+        <ChevronDown className="h-3 w-3 shrink-0" />
+      </button>
+      {open ? (
+        <div className="absolute bottom-full left-0 z-30 mb-1.5 w-72 rounded-xl border border-border bg-background p-1 shadow-lg">
+          <div className="px-2.5 pb-1 pt-1.5 text-xs text-muted-foreground">执行操作前要不要先问你</div>
+          {CONFIRM_MODES.map((m) => (
+            <button
+              key={m.id}
+              className={cn('flex w-full items-start gap-2 rounded-lg px-2.5 py-1.5 text-left hover:bg-accent', m.id === settings.confirm && 'bg-accent')}
+              onClick={() => {
+                void updateSettings({ confirm: m.id });
+                setOpen(false);
+              }}
+            >
+              <Check className={cn('mt-0.5 h-3.5 w-3.5 shrink-0 text-primary', m.id !== settings.confirm && 'invisible')} />
+              <span>
+                <span className="block text-[13px]">{m.label}</span>
+                <span className="block text-[11px] text-muted-foreground">{m.hint}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/** 输入框下面的思考程度：当前模型能调时显示，点开选档位 */
+function EffortPicker() {
+  const model = useStore(modelStore);
+  const { open, setOpen, ref } = usePopover();
+  const cur = model.presets[model.active];
+  const options = reasoningOptions(model.active, cur.model);
+  const level = reasoningOf(model.active, cur);
+  if (!cur.model || level === null) return null;
+  const label = options.find((o) => o.id === level)?.label ?? '';
+  return (
+    <div ref={ref} className="relative shrink-0">
+      <button
+        className={cn(chip, level !== 'off' && 'text-primary hover:text-primary', open && 'bg-accent')}
+        title="思考程度"
+        onClick={() => setOpen((v) => !v)}
+      >
+        <Brain className="h-3.5 w-3.5" />
+        {label}
+      </button>
+      {open ? (
+        <div className={cn(popover, 'w-80 p-3 text-[13px]')}>
+          <div className="mb-2 flex items-center gap-1.5">
+            <span className="font-medium">思考程度</span>
+            <span className="text-primary">{label}</span>
+          </div>
+          <EffortSlider
+            options={options}
+            value={level}
+            onChange={(v) => {
+              void setReasoning(v);
+              setOpen(false);
+            }}
+          />
+        </div>
+      ) : null}
+    </div>
   );
 }
 
 /** 输入框里的模型选择：切换已配置的预设，最下面进模型设置 */
 function ModelPicker({ onSettings }: { onSettings: () => void }) {
   const model = useStore(modelStore);
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const close = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && setOpen(false);
-    window.addEventListener('mousedown', close);
-    return () => window.removeEventListener('mousedown', close);
-  }, [open]);
+  const { open, setOpen, ref } = usePopover();
   const cur = model.presets[model.active];
   return (
-    <div ref={ref} className="relative">
+    <div ref={ref} className="relative min-w-0 max-w-[260px]">
       <button
-        className="flex h-8 max-w-[240px] items-center gap-1 rounded-lg px-2 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+        className={cn(chip, 'max-w-full', open && 'bg-accent text-foreground')}
         onClick={() => setOpen((v) => !v)}
         title="选择模型"
       >
@@ -549,7 +720,7 @@ function ModelPicker({ onSettings }: { onSettings: () => void }) {
         <ChevronDown className="h-3 w-3 shrink-0" />
       </button>
       {open ? (
-        <div className="absolute bottom-9 left-0 z-30 w-64 rounded-xl border border-border bg-background p-1 shadow-lg">
+        <div className={cn(popover, 'w-64 p-1')}>
           {MODEL_PRESETS.map((p) => {
             const s = model.presets[p.id];
             const ready = model.hasKey[p.id] && !!s.model;
@@ -640,7 +811,7 @@ function Composer({ onSettings }: { onSettings: () => void }) {
     <div>
       {conv.progress ? <div className="mb-1.5 px-1 text-xs text-muted-foreground">{conv.progress}</div> : null}
       {clip ? (
-        <div className="mb-2 flex items-center gap-2 rounded-xl border border-border bg-[#f8f8f7] px-3 py-1.5 text-xs">
+        <div className="mb-2 flex items-center gap-2 rounded-xl border border-border bg-subtle px-3 py-1.5 text-xs">
           <ClipboardPaste className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
           <span className="min-w-0 flex-1 truncate text-foreground/80">{clip}</span>
           <button
@@ -666,7 +837,7 @@ function Composer({ onSettings }: { onSettings: () => void }) {
           </button>
         </div>
       ) : null}
-      <div className="rounded-2xl border border-border bg-background shadow-[0_2px_10px_rgba(0,0,0,0.04)] transition-colors focus-within:border-foreground/25">
+      <div className="relative rounded-2xl border border-border bg-background shadow-[0_2px_10px_rgba(0,0,0,0.04)] transition-colors focus-within:border-foreground/25">
         {atts.length ? (
           <div className="flex flex-wrap gap-2 px-3 pt-3">
             {atts.map((a, i) => (
@@ -737,11 +908,10 @@ function Composer({ onSettings }: { onSettings: () => void }) {
             }}
           />
           <div className="flex-1" />
-          <ModelPicker onSettings={onSettings} />
           {conv.running ? (
             <button
               title="停止"
-              className="ml-1 flex h-8 w-8 items-center justify-center rounded-full bg-foreground text-background hover:bg-foreground/80"
+              className="ml-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-foreground text-background hover:bg-foreground/80"
               onClick={stop}
             >
               <Square className="h-3 w-3 fill-current" />
@@ -750,13 +920,21 @@ function Composer({ onSettings }: { onSettings: () => void }) {
             <button
               title="发送（Enter），换行用 Shift+Enter"
               disabled={!canSend}
-              className="ml-1 flex h-8 w-8 items-center justify-center rounded-full bg-primary text-primary-foreground hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground"
+              className="ml-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground"
               onClick={submit}
             >
               <ArrowUp className="h-4 w-4" />
             </button>
           )}
         </div>
+      </div>
+      {/* 输入框下面一排：左边操作确认，右边模型、思考程度、上下文（参考 DeepSeek Harness） */}
+      <div className="mt-1.5 flex items-center gap-1 px-1">
+        <ConfirmPicker />
+        <div className="flex-1" />
+        <ModelPicker onSettings={onSettings} />
+        <EffortPicker />
+        <ContextMeter />
       </div>
     </div>
   );
@@ -821,7 +999,7 @@ function Choice({ it }: { it: ChoiceItem }) {
     );
   }
   return (
-    <div className="rounded-2xl border border-border bg-[#f8f8f7] p-4">
+    <div className="rounded-2xl border border-border bg-subtle p-4">
       <div className="mb-2.5 select-text text-[14px] font-medium">{it.question}</div>
       <div className="flex flex-col gap-1.5">
         {it.options.map((o) => {
@@ -918,8 +1096,8 @@ function ModelSettings({ onClose }: { onClose: () => void }) {
     setLoading(true);
     setError('');
     try {
-      const list = await listModels({ baseUrl: draft.baseUrl.trim(), apiKey: key.trim() }, ipcFetch);
-      patch({ models: list, model: draft.model || list[0] || '' });
+      const { ids: list, windows } = await listModelsDetailed({ baseUrl: draft.baseUrl.trim(), apiKey: key.trim() }, ipcFetch);
+      patch({ models: list, windows, model: draft.model || list[0] || '' });
       if (!list.length) setError('接口没有返回模型，可以直接填写模型名');
     } catch (e) {
       setError((e as Error).message);
@@ -941,10 +1119,11 @@ function ModelSettings({ onClose }: { onClose: () => void }) {
   };
 
   const { items, hidden } = filterModels(draft.models, query, { hideNonChat: true, selected: draft.model });
+  const autoWindow = contextWindowOf({ ...draft, contextWindow: undefined });
   const field = 'h-8 w-full rounded-md border border-border bg-background px-2.5 text-[13px] outline-none focus:border-primary';
 
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/30 p-6">
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/30 dark:bg-black/60 p-6">
       <div className="flex max-h-full w-[520px] flex-col rounded-xl border border-border bg-background shadow-xl">
         <div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-5">
           <span className="font-semibold">设置</span>
@@ -1041,38 +1220,58 @@ function ModelSettings({ onClose }: { onClose: () => void }) {
           <div className="space-y-2">
             <Toggle label="支持图片" hint="能看截图；不支持时改用命令和控件树操作" on={draft.supportsVision} onChange={(v) => patch({ supportsVision: v })} />
             <Toggle label="支持工具调用" hint="关掉后只能聊天，不能操作电脑、联网" on={draft.supportsTools} onChange={(v) => patch({ supportsTools: v })} />
-            {supportsThinkingToggle(active) ? (
-              <Toggle label="深度思考" hint="回答更仔细，但更慢" on={thinkingOn(draft)} onChange={(v) => patch({ thinking: v })} />
-            ) : null}
           </div>
-          <Field label="上下文长度（可不填）" hint={`不填按模型默认（${formatWindow(contextWindowOf({ model: draft.model }))}），快用满时自动压缩较早的对话`}>
-            <input
-              className={field}
-              type="number"
-              min={4000}
-              value={draft.contextWindow ?? ''}
-              placeholder={String(contextWindowOf({ model: draft.model }))}
-              onChange={(e) => patch({ contextWindow: e.target.value ? Number(e.target.value) : undefined })}
-            />
-          </Field>
-          <Field label="额外要求（可不填）" hint="加在内置提示词之后，例如回答风格、常用目录">
-            <textarea className={cn(field, 'h-20 resize-none py-1.5')} value={draft.systemPrompt ?? ''} onChange={(e) => patch({ systemPrompt: e.target.value })} />
-            <div className="mt-1.5 flex items-center gap-2 text-xs text-muted-foreground">
-              填入预设：
-              {PROMPT_PRESETS.map((p) => (
+          {reasoningOptions(active, draft.model).length ? (
+            <Field label="思考程度" hint="输入框里也能随时切换；越强回答越仔细，但更慢、用量更多">
+              <EffortSlider
+                options={reasoningOptions(active, draft.model)}
+                value={reasoningOf(active, draft) ?? 'default'}
+                onChange={(v) => patch({ reasoning: v })}
+              />
+            </Field>
+          ) : null}
+          <Field
+            label="上下文长度"
+            hint={`自动：${formatWindow(autoWindow)}（${draft.windows?.[draft.model.trim()] ? '接口提供' : '按模型官方数据'}），一般不用改。用到 ${Math.round(AUTO_COMPRESS_RATIO * 100)}% 时自动压缩较早的对话`}
+          >
+            <div className="flex items-center gap-2">
+              <input
+                className={field}
+                type="number"
+                min={4000}
+                value={draft.contextWindow ?? ''}
+                placeholder={`自动 ${autoWindow}`}
+                onChange={(e) => patch({ contextWindow: e.target.value ? Number(e.target.value) : undefined })}
+              />
+              {WINDOW_PRESETS.map((w) => (
                 <button
-                  key={p.id}
-                  className="rounded border border-border px-2 py-0.5 text-foreground hover:bg-accent"
-                  title={p.summary}
-                  onClick={() => {
-                    if (draft.systemPrompt?.trim() && !confirm('替换现在填写的要求？')) return;
-                    patch({ systemPrompt: p.text });
-                  }}
+                  key={w.label}
+                  className={cn('h-8 shrink-0 rounded-md border px-2 text-xs hover:bg-accent', draft.contextWindow === w.value ? 'border-primary text-primary' : 'border-border')}
+                  onClick={() => patch({ contextWindow: draft.contextWindow === w.value ? undefined : w.value })}
                 >
-                  {p.name}
+                  {w.label}
                 </button>
               ))}
             </div>
+          </Field>
+          <Field label="系统提示词" hint={`加在内置提示词之后；默认是「电脑管理」，可以改，${draft.systemPrompt?.length ?? 0} / ${MAX_PROMPT} 字`}>
+            <textarea
+              className={cn(field, 'h-40 resize-y py-1.5 leading-5')}
+              value={draft.systemPrompt ?? ''}
+              placeholder="例如：回答先给结论再说步骤；改系统设置前先说明风险"
+              onChange={(e) => patch({ systemPrompt: e.target.value.slice(0, MAX_PROMPT) })}
+            />
+            {(draft.systemPrompt ?? '').trim() !== defaultPrompt('desktop').trim() ? (
+              <button
+                className="mt-1.5 rounded border border-border px-2 py-0.5 text-xs hover:bg-accent"
+                onClick={() => {
+                  if (draft.systemPrompt?.trim() && !confirm('用默认提示词替换现在填写的内容？')) return;
+                  patch({ systemPrompt: defaultPrompt('desktop') });
+                }}
+              >
+                恢复默认
+              </button>
+            ) : null}
           </Field>
           <OtherSettings />
         </div>
@@ -1090,15 +1289,55 @@ function ModelSettings({ onClose }: { onClose: () => void }) {
 }
 
 /** 本机运行的模型（OpenAI 兼容接口，不校验 Key） */
+const WINDOW_PRESETS = [
+  { label: '128K', value: 128_000 },
+  { label: '256K', value: 256_000 },
+  { label: '1M', value: 1_048_576 },
+];
+
+/** 思考程度选择：从「更快」到「更强」的一排档位（参考 DeepSeek Harness 的推理等级滑块） */
+function EffortSlider({
+  options,
+  value,
+  onChange,
+}: {
+  options: ReturnType<typeof reasoningOptions>;
+  value: ReasoningLevel;
+  onChange: (v: ReasoningLevel) => void;
+}) {
+  const cur = options.find((o) => o.id === value);
+  return (
+    <div>
+      <div className="flex rounded-lg bg-muted p-1">
+        {options.map((o) => (
+          <button
+            key={o.id}
+            title={o.hint}
+            className={cn('h-7 flex-1 rounded-md text-[13px]', o.id === value ? 'bg-background font-medium text-primary shadow-sm' : 'text-muted-foreground hover:text-foreground')}
+            onClick={() => onChange(o.id)}
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
+      <div className="mt-1 flex justify-between px-1 text-[11px] text-muted-foreground">
+        <span>更快</span>
+        <span>{cur?.hint}</span>
+        <span>更强</span>
+      </div>
+    </div>
+  );
+}
+
 const LOCAL_MODELS = [
   { name: 'Ollama', baseUrl: 'http://127.0.0.1:11434/v1', key: 'ollama' },
   { name: 'LM Studio', baseUrl: 'http://127.0.0.1:1234/v1', key: 'lm-studio' },
 ];
 
-const CONFIRM_MODES: { id: ConfirmMode; label: string; hint: string }[] = [
-  { id: 'risky', label: '高风险操作', hint: '管理员命令、删除、格式化、改注册表 / 服务等先问一下' },
-  { id: 'all', label: '执行命令和改文件都问', hint: '每条命令、写文件、删除、下载前都要你点允许' },
-  { id: 'off', label: '不确认', hint: '助手自己决定（不建议）' },
+const CONFIRM_MODES: { id: ConfirmMode; label: string; short: string; hint: string }[] = [
+  { id: 'risky', label: '高风险操作', short: '高风险操作先问', hint: '管理员命令、删除、格式化、改注册表 / 服务等先问一下' },
+  { id: 'all', label: '执行命令和改文件都问', short: '每步都问', hint: '每条命令、写文件、删除、下载前都要你点允许' },
+  { id: 'off', label: '不确认', short: '不确认', hint: '助手自己决定（不建议）' },
 ];
 
 const HOTKEY_ROWS: { id: HotkeyId; label: string; hint: string }[] = [
@@ -1206,8 +1445,22 @@ function OtherSettings() {
     next[id] = { ...next[id], ...patch };
     void window.p2d.setAgentHotkeys(next).then(setKeys);
   };
+  const ap = useAppearance();
   return (
     <div className="space-y-3 border-t border-border pt-4">
+      <Field label="外观" hint="整个 P2D 共用；标题栏和托盘菜单里也能切换">
+        <div className="flex w-60 rounded-lg bg-muted p-1">
+          {APPEARANCES.map((a) => (
+            <button
+              key={a.id}
+              className={cn('h-7 flex-1 rounded-md text-[13px]', ap.setting === a.id ? 'bg-background font-medium shadow-sm' : 'text-muted-foreground hover:text-foreground')}
+              onClick={() => void setAppearance(a.id)}
+            >
+              {a.label}
+            </button>
+          ))}
+        </div>
+      </Field>
       <Field label="操作前确认" hint="改了马上生效">
         <div className="space-y-1">
           {CONFIRM_MODES.map((m) => (

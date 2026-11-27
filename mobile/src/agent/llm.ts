@@ -178,8 +178,23 @@ async function errorFrom(res: { status: number; text(): Promise<string> }): Prom
   return new LlmError(res.status, detail ? `${prefix}：${String(detail).slice(0, 300)}` : prefix);
 }
 
-/** GET /models 获取可用模型列表 */
-export async function listModels(cfg: Omit<LlmConfig, 'model'>, fetchImpl: FetchLike, signal?: AbortSignal): Promise<string[]> {
+export interface ListedModels {
+  ids: string[];
+  /** 接口声明的上下文长度（token），没声明的模型不在里面 */
+  windows: Record<string, number>;
+}
+
+/** 各家 /models 里表示上下文长度的字段（DeepSeek：context_window，OpenRouter：context_length） */
+function listedWindow(m: Record<string, unknown>): number | undefined {
+  for (const k of ['context_window', 'context_length', 'max_context_length', 'max_model_len', 'contextWindow']) {
+    const v = m[k];
+    if (typeof v === 'number' && Number.isInteger(v) && v >= 1000) return v;
+  }
+  return undefined;
+}
+
+/** GET /models 获取可用模型列表，顺带记下接口声明的上下文长度 */
+export async function listModelsDetailed(cfg: Omit<LlmConfig, 'model'>, fetchImpl: FetchLike, signal?: AbortSignal): Promise<ListedModels> {
   const res = await send(fetchImpl, endpoint(cfg.baseUrl, '/models'), {
     method: 'GET',
     headers: { Authorization: `Bearer ${cfg.apiKey}`, Accept: 'application/json' },
@@ -187,11 +202,21 @@ export async function listModels(cfg: Omit<LlmConfig, 'model'>, fetchImpl: Fetch
   });
   if (!res.ok) throw await errorFrom(res);
   const j = JSON.parse(await res.text());
-  const data: { id?: string }[] = Array.isArray(j?.data) ? j.data : Array.isArray(j) ? j : [];
-  return data
-    .map((m) => m.id)
-    .filter((id): id is string => typeof id === 'string')
-    .sort();
+  const data: Record<string, unknown>[] = Array.isArray(j?.data) ? j.data : Array.isArray(j) ? j : [];
+  const ids: string[] = [];
+  const windows: Record<string, number> = {};
+  for (const m of data) {
+    if (!m || typeof m.id !== 'string') continue;
+    ids.push(m.id);
+    const w = listedWindow(m);
+    if (w) windows[m.id] = w;
+  }
+  return { ids: ids.sort(), windows };
+}
+
+/** GET /models 获取可用模型列表 */
+export async function listModels(cfg: Omit<LlmConfig, 'model'>, fetchImpl: FetchLike, signal?: AbortSignal): Promise<string[]> {
+  return (await listModelsDetailed(cfg, fetchImpl, signal)).ids;
 }
 
 interface ToolCallDelta {
@@ -281,14 +306,17 @@ export async function chat(
   cb: StreamCallbacks = {},
   opts: ChatOptions = {},
 ): Promise<ChatResult> {
-  const flags = { keepReasoning: false, usageInStream: true };
+  const flags = { keepReasoning: false, usageInStream: true, dropEffort: false };
   for (let attempt = 0; ; attempt++) {
     try {
       return await chatOnce(cfg, messages, fetchImpl, cb, opts, flags);
     } catch (e) {
-      if (attempt >= 2 || !(e instanceof LlmError) || e.status !== 400) throw e;
+      // 参数不对时多数接口回 400，DeepSeek 对不认识的取值回 422
+      if (attempt >= 3 || !(e instanceof LlmError) || (e.status !== 400 && e.status !== 422)) throw e;
       if (!flags.keepReasoning && /reasoning_content/i.test(e.message)) flags.keepReasoning = true;
       else if (flags.usageInStream && /stream_options|include_usage/i.test(e.message)) flags.usageInStream = false;
+      // 模型不支持这个思考程度（或不认 reasoning_effort）：去掉这个参数，用模型默认的
+      else if (!flags.dropEffort && cfg.extraBody?.reasoning_effort !== undefined && /reasoning[_ .]?effort|effort/i.test(e.message)) flags.dropEffort = true;
       else throw e;
     }
   }
@@ -300,7 +328,7 @@ async function chatOnce(
   fetchImpl: FetchLike,
   cb: StreamCallbacks,
   opts: ChatOptions,
-  flags: { keepReasoning: boolean; usageInStream: boolean },
+  flags: { keepReasoning: boolean; usageInStream: boolean; dropEffort: boolean },
 ): Promise<ChatResult> {
   const body: Record<string, unknown> = {
     ...cfg.extraBody,
@@ -308,6 +336,7 @@ async function chatOnce(
     messages: wireMessages(messages, flags.keepReasoning),
     stream: true,
   };
+  if (flags.dropEffort) delete body.reasoning_effort;
   // 让流式响应在最后带上用量（含缓存命中）；个别不支持的服务会报 400，届时去掉重试
   if (flags.usageInStream) body.stream_options = { include_usage: true };
   if (opts.tools?.length) body.tools = opts.tools;

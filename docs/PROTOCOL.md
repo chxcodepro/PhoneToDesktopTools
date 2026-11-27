@@ -271,9 +271,14 @@ Core 在同一端口提供 HTTP 接口，只接受本机访问：
 - 全局快捷键默认都关着，在助手的「设置 → 全局快捷键」里逐个打开、点按钮后按下新组合来改（要带 Ctrl / Alt / Shift，F1～F12 可单独用），改了马上重新注册，注册不上时提示「被别的程序占用」。设置存在 `agent/hotkeys.json`（主进程读写）。三个快捷键：唤起（默认 `Alt+Shift+Space`，切到助手模式、聚焦输入框，剪贴板有新文字时提示「引用剪贴板」）、框选屏幕提问（默认 `Ctrl+Alt+X`，`desktopCapturer` 截鼠标所在的显示器，全屏窗口里拖选，原始分辨率裁下交给输入框）、停止（默认 `Ctrl+Alt+Shift+Escape`，只在助手运行时注册）。输入框旁的框选按钮、提示条上的停止按钮不受开关影响
 - 助手调用 `input_mouse`、`input_keyboard`、`ui_act`、`window_activate` 时，每个显示器显示紫色边框，主显示器顶部有「AI 助手正在操作电脑」提示条和「停止」按钮（和被控红框同一套窗口，`overlay.html?kind=agent`），这一轮结束后收起
 - 附件：拖入或选择文件（给模型文件路径，让它用 `fs_read` / `doc_read` 读）、粘贴或拖入图片（长边缩到 2000 像素以内发给模型，对话记录里界面只存 240 像素的缩略图）。最后一轮可以「重新回答」「编辑」（按用户消息在历史里的位置截断；压缩过上下文后不能再用）
-- 界面布局参考 Claude 桌面版和 Codex：左边是可收起的对话列表（新对话、定时任务、扩展、最近的对话、设置）；对话居中、最宽 46rem，用户消息是浅灰气泡，助手回答不加气泡；执行过的操作折叠成一行「执行了 N 个操作」，正在执行时展开；答完的选择卡片收成一行；输入框是一张卡片，模型选择和发送按钮在卡片底部；新对话时标题和输入框在页面中间
+- 界面布局参考 Claude 桌面版和 Codex：左边是可收起的对话列表（新对话、定时任务、扩展、最近的对话、设置）；对话居中、最宽 46rem，用户消息是浅灰气泡，助手回答不加气泡；执行过的操作折叠成一行「执行了 N 个操作」，正在执行时展开；答完的选择卡片收成一行；输入框在页面底部（新对话也一样，上面放问候和「试试这些」，参考 DeepSeek Harness），卡片里是文字、附件、框选和发送按钮；卡片下面一排左边是操作确认模式，右边是模型、思考程度、上下文圆环，点开的选择层贴在各自按钮正上方
 - 回答里的 ```` ```p2d-ui ```` 代码块和手机端一样渲染成卡片（`mobile/src/agent/genui.ts`），`buttons` 点击后作为用户消息发出
 - 模型配置：和手机端一样三个预设（OpenAI、DeepSeek、自定义 OpenAI 兼容地址），电脑端单独配置，存在数据目录的 `agent/config.json`；API Key 用 Electron `safeStorage` 加密（Windows 是 DPAPI）存在 `agent/keys.json`，系统没有加密存储时（Linux 没有密钥环）明文保存
+- 思考程度（手机端和电脑端共用 `mobile/src/agent/reasoning.ts`，参考 DeepSeek Harness）：输入框下面切换，设置里也能选。DeepSeek 四档「关闭 / 低 / 高 / 最高」（默认高）：关闭发 `thinking: {type: "disabled"}`，其余发 `thinking: {type: "enabled"}` 加 `reasoning_effort: low | high | max`；OpenAI 只有推理模型（o 系列、GPT-5 及以后）能调，自定义渠道都能调，档位「默认 / 低 / 中 / 高」，默认不传参数，其余发 `reasoning_effort`。接口不认这个取值时（400，DeepSeek 是 422）自动去掉 `reasoning_effort` 再试一次。旧版的「深度思考」开关关着的，按「关闭」处理
+- 上下文长度：用户在设置里填的 > 获取模型列表时接口 `/models` 声明的（`context_window`、`context_length` 等字段，DeepSeek 官方返回 1,048,576）> 按模型名推断的（`mobile/src/agent/contextWindow.ts`，2026年11月核对：DeepSeek 官方模型、GPT-5.4 起、Claude Opus / Sonnet 4.6 起、Gemini、通义 Plus / Turbo、Kimi K3、MiniMax M3 都是 1M）
+- 系统提示词：新装时直接填入「电脑管理」提示词（电脑端去掉「用手机下载」那句），可以改、清空，设置里有「恢复默认」；老版本没填过的启动时补上一次（`promptFilled`）
+- 上下文压缩和手机端一样：上下文用到 75% 时发送前自动压缩，超长报错时压缩后重试；输入框下面的上下文圆环点开是 Token 用量卡片（上下文、缓存命中、输出、首字等待、速度、对话累计）和「压缩上下文」按钮。摘要按固定小节写（目标和要求、已完成的操作、错误和解决办法、重要信息、正在做的事、下一步），已有旧摘要时合并
+- 外观（整个电脑端共用，不只是助手）：跟随系统（默认）/ 浅色 / 深色，在标题栏的太阳 / 月亮按钮、托盘菜单「外观」、助手设置里切换，存在数据目录的 `appearance.json`。主进程设 `nativeTheme.themeSource`，页面的颜色变量按 `prefers-color-scheme` 切换（`styles.css`），窗口底色跟着换，切换不用重开窗口。配对二维码在深色下仍是白底
 - 对话记录存在 `agent/conversations/`（最多 100 个），窗口模式和助手窗口大小存在 `agent/window.json`
 
 ## 8. 扩展（MCP / Skill，自定义扩展）

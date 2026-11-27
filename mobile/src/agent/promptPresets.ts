@@ -1,4 +1,4 @@
-// 系统提示词预设：在「设置 → 模型 → 系统提示词」里一键填入，填入后可以再修改。
+// 系统提示词预设：新装时直接填进「设置 → 模型 → 系统提示词」（不用再点），可以改、清空，也能一键恢复。
 // 预设内容加在内置提示词之后，不重复内置规则里已有的工具用法，只补充「怎么当好电脑管理员」。
 
 /** 系统提示词最长多少字 */
@@ -53,3 +53,8 @@ export const PROMPT_PRESETS: PromptPreset[] = [
     text: PC_ADMIN,
   },
 ];
+
+/** 新装时默认填入的提示词；电脑端助手没有手机，去掉「用手机下载」那句 */
+export function defaultPrompt(target: 'phone' | 'desktop'): string {
+  return target === 'desktop' ? PC_ADMIN.replace('电脑没网时按内置规则用手机下载。', '') : PC_ADMIN;
+}

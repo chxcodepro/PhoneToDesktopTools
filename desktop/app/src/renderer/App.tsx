@@ -13,11 +13,14 @@ import {
   Maximize2,
   Minus,
   Monitor,
+  Moon,
   OctagonX,
   Plug,
   QrCode,
   RefreshCw,
   Smartphone,
+  Sun,
+  SunMoon,
   Trash2,
   Wifi,
   X,
@@ -25,6 +28,7 @@ import {
 import QRCode from 'qrcode';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Badge, Button, Card, Kbd, Spinner } from '@/components/ui';
+import { APPEARANCES, setAppearance, useAppearance } from '@/lib/appearance';
 import { cn, formatDuration, platformLabel } from '@/lib/utils';
 import { deviceNameFor, type AboutInfo, type AppStatus, type CoreDevice, type CoreLan, type WindowMode } from '../shared/types';
 import { AgentView } from './agent/AgentView';
@@ -184,11 +188,54 @@ function PhoneApp({ onMode }: { onMode: (m: WindowMode) => void }) {
   );
 }
 
+/** 标题栏上的外观切换：跟随系统 / 浅色 / 深色（托盘菜单和助手设置里也能改） */
+function AppearanceButton() {
+  const ap = useAppearance();
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && setOpen(false);
+    window.addEventListener('mousedown', close);
+    return () => window.removeEventListener('mousedown', close);
+  }, [open]);
+  const Icon = ap.setting === 'system' ? SunMoon : ap.setting === 'dark' ? Moon : Sun;
+  return (
+    <div ref={ref} className="relative flex">
+      <button
+        aria-label="外观"
+        title={`外观：${APPEARANCES.find((a) => a.id === ap.setting)?.label}`}
+        className={cn('flex w-9 items-center justify-center text-muted-foreground hover:bg-accent hover:text-foreground', open && 'bg-accent')}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <Icon className="h-3.5 w-3.5" />
+      </button>
+      {open ? (
+        <div className="absolute right-0 top-full z-50 mt-1 w-32 rounded-lg border border-border bg-background p-1 shadow-lg">
+          {APPEARANCES.map((a) => (
+            <button
+              key={a.id}
+              className={cn('flex w-full items-center justify-between rounded-md px-2.5 py-1.5 text-left text-xs hover:bg-accent', a.id === ap.setting && 'font-medium text-primary')}
+              onClick={() => {
+                void setAppearance(a.id);
+                setOpen(false);
+              }}
+            >
+              {a.label}
+              {a.id === ap.setting ? <span>✓</span> : null}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function TitleBar({ mode, onMode }: { mode: WindowMode; onMode: (m: WindowMode) => void }) {
   const tab = (m: WindowMode, Icon: typeof Smartphone, label: string) => (
     <button
       className={cn(
-        'flex h-6 items-center gap-1 rounded-[5px] px-2 text-xs',
+        'flex h-6 items-center gap-1 whitespace-nowrap rounded-[5px] px-2 text-xs',
         mode === m ? 'bg-background font-medium text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
       )}
       onClick={() => mode !== m && onMode(m)}
@@ -215,6 +262,7 @@ function TitleBar({ mode, onMode }: { mode: WindowMode; onMode: (m: WindowMode) 
         </div>
       </div>
       <div className="no-drag flex h-full" onDoubleClick={(e) => e.stopPropagation()}>
+        <AppearanceButton />
         <button
           aria-label="最小化"
           className="flex w-10 items-center justify-center text-muted-foreground hover:bg-accent"

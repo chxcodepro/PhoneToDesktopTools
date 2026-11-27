@@ -1,5 +1,5 @@
 // P2D 电脑端主进程：启动 Core、轮询状态、主窗口、托盘、被控红框、断开热键。
-import { app, BrowserWindow, globalShortcut, ipcMain, Menu, nativeImage, screen, session, shell, systemPreferences, Tray } from 'electron';
+import { app, BrowserWindow, globalShortcut, ipcMain, Menu, nativeImage, nativeTheme, screen, session, shell, systemPreferences, Tray } from 'electron';
 import { captureRegion } from './capture';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -21,7 +21,15 @@ import { checkUpdate, getUpdate, repoUrl, startAutoCheck } from './update';
 import { aboutInfo, exportLogs } from './logs';
 import { registerAgentIpc } from './agent';
 import { OverlayManager } from './overlay';
-import { deviceNameFor, type AppStatus, type HotkeyId, type HotkeySettings, type HotkeyStatus } from '../shared/types';
+import {
+  deviceNameFor,
+  type AppStatus,
+  type Appearance,
+  type AppearanceState,
+  type HotkeyId,
+  type HotkeySettings,
+  type HotkeyStatus,
+} from '../shared/types';
 
 // 断开热键：依次尝试，使用第一个没有被其他程序占用的
 const HOTKEY_CANDIDATES = ['Control+Alt+Q', 'Control+Alt+Shift+Q', 'Control+Shift+F12'];
@@ -275,6 +283,39 @@ function applyMode(next: WindowMode): void {
   saveWindowState();
 }
 
+// 外观：跟随系统 / 浅色 / 深色，整个应用共用，存在数据目录的 appearance.json。
+// 设 nativeTheme.themeSource 后，所有页面的 prefers-color-scheme 跟着变（页面的颜色变量按它切换），
+// 窗口底色也跟着换，打开窗口时不会先闪一下白
+const DARK_BG = '#1c1c1c'; // 和 styles.css 里深色的 --background 一致
+const appearancePath = () => path.join(app.getPath('userData'), 'appearance.json');
+
+function readAppearance(): Appearance {
+  try {
+    const v = JSON.parse(fs.readFileSync(appearancePath(), 'utf8')).appearance;
+    if (v === 'system' || v === 'light' || v === 'dark') return v;
+  } catch {
+    // 没设置过
+  }
+  return 'system';
+}
+
+function appearanceState(): AppearanceState {
+  return { setting: nativeTheme.themeSource, dark: nativeTheme.shouldUseDarkColors };
+}
+
+const windowBg = () => (nativeTheme.shouldUseDarkColors ? DARK_BG : '#ffffff');
+
+function setAppearance(v: Appearance): AppearanceState {
+  nativeTheme.themeSource = v;
+  try {
+    fs.writeFileSync(appearancePath(), JSON.stringify({ appearance: v }));
+  } catch (e) {
+    console.error('保存外观设置失败：', e);
+  }
+  tray?.setContextMenu(trayMenu());
+  return appearanceState();
+}
+
 function createMainWindow(): void {
   mainWindow = new BrowserWindow({
     width: MAIN_WIDTH,
@@ -285,7 +326,7 @@ function createMainWindow(): void {
     frame: false,
     show: false,
     title: 'P2D',
-    backgroundColor: '#ffffff',
+    backgroundColor: windowBg(),
     icon: iconPath('app.png'),
     webPreferences: {
       preload: preloadPath,
@@ -389,6 +430,14 @@ function trayMenu(): Menu {
     ...(auto.supported
       ? [{ label: '开机自动启动', type: 'checkbox' as const, checked: auto.enabled, click: () => toggleAutostart(!getAutostart().enabled) }]
       : []),
+    {
+      label: '外观',
+      submenu: ([
+        ['system', '跟随系统'],
+        ['light', '浅色'],
+        ['dark', '深色'],
+      ] as const).map(([v, label]) => ({ label, type: 'radio' as const, checked: nativeTheme.themeSource === v, click: () => void setAppearance(v) })),
+    },
     { label: '检查更新', click: () => void checkUpdate().then(showMainWindow) },
     // 窗口打不开、服务起不来时也能从托盘导出日志
     { label: '导出日志…', click: () => void exportLogs(null, current) },
@@ -527,6 +576,8 @@ function registerIpc(): void {
   ipcMain.on('p2d:setMode', (e, m: unknown) => {
     if (mainWindow && e.sender === mainWindow.webContents && (m === 'phone' || m === 'agent') && m !== mode) applyMode(m);
   });
+  ipcMain.handle('p2d:appearance', () => appearanceState());
+  ipcMain.handle('p2d:setAppearance', (_e, v: Appearance) => setAppearance(v === 'light' || v === 'dark' ? v : 'system'));
   ipcMain.on('p2d:toggleMaximize', () => {
     if (!mainWindow || mode !== 'agent') return;
     if (mainWindow.isMaximized()) mainWindow.unmaximize();
@@ -562,6 +613,14 @@ app.whenReady().then(() => {
   overlays = new OverlayManager(rendererDir, preloadPath);
   agentOverlays = new OverlayManager(rendererDir, preloadPath, 'agent');
   core.start();
+  nativeTheme.themeSource = readAppearance();
+  // 外观变了（自己切换或系统切换深浅色）：换窗口底色，通知页面
+  nativeTheme.on('updated', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.setBackgroundColor(windowBg());
+      mainWindow.webContents.send('p2d:appearanceChanged', appearanceState());
+    }
+  });
   createMainWindow();
   createTray();
   for (const accel of HOTKEY_CANDIDATES) {

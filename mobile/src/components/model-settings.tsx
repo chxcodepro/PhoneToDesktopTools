@@ -13,9 +13,10 @@ import { Input } from '@/components/ui/input';
 import { Segmented } from '@/components/ui/segmented';
 import { Switch } from '@/components/ui/switch';
 import { Text } from '@/components/ui/text';
-import { defaultContextWindow, formatWindow } from '@/agent/contextWindow';
-import { chat, configProblem, listModels, type FetchLike } from '@/agent/llm';
+import { formatWindow } from '@/agent/contextWindow';
+import { chat, configProblem, listModelsDetailed, type FetchLike } from '@/agent/llm';
 import {
+  contextWindowOf,
   getApiKey,
   initModelConfig,
   resolveActiveModel,
@@ -25,7 +26,7 @@ import {
   useModelConfig,
 } from '@/agent/modelConfig';
 import { PICKER_THRESHOLD } from '@/agent/modelList';
-import { MAX_PROMPT, PROMPT_PRESETS, type PromptPreset } from '@/agent/promptPresets';
+import { defaultPrompt, MAX_PROMPT } from '@/agent/promptPresets';
 import { MODEL_PRESETS } from '@/agent/presets';
 import { cn } from '@/lib/utils';
 
@@ -76,8 +77,8 @@ function PresetForm() {
     await saveKey();
     setModels({ kind: 'busy' });
     try {
-      const list = await listModels({ baseUrl: s.baseUrl.trim(), apiKey: await getApiKey(id) }, doFetch);
-      await updatePreset(id, { models: list });
+      const { ids: list, windows } = await listModelsDetailed({ baseUrl: s.baseUrl.trim(), apiKey: await getApiKey(id) }, doFetch);
+      await updatePreset(id, { models: list, windows });
       setModels(list.length ? { kind: 'idle' } : { kind: 'error', text: '接口没有返回模型，请手动填写' });
     } catch (e) {
       setModels({ kind: 'error', text: (e as Error).message });
@@ -206,7 +207,7 @@ function PresetForm() {
               const n = parseInt(v.replace(/[^0-9]/g, ''), 10);
               void updatePreset(id, { contextWindow: n > 0 ? n * 1000 : undefined });
             }}
-            placeholder={`默认 ${formatWindow(defaultContextWindow(s.model))}（按模型官方数据）`}
+            placeholder={`自动 ${formatWindow(contextWindowOf({ ...s, contextWindow: undefined }))}（${s.windows?.[s.model.trim()] ? '接口提供' : '按模型官方数据'}）`}
             keyboardType="number-pad"
           />
           <Text className="text-sm text-muted-foreground">K</Text>
@@ -238,12 +239,11 @@ function PresetForm() {
                 <Text className="text-xs text-muted-foreground">清空</Text>
               </Pressable>
             ) : null}
-            <Pressable
-              onPress={() => choosePreset((text) => void updatePreset(id, { systemPrompt: text }), s.systemPrompt ?? '')}
-              hitSlop={8}
-            >
-              <Text className="text-xs text-primary">使用预设</Text>
-            </Pressable>
+            {(s.systemPrompt ?? '').trim() !== defaultPrompt('phone').trim() ? (
+              <Pressable onPress={() => restoreDefault((text) => void updatePreset(id, { systemPrompt: text }), s.systemPrompt ?? '')} hitSlop={8}>
+                <Text className="text-xs text-primary">恢复默认</Text>
+              </Pressable>
+            ) : null}
           </View>
         }
       >
@@ -283,19 +283,13 @@ function PresetForm() {
   );
 }
 
-/** 选择系统提示词预设：只有一个时直接用；当前已有内容时先确认是否替换 */
-function choosePreset(apply: (text: string) => void, current: string) {
-  const pick = (p: PromptPreset) => {
-    if (!current.trim() || current.trim() === p.text.trim()) return apply(p.text);
-    Alert.alert(`使用「${p.name}」预设？`, '会替换当前填写的系统提示词。', [
-      { text: '取消', style: 'cancel' },
-      { text: '替换', onPress: () => apply(p.text) },
-    ]);
-  };
-  if (PROMPT_PRESETS.length === 1) return pick(PROMPT_PRESETS[0]);
-  Alert.alert('使用预设', undefined, [
-    ...PROMPT_PRESETS.map((p) => ({ text: p.name, onPress: () => pick(p) })),
-    { text: '取消', style: 'cancel' as const },
+/** 恢复默认的系统提示词（「电脑管理」）；当前已有内容时先确认是否替换 */
+function restoreDefault(apply: (text: string) => void, current: string) {
+  const text = defaultPrompt('phone');
+  if (!current.trim()) return apply(text);
+  Alert.alert('恢复默认提示词？', '会替换当前填写的系统提示词。', [
+    { text: '取消', style: 'cancel' },
+    { text: '替换', onPress: () => apply(text) },
   ]);
 }
 

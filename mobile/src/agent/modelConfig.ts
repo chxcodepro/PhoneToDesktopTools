@@ -6,9 +6,11 @@ import * as SecureStore from 'expo-secure-store';
 import { loadJson, saveJson } from '@/state/storage';
 import { createStore, useStore } from '@/state/store';
 
-import { defaultContextWindow } from './contextWindow';
+import { resolveContextWindow } from './contextWindow';
 import { configProblem, type LlmConfig } from './llm';
 import { getPreset, MODEL_PRESETS, type PresetId } from './presets';
+import { defaultPrompt } from './promptPresets';
+import { effectiveReasoning, reasoningBody, type ReasoningLevel } from './reasoning';
 
 export interface PresetSettings {
   /** 选择的模型 */
@@ -20,12 +22,18 @@ export interface PresetSettings {
   supportsTools: boolean;
   /** 最近一次拉取的模型列表 */
   models: string[];
-  /** 用户指定的上下文长度（token）；不填时按模型名使用官方公布的默认值 */
+  /** 接口 /models 声明的各模型上下文长度（拉取模型列表时记下） */
+  windows?: Record<string, number>;
+  /** 用户指定的上下文长度（token）；不填时用接口声明的，再没有就按模型名取官方公布的值 */
   contextWindow?: number;
-  /** 深度思考（仅 DeepSeek）；不填时为开启（与接口默认一致） */
+  /** 旧版的深度思考开关（仅 DeepSeek），已改用 reasoning；关掉的按「关闭」处理 */
   thinking?: boolean;
+  /** 思考程度；不填用渠道默认（DeepSeek 为「高」，其他为模型默认） */
+  reasoning?: ReasoningLevel;
   /** 用户为这个渠道填写的系统提示词，加在内置提示词之后 */
   systemPrompt?: string;
+  /** 已经填过默认提示词（之后用户清空了也不再自动填） */
+  promptFilled?: boolean;
 }
 
 export interface ModelConfigState {
@@ -49,6 +57,8 @@ function defaults(): Record<PresetId, PresetSettings> {
       supportsVision: p.supportsVision,
       supportsTools: p.supportsTools,
       models: [],
+      systemPrompt: defaultPrompt('phone'),
+      promptFilled: true,
     };
   }
   return out;
@@ -68,9 +78,13 @@ export function initModelConfig(): Promise<void> {
     initPromise = (async () => {
       const saved = await loadJson<Partial<Pick<ModelConfigState, 'active' | 'presets'>>>(STORAGE_KEY, {});
       const presets = defaults();
+      let migrated = false;
       for (const p of MODEL_PRESETS) {
         const s = saved.presets?.[p.id];
         if (s) presets[p.id] = { ...presets[p.id], ...s };
+        // 老版本没有默认提示词：没填过的补上（只补一次）
+        if (s && !s.promptFilled) migrated = true;
+        if (s && !s.promptFilled) presets[p.id] = { ...presets[p.id], systemPrompt: s.systemPrompt?.trim() ? s.systemPrompt : defaultPrompt('phone'), promptFilled: true };
         // 预设的接口地址始终以代码中的预置值为准
         if (p.id !== 'custom') presets[p.id].baseUrl = p.baseUrl;
       }
@@ -85,6 +99,7 @@ export function initModelConfig(): Promise<void> {
         }),
       );
       modelConfigStore.set({ active: saved.active ?? 'openai', presets, hasKey, ready: true });
+      if (migrated) await persist();
     })();
   }
   return initPromise;
@@ -121,17 +136,13 @@ export async function getApiKey(id: PresetId): Promise<string> {
   }
 }
 
-/** 是否支持在输入框旁切换深度思考（DeepSeek 接口的 thinking 参数） */
-export function supportsThinkingToggle(id: PresetId): boolean {
-  return id === 'deepseek';
+/** 某个预设当前的思考程度；这个模型不能调时为 null */
+export function reasoningOf(id: PresetId, s: Pick<PresetSettings, 'model' | 'reasoning' | 'thinking'>): ReasoningLevel | null {
+  return effectiveReasoning(id, s.model, s.reasoning, s.thinking);
 }
 
-export function thinkingOn(s: Pick<PresetSettings, 'thinking'>): boolean {
-  return s.thinking !== false;
-}
-
-export function setThinking(on: boolean): Promise<void> {
-  return updatePreset(modelConfigStore.get().active, { thinking: on });
+export function setReasoning(level: ReasoningLevel): Promise<void> {
+  return updatePreset(modelConfigStore.get().active, { reasoning: level });
 }
 
 export interface ResolvedModel {
@@ -148,16 +159,17 @@ export interface ResolvedModel {
 }
 
 /** 某个预设实际使用的上下文长度 */
-export function contextWindowOf(s: Pick<PresetSettings, 'model' | 'contextWindow'>): number {
-  return s.contextWindow && s.contextWindow > 0 ? s.contextWindow : defaultContextWindow(s.model);
+export function contextWindowOf(s: Pick<PresetSettings, 'model' | 'contextWindow' | 'windows'>): number {
+  return resolveContextWindow(s.model, { custom: s.contextWindow, listed: s.windows });
 }
 
 /** 当前使用的模型（含 API Key） */
 export async function resolveActiveModel(id = modelConfigStore.get().active): Promise<ResolvedModel> {
   const s = modelConfigStore.get().presets[id];
   const llm: LlmConfig = { baseUrl: s.baseUrl.trim(), apiKey: await getApiKey(id), model: s.model.trim() };
-  // DeepSeek：https://api-docs.deepseek.com/guides/thinking_mode/ ，{"thinking": {"type": "enabled" | "disabled"}}
-  if (supportsThinkingToggle(id)) llm.extraBody = { thinking: { type: thinkingOn(s) ? 'enabled' : 'disabled' } };
+  // 思考程度（见 reasoning.ts）
+  const extra = reasoningBody(id, reasoningOf(id, s));
+  if (extra) llm.extraBody = extra;
   const label = id === 'custom' ? s.name || '自定义' : getPreset(id).label;
   return {
     llm,

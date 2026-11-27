@@ -6,8 +6,9 @@ import { after, describe, it } from 'node:test';
 
 import { SCREENSHOT_MARKER } from '../src/agent/agent';
 import { canCompress, compressHistory, isContextOverflow, SUMMARY_PREFIX, transcript } from '../src/agent/compress';
-import { defaultContextWindow, formatWindow } from '../src/agent/contextWindow';
+import { defaultContextWindow, formatWindow, resolveContextWindow } from '../src/agent/contextWindow';
 import type { ChatMessage, FetchLike } from '../src/agent/llm';
+import { effectiveReasoning, reasoningBody, reasoningOptions } from '../src/agent/reasoning';
 
 const nodeFetch = fetch as unknown as FetchLike;
 
@@ -98,7 +99,12 @@ describe('compress', () => {
 
 describe('context window', () => {
   it('按模型名给出官方上下文长度', () => {
-    assert.equal(defaultContextWindow('deepseek-chat'), 128_000);
+    // DeepSeek 官方接口 V4 起都是 1M（/models 声明 1,048,576）；本机部署的老模型仍按 128K
+    assert.equal(defaultContextWindow('deepseek-chat'), 1_048_576);
+    assert.equal(defaultContextWindow('deepseek-v4-flash'), 1_048_576);
+    assert.equal(defaultContextWindow('deepseek-r1:14b'), 128_000);
+    assert.equal(defaultContextWindow('gpt-5.5'), 1_050_000);
+    assert.equal(defaultContextWindow('claude-sonnet-4-6'), 1_000_000);
     assert.equal(defaultContextWindow('gpt-4o-mini'), 128_000);
     assert.equal(defaultContextWindow('gpt-4.1'), 1_047_576);
     assert.equal(defaultContextWindow('gpt-5-mini'), 400_000);
@@ -108,5 +114,30 @@ describe('context window', () => {
     assert.equal(defaultContextWindow('some-unknown-model'), 128_000);
     assert.equal(formatWindow(128_000), '128K');
     assert.equal(formatWindow(1_000_000), '1M');
+    assert.equal(formatWindow(1_048_576), '1M');
+    assert.equal(formatWindow(1_050_000), '1M');
+  });
+
+  it('用户填的 > 接口声明的 > 按模型名推断的', () => {
+    assert.equal(resolveContextWindow('my-model', { listed: { 'my-model': 262_144 } }), 262_144);
+    assert.equal(resolveContextWindow('my-model', { custom: 64_000, listed: { 'my-model': 262_144 } }), 64_000);
+    assert.equal(resolveContextWindow('gpt-4o', {}), 128_000);
+  });
+});
+
+describe('reasoning', () => {
+  it('DeepSeek 四档，默认高；旧版关掉深度思考的按关闭', () => {
+    assert.deepEqual(reasoningOptions('deepseek', 'deepseek-v4-flash').map((o) => o.id), ['off', 'low', 'high', 'max']);
+    assert.equal(effectiveReasoning('deepseek', 'deepseek-v4-flash', undefined), 'high');
+    assert.equal(effectiveReasoning('deepseek', 'deepseek-v4-flash', undefined, false), 'off');
+    assert.deepEqual(reasoningBody('deepseek', 'max'), { thinking: { type: 'enabled' }, reasoning_effort: 'max' });
+    assert.deepEqual(reasoningBody('deepseek', 'off'), { thinking: { type: 'disabled' } });
+  });
+  it('OpenAI 只有推理模型能调；默认不传参数', () => {
+    assert.equal(reasoningOptions('openai', 'gpt-4o').length, 0);
+    assert.equal(effectiveReasoning('openai', 'gpt-4o', 'high'), null);
+    assert.equal(effectiveReasoning('openai', 'gpt-5.5', 'max'), 'default');
+    assert.equal(reasoningBody('openai', 'default'), undefined);
+    assert.deepEqual(reasoningBody('custom', 'medium'), { reasoning_effort: 'medium' });
   });
 });

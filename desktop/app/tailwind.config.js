@@ -1,5 +1,6 @@
 /** @type {import('tailwindcss').Config} */
-// shadcn/ui 风格，颜色使用 HSL 变量（不用 oklch，兼容 Chromium 108）
+// shadcn/ui 风格，颜色使用 HSL 变量（不用 oklch，兼容 Chromium 108）。
+// 深色模式按 prefers-color-scheme（Tailwind 默认的 media），主进程用 nativeTheme.themeSource 控制跟随系统 / 浅色 / 深色
 module.exports = {
   content: ['./src/renderer/**/*.{html,ts,tsx}'],
   theme: {
@@ -16,6 +17,9 @@ module.exports = {
         card: { DEFAULT: 'hsl(var(--card) / <alpha-value>)', foreground: 'hsl(var(--card-foreground) / <alpha-value>)' },
         success: { DEFAULT: 'hsl(var(--success) / <alpha-value>)', foreground: 'hsl(var(--success-foreground) / <alpha-value>)' },
         warning: { DEFAULT: 'hsl(var(--warning) / <alpha-value>)', foreground: 'hsl(var(--warning-foreground) / <alpha-value>)' },
+        // 助手界面：侧栏和浅底卡片、用户消息气泡
+        subtle: 'hsl(var(--subtle) / <alpha-value>)',
+        bubble: 'hsl(var(--bubble) / <alpha-value>)',
       },
       borderRadius: {
         lg: 'var(--radius)',

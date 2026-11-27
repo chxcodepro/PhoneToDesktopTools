@@ -29,7 +29,8 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Icon } from '@/components/ui/icon';
 import { Text } from '@/components/ui/text';
 import { compressContext, initConversations, send, stop, useConversation } from '@/agent/conversations';
-import { contextWindowOf, initModelConfig, setThinking, supportsThinkingToggle, thinkingOn, useModelConfig } from '@/agent/modelConfig';
+import { contextWindowOf, initModelConfig, reasoningOf, setReasoning, useModelConfig } from '@/agent/modelConfig';
+import { reasoningOptions } from '@/agent/reasoning';
 import { cn } from '@/lib/utils';
 import { configProblem } from '@/agent/llm';
 import { useConnection } from '@/state/connection';
@@ -267,8 +268,9 @@ export default function AgentScreen() {
           }}
           onStop={stop}
           onError={setPickError}
-          thinking={supportsThinkingToggle(modelCfg.active) ? thinkingOn(active) : null}
-          onToggleThinking={() => void setThinking(!thinkingOn(active))}
+          reasoning={reasoningOf(modelCfg.active, active)}
+          reasoningOptions={reasoningOptions(modelCfg.active, active.model)}
+          onReasoning={(l) => void setReasoning(l)}
           draft={ui.draft}
           accessory={
             <ContextRing

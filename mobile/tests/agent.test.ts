@@ -162,6 +162,24 @@ describe('llm', () => {
     assert.equal(r.stats.estimated, true);
   });
 
+  it('模型不认这个思考程度时（DeepSeek 回 422）去掉 reasoning_effort 重试，thinking 保留', async () => {
+    const s = await startFakeLlm((body) =>
+      body.reasoning_effort
+        ? { kind: 'error', status: 422, message: 'reasoning_effort: unknown variant `xyz`, expected one of `low`, `high`, `max`' }
+        : { kind: 'text', text: '好' },
+    );
+    servers.push(s);
+    const r = await chat(
+      { baseUrl: s.baseUrl, apiKey: 'k', model: 'm', extraBody: { thinking: { type: 'enabled' }, reasoning_effort: 'xyz' } },
+      [{ role: 'user', content: 'hi' }],
+      nodeFetch,
+    );
+    assert.equal(r.message.content, '好');
+    assert.equal(s.requests.length, 2);
+    assert.equal(s.requests[1].reasoning_effort, undefined);
+    assert.deepEqual(s.requests[1].thinking, { type: 'enabled' });
+  });
+
   it('网络层失败时给出中文提示；用户取消时原样抛出', async () => {
     const noNetwork: FetchLike = async () => {
       throw new Error('java.net.UnknownHostException: Unable to resolve host "api.deepseek.com": No address associated with hostname');

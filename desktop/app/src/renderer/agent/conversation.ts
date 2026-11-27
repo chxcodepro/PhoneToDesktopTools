@@ -57,11 +57,21 @@ export type UiItem =
   | { kind: 'notice'; id: string; text: string; tone: 'info' | 'error' }
   | ChoiceItem;
 
+/** 最近一次请求模型的统计（输入框里的上下文圆环点开显示，和手机端一样） */
 export interface TurnStats {
   model: string;
+  /** 上下文长度：本次请求的输入 + 输出 token */
   contextTokens: number;
   contextWindow: number;
+  promptTokens?: number;
+  cachedTokens?: number;
+  /** 输出 token（含思考过程） */
+  completionTokens?: number;
+  /** 首个 token 的等待时间 */
+  ttftMs?: number;
   tokensPerSec: number | null;
+  /** 接口没返回用量，按字数估算的 */
+  estimated?: boolean;
 }
 
 export interface ConversationMeta {
@@ -76,6 +86,7 @@ interface Saved {
   items: UiItem[];
   history: ChatMessage[];
   stats: TurnStats | null;
+  totalTokens?: number;
 }
 
 export interface ConversationState {
@@ -87,14 +98,16 @@ export interface ConversationState {
   running: boolean;
   modelLabel: string;
   stats: TurnStats | null;
+  /** 这个对话累计用掉的 token（输入 + 输出） */
+  totalTokens: number;
   /** 下载进度等实时提示（显示在输入框上方） */
   progress: string | null;
   ready: boolean;
 }
 
 const MAX_CONVERSATIONS = 100;
-/** 上下文用到上限的这个比例时，发送前自动压缩 */
-const AUTO_COMPRESS_RATIO = 0.75;
+/** 上下文用到上限的这个比例时，发送前自动压缩（和手机端一样） */
+export const AUTO_COMPRESS_RATIO = 0.75;
 
 export const convStore = createStore<ConversationState>({
   list: [],
@@ -105,6 +118,7 @@ export const convStore = createStore<ConversationState>({
   running: false,
   modelLabel: '',
   stats: null,
+  totalTokens: 0,
   progress: null,
   ready: false,
 });
@@ -140,7 +154,7 @@ async function save(): Promise<void> {
   const dropped = list.slice(MAX_CONVERSATIONS);
   list = list.slice(0, MAX_CONVERSATIONS);
   convStore.set({ list });
-  const data: Saved = { id: s.currentId, title: meta.title, items: s.items, history: s.history, stats: s.stats };
+  const data: Saved = { id: s.currentId, title: meta.title, items: s.items, history: s.history, stats: s.stats, totalTokens: s.totalTokens };
   try {
     await window.p2d.agent.convSave(s.currentId, data, list);
     for (const d of dropped) await window.p2d.agent.convRemove(d.id, list);
@@ -151,7 +165,7 @@ async function save(): Promise<void> {
 
 export function newConversation(): void {
   if (convStore.get().running) return;
-  convStore.set({ currentId: null, title: '', items: [], history: [], stats: null, progress: null });
+  convStore.set({ currentId: null, title: '', items: [], history: [], stats: null, totalTokens: 0, progress: null });
 }
 
 export async function openConversation(id: string): Promise<void> {
@@ -163,7 +177,7 @@ export async function openConversation(id: string): Promise<void> {
     await window.p2d.agent.convRemove(id, list);
     return;
   }
-  convStore.set({ currentId: d.id, title: d.title, items: d.items ?? [], history: d.history ?? [], stats: d.stats ?? null, progress: null });
+  convStore.set({ currentId: d.id, title: d.title, items: d.items ?? [], history: d.history ?? [], stats: d.stats ?? null, totalTokens: d.totalTokens ?? 0, progress: null });
 }
 
 export async function removeConversation(id: string): Promise<void> {
@@ -424,7 +438,17 @@ function notice(text: string, tone: 'info' | 'error' = 'info'): void {
 }
 
 function toStats(model: string, contextWindow: number, st: UsageStats): TurnStats {
-  return { model, contextWindow, contextTokens: st.promptTokens + st.completionTokens, tokensPerSec: st.tokensPerSec };
+  return {
+    model,
+    contextWindow,
+    contextTokens: st.promptTokens + st.completionTokens,
+    promptTokens: st.promptTokens,
+    cachedTokens: st.cachedTokens,
+    completionTokens: st.completionTokens,
+    ttftMs: st.ttftMs,
+    tokensPerSec: st.tokensPerSec,
+    estimated: st.estimated,
+  };
 }
 
 async function compressCurrent(model: ResolvedModel, signal: AbortSignal, reason: string, keepTurns = 2): Promise<boolean> {
@@ -556,7 +580,10 @@ async function runTurn(model: ResolvedModel, makeUser: (m: ResolvedModel) => Cha
           }),
         onEvent: (e) => {
           if (e.type === 'usage') {
-            convStore.set({ stats: toStats(model.llm.model, model.contextWindow, e.stats) });
+            convStore.set((st) => ({
+              stats: toStats(model.llm.model, model.contextWindow, e.stats),
+              totalTokens: st.totalTokens + e.stats.promptTokens + e.stats.completionTokens,
+            }));
             return;
           }
           if (e.type === 'tool_start' && OPERATING.has(e.name) && !operating) {
