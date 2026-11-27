@@ -1,7 +1,7 @@
 {
   "name": "p2d-desktop",
   "productName": "P2D",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "P2D 电脑端（被控端）",
   "author": "P2D",
   "private": true,
