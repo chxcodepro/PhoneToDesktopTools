@@ -1,5 +1,5 @@
 // Agent 页左侧抽屉：点击左上角三条杠按钮或在对话区向右滑出。
-// 上面是入口卡片（模型、虚拟桌面、扩展），中间是按日期分组的历史对话，底部是搜索框。
+// 上面是入口卡片（模型、设备、虚拟桌面、定时任务、扩展、设置），中间是按日期分组的历史对话，底部是搜索框。
 // 从抽屉进入其他页面时抽屉保持打开，返回时还在。
 
 import { router, useIsFocused, type Href } from 'expo-router';
@@ -12,6 +12,7 @@ import {
   MoreHorizontal,
   Puzzle,
   Search,
+  Settings,
   SquarePen,
   Trash2,
   X,
@@ -230,7 +231,7 @@ export function ConversationDrawer({ open, ctl }: { open: boolean; ctl: DrawerCo
                   {activeModel || '未配置'}
                 </Text>
               }
-              onPress={() => go('/settings')}
+              onPress={() => go('/model')}
             />
             <EntryRow
               icon={Laptop}
@@ -252,7 +253,8 @@ export function ConversationDrawer({ open, ctl }: { open: boolean; ctl: DrawerCo
               value={enabledCount ? <Text className="text-sm text-muted-foreground">{`${enabledCount} 个启用`}</Text> : undefined}
               onPress={() => go('/schedules')}
             />
-            <EntryRow icon={Puzzle} label="扩展" onPress={() => go('/extensions')} last />
+            <EntryRow icon={Puzzle} label="扩展" onPress={() => go('/extensions')} />
+            <EntryRow icon={Settings} label="设置" onPress={() => go('/settings')} last />
           </View>
 
           {/* 历史对话 */}

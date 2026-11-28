@@ -10,6 +10,7 @@ export default function MainLayout() {
       <Stack.Screen name="remote" />
       <Stack.Screen name="extensions" />
       <Stack.Screen name="settings" />
+      <Stack.Screen name="model" />
       <Stack.Screen name="schedules" />
       <Stack.Screen name="devices" />
       <Stack.Screen name="about" />

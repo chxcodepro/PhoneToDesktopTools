@@ -194,7 +194,7 @@ export default function AgentScreen() {
               <Card>
                 <CardContent className="items-center gap-3 py-6">
                   <Text className="font-semibold">先配置大模型</Text>
-                  <Button onPress={() => router.push('/settings')}>
+                  <Button onPress={() => router.push('/model')}>
                     <Icon as={Settings2} size={16} className="text-primary-foreground" />
                     <Text>去设置</Text>
                   </Button>

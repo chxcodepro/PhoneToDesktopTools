@@ -7,7 +7,7 @@ import { ActivityIndicator, Alert, Pressable, ScrollView, TextInput, View } from
 
 import { ModelPicker } from '@/components/model-picker';
 import { Button } from '@/components/ui/button';
-import { Card, GroupTitle, Separator } from '@/components/ui/card';
+import { Card, Separator } from '@/components/ui/card';
 import { Icon } from '@/components/ui/icon';
 import { Input } from '@/components/ui/input';
 import { Segmented } from '@/components/ui/segmented';
@@ -49,7 +49,6 @@ export function ModelSettings() {
   }, []);
   return (
     <View className="gap-3">
-      <GroupTitle className="mt-2">模型</GroupTitle>
       <Segmented value={cfg.active} options={PRESET_OPTIONS} onChange={(v) => void setActivePreset(v)} />
       {/* 切换预设时用 key 重建表单，清空临时输入和测试结果 */}
       <PresetForm key={cfg.active} />

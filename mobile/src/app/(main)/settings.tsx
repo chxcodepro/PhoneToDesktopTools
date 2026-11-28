@@ -1,13 +1,12 @@
-// 设置页：设备（进入设备列表）、打开 App 时自动连接、电脑权限（只在手机上设置）、模型预设、关于（进入关于页：版本、检查更新、导出日志、项目主页）。
+// 设置页：设备（进入设备列表）、模型（进入模型页）、打开 App 时自动连接、电脑权限（只在手机上设置）、关于（进入关于页：版本、检查更新、导出日志、项目主页）。
 
 import { router } from 'expo-router';
 import type { LucideIcon } from 'lucide-react-native';
-import { ChevronRight, FileText, Info, Monitor, MousePointer2, ScanLine, Terminal } from 'lucide-react-native';
+import { ChevronRight, Cpu, FileText, Info, Monitor, MousePointer2, ScanLine, Terminal } from 'lucide-react-native';
 import { Pressable, View } from 'react-native';
 
 import { BackgroundCard } from '@/components/devices/background-card';
 import { statusLabel, StatusDot } from '@/components/connection-status';
-import { ModelSettings } from '@/components/model-settings';
 import { Screen } from '@/components/screen';
 import { Card, GroupTitle, Separator } from '@/components/ui/card';
 import { Icon } from '@/components/ui/icon';
@@ -15,6 +14,7 @@ import { Segmented } from '@/components/ui/segmented';
 import { Switch } from '@/components/ui/switch';
 import { Text } from '@/components/ui/text';
 import { appVersion } from '@/lib/applog';
+import { useModelConfig } from '@/agent/modelConfig';
 import type { PermissionLevel, Permissions } from '@/protocol/types';
 import { osLabel, updatePermissions, useConnection } from '@/state/connection';
 import { setAutoConnect, useDevices } from '@/state/devices';
@@ -35,6 +35,8 @@ const SWITCHES: { key: keyof Omit<Permissions, 'level'>; label: string; icon: Lu
 export default function SettingsScreen() {
   const { status, params, permissions, detail, route } = useConnection();
   const { autoConnect } = useDevices();
+  const model = useModelConfig();
+  const activeModel = model.presets[model.active]?.model;
   return (
     <Screen title="设置">
       {/* 设备：点一下进入设备列表 */}
@@ -51,6 +53,22 @@ export default function SettingsScreen() {
                 {params ? `${params.host} · ${osLabel(params.os)} · ${statusLabel(status, detail, route)}` : statusLabel(status, detail, route)}
               </Text>
             </View>
+          </View>
+          <Icon as={ChevronRight} size={18} className="text-muted-foreground" />
+        </Card>
+      </Pressable>
+
+      {/* 模型：点一下进入模型页 */}
+      <Pressable onPress={() => router.push('/model')} className="active:opacity-70">
+        <Card className="flex-row items-center gap-3 p-3">
+          <View className="h-9 w-9 items-center justify-center rounded-md bg-primary/10">
+            <Icon as={Cpu} size={18} className="text-primary" />
+          </View>
+          <View className="flex-1">
+            <Text className="font-semibold">模型</Text>
+            <Text numberOfLines={1} className="text-xs text-muted-foreground">
+              {activeModel || '未配置，点这里填写 API Key 和模型'}
+            </Text>
           </View>
           <Icon as={ChevronRight} size={18} className="text-muted-foreground" />
         </Card>
@@ -88,8 +106,6 @@ export default function SettingsScreen() {
           </View>
         ))}
       </Card>
-
-      <ModelSettings />
 
       {/* 关于：版本、检查更新、导出日志、项目主页（和上面「设备」一样做成可点的卡片） */}
       <Pressable onPress={() => router.push('/about')} className="mt-2 active:opacity-70">
